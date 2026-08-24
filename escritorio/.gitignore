@@ -1,0 +1,13 @@
+# Lo que genera el empaquetado
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# El icono se regenera con recursos/hacer_icono.py, pero se versiona para que
+# empaquetar funcione sin pasos previos.
+!recursos/icono.ico
