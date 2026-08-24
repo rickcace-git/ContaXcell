@@ -142,6 +142,27 @@ Cada persona lleva su propia contabilidad en su ordenador. Nadie ve la de
 nadie. Para dar una versión nueva basta con sustituir la carpeta: los datos
 están en otro sitio y no se tocan.
 
+## La cuenta y la sincronización
+
+La aplicación puede trabajar contra un servidor propio (el de `server/`, que
+se levanta con Docker y guarda los libros en PostgreSQL). Al abrirla por
+primera vez pide crear una cuenta o entrar; a partir de ahí abre directa,
+haya internet o no.
+
+El funcionamiento sigue siendo el de siempre: **todo se guarda primero en tu
+disco**, en `datos.json`, y un hilo aparte lo sube a tu cuenta cuando hay
+conexión. Sin internet no cambia nada: se apunta que queda algo pendiente
+(sobrevive a cerrar la aplicación) y se sube solo en cuanto vuelve la
+conexión. Al entrar desde otro ordenador, se descarga el libro de la cuenta.
+
+Si dos ordenadores suben a la vez, gana el último en subir, pero lo del otro
+no se pierde: queda una copia fechada en `copias\`. Cerrar sesión está en
+**Ajustes → Tu cuenta**. Con la variable de entorno `CONTAXCELL_SIN_CUENTA=1`
+la aplicación funciona como antes, todo en local y sin cuenta.
+
+Cómo levantar el servidor (en local o en una instancia EC2) está contado en
+`server/LEEME.md`.
+
 ## Tema claro y oscuro
 
 Sigue al sistema por defecto, y se puede fijar desde **Ajustes** o con el botón
@@ -160,6 +181,8 @@ ContaXcell/
 │   │   ├── modelo.py          qué es un movimiento, una categoría, un activo…
 │   │   ├── calculos.py        toda la aritmética. No sabe que existe una ventana
 │   │   ├── almacen.py         leer y guardar en disco, copias de seguridad
+│   │   ├── sincronia.py       subir y bajar el libro del servidor, sin tocar la ventana
+│   │   ├── acceso.py          la puerta de entrada: crear cuenta y entrar
 │   │   ├── excel.py           importar y exportar .xlsx
 │   │   ├── tema.py            colores y estilos, claro y oscuro
 │   │   ├── formato.py         cómo se enseñan cifras y fechas; el botón del ojo
@@ -170,6 +193,10 @@ ContaXcell/
 │   ├── pruebas/
 │   └── recursos/
 │       └── hacer_icono.py     dibuja el icono sin librerías de imágenes
+├── server/                    el servidor de cuentas y sincronización (Docker)
+│   ├── contaserver/           la API: cuentas, fichas de sesión y libros
+│   ├── docker-compose.yml     la API y su PostgreSQL, listos para EC2
+│   └── LEEME.md               cómo levantarlo y desplegarlo
 ├── app/                       versión anterior para el móvil (Google Apps Script)
 └── capturas/
 ```

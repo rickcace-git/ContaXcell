@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
+
+# Mirar pantallas no necesita cuenta ni servidor: todo local.
+os.environ["CONTAXCELL_SIN_CUENTA"] = "1"
 
 from contaxcell import almacen, excel, ventana  # noqa: E402
 

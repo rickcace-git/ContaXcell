@@ -24,6 +24,8 @@ class VistaAjustes:
         self._banco(raiz)
         self._categorias(raiz)
         self._abajo(raiz)
+        if app.sincronia is not None:
+            self._cuenta(raiz)
 
     # --- el banco ---------------------------------------------------------
 
@@ -272,6 +274,67 @@ class VistaAjustes:
         ttk.Label(tarjeta.cuerpo, text=f"ContaXcell {VERSION}",
                   style="Tarjeta.Suave.TLabel").pack(anchor="w", pady=(8, 0))
 
+    # --- la cuenta ---------------------------------------------------------
+
+    def _cuenta(self, padre) -> None:
+        tarjeta = widgets.Tarjeta(padre, "Tu cuenta")
+        tarjeta.pack(fill="x", pady=(16, 0))
+
+        self.etiqueta_cuenta = ttk.Label(tarjeta.cuerpo, style="Tarjeta.TLabel",
+                                         justify="left", wraplength=820)
+        self.etiqueta_cuenta.pack(anchor="w")
+        self.etiqueta_sincronia = ttk.Label(tarjeta.cuerpo, style="Tarjeta.Suave.TLabel",
+                                            justify="left", wraplength=820)
+        self.etiqueta_sincronia.pack(anchor="w", pady=(4, 0))
+
+        botones = ttk.Frame(tarjeta.cuerpo, style="Tarjeta.TFrame")
+        botones.pack(fill="x", pady=(10, 0))
+        self.boton_reentrar = ttk.Button(botones, text="Entrar de nuevo",
+                                         command=self.entrar_de_nuevo)
+        ttk.Button(botones, text="Cerrar sesión", style="Peligro.TButton",
+                   command=self.cerrar_sesion).pack(side="left")
+
+        ttk.Label(tarjeta.cuerpo, style="Tarjeta.Suave.TLabel", justify="left",
+                  wraplength=820,
+                  text="La contabilidad se guarda primero en este ordenador, como "
+                       "siempre, y después se sube sola a tu cuenta cuando hay "
+                       "conexión. Sin internet todo sigue funcionando igual; lo que "
+                       "cambies se sube al volver.").pack(anchor="w", pady=(10, 0))
+
+    def _refrescar_cuenta(self) -> None:
+        sincronia = self.app.sincronia
+        if sincronia is None or not hasattr(self, "etiqueta_cuenta"):
+            return
+        if sincronia.hay_sesion():
+            self.etiqueta_cuenta.configure(
+                text=f"Conectado como «{sincronia.sesion['usuario']}» "
+                     f"en {sincronia.sesion['servidor']}")
+        else:
+            self.etiqueta_cuenta.configure(text="Sin cuenta en este ordenador.")
+        self.etiqueta_sincronia.configure(text=sincronia.estado_actual())
+        if sincronia.caducada:
+            if not self.boton_reentrar.winfo_ismapped():
+                self.boton_reentrar.pack(side="left", padx=(8, 0))
+        elif self.boton_reentrar.winfo_ismapped():
+            self.boton_reentrar.pack_forget()
+
+    def entrar_de_nuevo(self) -> None:
+        """El token caducó: se vuelve a pedir la cuenta sin cerrar nada. Lo
+        pendiente sigue apuntado y se sube en cuanto se entra."""
+        from .. import acceso
+        resultado = acceso.pedir_cuenta(self.app.sincronia, padre=self.app)
+        if resultado == acceso.DENTRO:
+            self.app.estado("Ya estás dentro. Lo pendiente se sube ahora.", "bien")
+        self._refrescar_cuenta()
+
+    def cerrar_sesion(self) -> None:
+        if not dialogos.confirmar(
+                self.app, "¿Cerrar la sesión en este ordenador?",
+                "Tus datos se quedan aquí y en el servidor tal como están. La "
+                "aplicación se cerrará y al volver a abrirla pedirá una cuenta."):
+            return
+        self.app.cerrar_sesion()
+
     # --- archivos ---------------------------------------------------------
 
     def importar_excel(self) -> None:
@@ -354,6 +417,7 @@ class VistaAjustes:
 
         self.app.libro = self.app.almacen.libro
         formato.ocultar_importes(self.app.libro.ajustes.ocultar_importes)
+        self.app._apuntar_para_subir()
         self.app.ensuciar()
         self.app.refrescar()
         self.app.estado("Copia restaurada.", "bien")
@@ -390,6 +454,8 @@ class VistaAjustes:
         for valor, boton in self.botones_tema.items():
             boton.configure(style="Principal.TButton" if valor == libro.ajustes.tema
                             else "TButton")
+
+        self._refrescar_cuenta()
 
     def al_entrar(self) -> None:
         self.desplazable.arriba()
