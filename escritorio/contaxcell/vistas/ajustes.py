@@ -378,12 +378,15 @@ class VistaAjustes:
             return
 
         try:
-            excel.exportar(ruta, self.app.libro, anio)
+            _, avisos = excel.exportar(ruta, self.app.libro, anio)
         except OSError as error:
             dialogos.error(self.app, "No se ha podido guardar el Excel",
                            f"{error}\n\n¿Lo tienes abierto en Excel ahora mismo?")
             return
         self.app.estado(f"Guardado en {ruta}", "bien")
+        if avisos:
+            dialogos.avisar(self.app, "Exportado, con algún detalle",
+                            "\n\n".join(avisos))
 
     def guardar_copia(self) -> None:
         destino = self.app.almacen.copia_de_seguridad("manual")

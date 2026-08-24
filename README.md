@@ -113,9 +113,12 @@ Antes de importar o restaurar siempre se hace una copia automática. Si el
 archivo llegara a estropearse, la aplicación lo aparta en vez de sobrescribirlo
 y avisa al abrir.
 
-**Exportar a Excel** genera un `.xlsx` con las cuatro hojas de siempre y con
-los valores ya calculados, no con fórmulas. Ese archivo se puede volver a
-importar sin perder nada: es la vía de escape si algún día quieres irte.
+**Exportar a Excel** genera la plantilla original de siempre, rellena con tus
+datos: las cuatro hojas con sus fórmulas vivas, sus textos y sus colores, lista
+para seguir usándola en Excel o en Google Sheets. Si tienes más movimientos o
+categorías de los que la plantilla traía, las tablas crecen y las fórmulas se
+ajustan solas. Ese archivo se puede volver a importar sin perder nada: es la
+vía de escape si algún día quieres irte.
 
 ## Hacer el ejecutable para repartir
 

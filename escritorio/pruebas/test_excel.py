@@ -19,7 +19,8 @@ sys.path.insert(0, str(RAIZ))
 from contaxcell import calculos, excel  # noqa: E402
 from contaxcell.almacen import Almacen  # noqa: E402
 from contaxcell.modelo import (  # noqa: E402
-    GASTO, INGRESO, INVERSION, Activo, AportacionGratis, Libro, Movimiento, Valoracion,
+    GASTO, INGRESO, INVERSION,
+    Activo, AportacionGratis, Categoria, Libro, Movimiento, Valoracion,
 )
 
 # Los libros de ejemplo están en la carpeta de arriba, junto a la aplicación
@@ -28,6 +29,7 @@ from contaxcell.modelo import (  # noqa: E402
 LIBROS = [RAIZ.parent / "PlantillaContabilidad.xlsx",
           RAIZ.parent / "ContabilidadRicardo.xlsx"]
 DISPONIBLES = [p for p in LIBROS if p.exists()]
+PLANTILLA = RAIZ.parent / "PlantillaContabilidad.xlsx"
 
 
 def retrato(libro: Libro) -> tuple:
@@ -203,6 +205,169 @@ class PruebasImportacionDificil(unittest.TestCase):
         self.assertEqual(excel._a_numero(" 40 € "), 40.0)
         self.assertEqual(excel._a_numero(None), 0.0)
         self.assertEqual(excel._a_numero("nada"), 0.0)
+
+
+class PruebasExportacionSobreLaPlantilla(unittest.TestCase):
+    """La exportación ya no fabrica una hoja: rellena la plantilla original.
+
+    La prueba reina es la de identidad: importar la plantilla y exportarla
+    tiene que devolver un archivo idéntico celda a celda, fórmulas incluidas.
+    """
+
+    def setUp(self):
+        self.carpeta = Path(tempfile.mkdtemp(prefix="contaxcell-plantilla-"))
+
+    @unittest.skipUnless(PLANTILLA.exists(), "no está la plantilla al lado")
+    def test_exportar_la_plantilla_la_reproduce_identica(self):
+        from openpyxl import load_workbook
+
+        libro, _ = excel.importar(PLANTILLA)
+        destino = self.carpeta / "identica.xlsx"
+        excel.exportar(destino, libro, 2026)
+
+        original = load_workbook(PLANTILLA)
+        copia = load_workbook(destino)
+        self.assertEqual(original.sheetnames, copia.sheetnames)
+        for nombre in original.sheetnames:
+            hoja_a, hoja_b = original[nombre], copia[nombre]
+            self.assertEqual(
+                sorted(str(r) for r in hoja_a.merged_cells.ranges),
+                sorted(str(r) for r in hoja_b.merged_cells.ranges),
+                f"celdas combinadas de {nombre}")
+            self.assertEqual(
+                {c: d.width for c, d in hoja_a.column_dimensions.items()},
+                {c: d.width for c, d in hoja_b.column_dimensions.items()},
+                f"anchos de columna de {nombre}")
+            for fila in range(1, max(hoja_a.max_row, hoja_b.max_row) + 1):
+                for columna in range(1, max(hoja_a.max_column, hoja_b.max_column) + 1):
+                    celda_a = hoja_a.cell(row=fila, column=columna)
+                    celda_b = hoja_b.cell(row=fila, column=columna)
+                    donde = f"{nombre}!{celda_a.coordinate}"
+                    self.assertEqual(celda_a.value, celda_b.value, donde)
+                    self.assertEqual(celda_a.number_format, celda_b.number_format, donde)
+
+    def _libro_grande(self) -> Libro:
+        """Más de todo de lo que la plantilla trae de fábrica: 600 movimientos,
+        12 categorías, 12 activos, 70 aportaciones gratis y 40 valoraciones."""
+        libro = Libro()
+        libro.ajustes.saldo_inicial = 5000.0
+        libro.ajustes.objetivo_inversion = 200.0
+        libro.categorias = [Categoria(nombre="Sueldo", tipo=INGRESO)]
+        libro.categorias += [
+            Categoria(nombre=f"Gasto {n:02d}", tipo=GASTO, presupuesto=float(10 * n))
+            for n in range(1, 11)
+        ]
+        libro.categorias.append(Categoria(nombre="Inversión", tipo=INVERSION))
+        libro.activos = [
+            Activo(nombre=f"Activo {n:02d}", aportacion_inicial=float(n),
+                   valor_mercado=float(100 + n), ultima_valoracion="2026-12-31")
+            for n in range(1, 13)
+        ]
+        for i in range(600):
+            categoria = libro.categorias[i % len(libro.categorias)]
+            libro.movimientos.append(Movimiento(
+                fecha=f"2026-{i // 50 + 1:02d}-{i % 28 + 1:02d}",
+                descripcion=f"Apunte {i:03d}",
+                categoria=categoria.nombre,
+                importe=float(10 + i % 90),
+                activo="Activo 01" if categoria.tipo == INVERSION else "",
+            ))
+        libro.aportaciones_gratis = [
+            AportacionGratis(fecha=f"2026-{i % 12 + 1:02d}-15",
+                             activo=f"Activo {i % 12 + 1:02d}",
+                             concepto=f"Cashback {i:02d}", importe=1.0 + i)
+            for i in range(70)
+        ]
+        libro.historico = [
+            Valoracion(fecha=f"2026-{i % 12 + 1:02d}-{i // 12 + 1:02d}",
+                       valor_mercado=1000.0 + i)
+            for i in range(40)
+        ]
+        return libro
+
+    @unittest.skipUnless(PLANTILLA.exists(), "no está la plantilla al lado")
+    def test_las_regiones_crecen_cuando_el_libro_no_cabe(self):
+        from openpyxl import load_workbook
+
+        original = self._libro_grande()
+        destino = self.carpeta / "grande.xlsx"
+        _, avisos = excel.exportar(destino, original, 2026)
+        self.assertEqual(avisos, [])
+
+        cuaderno = load_workbook(destino)
+        movimientos = cuaderno["Movimientos"]
+
+        # El panel tiene las doce categorías, con la de Inversión la última.
+        nombres = [movimientos.cell(row=f, column=10).value for f in range(6, 18)]
+        self.assertEqual(nombres[0], "Sueldo")
+        self.assertEqual(nombres[-1], "Inversión")
+        self.assertEqual(len([n for n in nombres if n]), 12)
+
+        # Las fórmulas abarcan las 600 filas nuevas y señalan a la categoría
+        # de Inversión en su fila nueva, no en la de fábrica.
+        self.assertIn("$E$2:$E$601", movimientos["L6"].value)
+        self.assertEqual(movimientos["L19"].value,
+                         '=SUMIF($K$6:$K$17,"Ingreso",L$6:L$17)')
+        self.assertIn('"<>"&Movimientos!$J$17', cuaderno["Resumen"]["C4"].value)
+        self.assertEqual(cuaderno["Inversiones"]["D6"].value,
+                         '=IF($A6="","",SUMIFS($D$39:$D$108,$B$39:$B$108,$A6))')
+
+        # Y en todo el libro no queda ni un límite viejo. (El $J$14 de
+        # fábrica no se puede buscar a ciegas: con el panel crecido esa fila
+        # es una categoría normal y aparecer, aparece.)
+        rancios = ("$501", "$96")
+        for nombre in cuaderno.sheetnames:
+            hoja = cuaderno[nombre]
+            for fila_de_celdas in hoja.iter_rows():
+                for celda in fila_de_celdas:
+                    valor = celda.value
+                    if not isinstance(valor, str) or not valor.startswith("="):
+                        continue
+                    for rancio in rancios:
+                        self.assertNotIn(rancio, valor,
+                                         f"{nombre}!{celda.coordinate}: {valor}")
+
+        # El presupuesto tiene una fila por categoría de gasto y su TOTAL
+        # apunta al rango crecido.
+        presupuesto = cuaderno["Presupuesto"]
+        self.assertEqual(presupuesto["A5"].value, "=Movimientos!$J$7")
+        self.assertEqual(presupuesto["A14"].value, "=Movimientos!$J$16")
+        self.assertEqual(presupuesto["A15"].value, "TOTAL")
+        self.assertEqual(presupuesto["B15"].value, "=SUM(B5:B14)")
+
+        # El total de la cartera baja con los doce activos.
+        inversiones = cuaderno["Inversiones"]
+        self.assertEqual(inversiones["A18"].value, "TOTAL CARTERA")
+        self.assertEqual(inversiones["B18"].value, "=SUM(B6:B17)")
+        self.assertEqual(inversiones["K48"].value, "DE DÓNDE VIENE EL VALOR")
+
+        # Y con todo eso, la ida y vuelta sigue siendo sin pérdidas.
+        recuperado, _ = excel.importar(destino)
+        self.assertEqual(retrato(recuperado), retrato(original))
+
+    @unittest.skipUnless(PLANTILLA.exists(), "no está la plantilla al lado")
+    def test_varias_categorias_de_inversion_avisan_pero_exportan(self):
+        from openpyxl import load_workbook
+
+        original = libro_completo()
+        original.categorias.append(Categoria(nombre="Cripto", tipo=INVERSION))
+        destino = self.carpeta / "dos-inversiones.xlsx"
+        _, avisos = excel.exportar(destino, original, 2026)
+        self.assertEqual(len(avisos), 1)
+        self.assertIn("Cripto", avisos[0])
+
+        # La primera hace de Inversión en la última fila del panel y las
+        # demás quedan justo encima.
+        cuaderno = load_workbook(destino)
+        movimientos = cuaderno["Movimientos"]
+        panel = [movimientos.cell(row=f, column=10).value for f in range(6, 16)]
+        self.assertEqual(panel[-1], "Inversión")
+        self.assertEqual(panel[-2], "Cripto")
+
+        recuperado, _ = excel.importar(destino)
+        tipos = {c.nombre: c.tipo for c in recuperado.categorias}
+        self.assertEqual(tipos["Cripto"], INVERSION)
+        self.assertEqual(tipos["Inversión"], INVERSION)
 
 
 class PruebasAlmacen(unittest.TestCase):
