@@ -1,0 +1,10 @@
+# Nada de esto hace falta dentro de la imagen.
+__pycache__/
+*.pyc
+pruebas/
+.venv/
+venv/
+*.md
+.gitignore
+docker-compose.yml
+Dockerfile

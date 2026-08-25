@@ -10,6 +10,7 @@ que el widget se construye o se dibuja.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import tempfile
 import traceback
@@ -17,6 +18,9 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
+
+# Las pruebas no tienen cuenta ni servidor: la aplicación a pelo, todo local.
+os.environ["CONTAXCELL_SIN_CUENTA"] = "1"
 
 from contaxcell import almacen, ventana  # noqa: E402
 

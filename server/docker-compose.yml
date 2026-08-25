@@ -1,0 +1,41 @@
+# El servidor entero con un `docker compose up -d`: la base de datos y la API.
+#
+# Antes de arrancar en serio, cambia los dos secretos:
+#   - CONTAXCELL_SECRETO: firma las sesiones. Genera uno con
+#     `openssl rand -hex 32`. Si se cambia, todo el mundo tiene que volver
+#     a entrar (no se pierde ningún dato).
+#   - POSTGRES_PASSWORD (y su copia dentro de CONTAXCELL_BASE_DATOS).
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: contaxcell
+      POSTGRES_USER: contaxcell
+      POSTGRES_PASSWORD: cambiame-tambien
+    volumes:
+      # Volumen con nombre: los datos sobreviven a reconstruir o borrar los
+      # contenedores. Solo `docker volume rm` los borra de verdad.
+      - datos_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contaxcell -d contaxcell"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      CONTAXCELL_BASE_DATOS: postgresql://contaxcell:cambiame-tambien@db:5432/contaxcell
+      # PON AQUÍ TU SECRETO. Sin él las sesiones mueren en cada reinicio.
+      CONTAXCELL_SECRETO: cambiame-por-un-secreto-largo-y-aleatorio
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  datos_postgres:

@@ -1,0 +1,6 @@
+# Para correr las pruebas en local no hace falta ni Docker ni psycopg:
+# las pruebas usan SQLite (biblioteca estándar). httpx lo necesita el
+# TestClient de FastAPI para hacer las peticiones por dentro.
+fastapi
+uvicorn
+httpx

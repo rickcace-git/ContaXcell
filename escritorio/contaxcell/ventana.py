@@ -9,6 +9,8 @@ enseña algo que en realidad no se ha llegado a grabar.
 from __future__ import annotations
 
 import json
+import os
+import queue
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -54,13 +56,18 @@ def _preparar_pantalla() -> float:
 
 
 class Aplicacion(tk.Tk):
-    def __init__(self):
+    def __init__(self, sincronia=None):
         self.escala = _preparar_pantalla()
         super().__init__()
 
         self.almacen = Almacen()
         self.libro: Libro = self.almacen.cargar()
         formato.ocultar_importes(self.libro.ajustes.ocultar_importes)
+
+        # La sincronización con la cuenta es opcional: sin ella la aplicación
+        # es exactamente la de siempre, todo en local.
+        self.sincronia = sincronia
+        self.reiniciar_para_entrar = False
 
         self.title("ContaXcell")
         self.minsize(940, 620)
@@ -80,6 +87,13 @@ class Aplicacion(tk.Tk):
         if self.almacen.aviso_de_arranque:
             self.after(300, lambda: dialogos.avisar(
                 self, "Aviso al abrir tus datos", self.almacen.aviso_de_arranque))
+
+        if self.sincronia is not None:
+            # El hilo de fondo no puede tocar la ventana: deja sus avisos en
+            # una cola y aquí se recogen desde el hilo principal, cada poco.
+            self.estado("Comprobando tu cuenta…")
+            self.sincronia.arrancar_fondo()
+            self.after(500, self._atender_sincronia)
 
     # --- montaje ---------------------------------------------------------
 
@@ -227,6 +241,7 @@ class Aplicacion(tk.Tk):
                            f"{error}\n\nEl cambio sigue en pantalla, pero no está grabado.")
             return False
 
+        self._apuntar_para_subir()
         self.ensuciar()
         self.refrescar()
         if mensaje:
@@ -238,6 +253,7 @@ class Aplicacion(tk.Tk):
         antes una copia de seguridad."""
         self.almacen.reemplazar(libro, motivo)
         self.libro = self.almacen.libro
+        self._apuntar_para_subir()
         self.ensuciar()
         self.refrescar()
         if mensaje:
@@ -289,6 +305,43 @@ class Aplicacion(tk.Tk):
         self._temporizador_estado = self.after(
             6000, lambda: self.etiqueta_estado.configure(text=""))
 
+    # --- la cuenta y su sincronización -------------------------------------
+
+    def _apuntar_para_subir(self) -> None:
+        """Cada guardado en disco deja apuntado que hay algo que subir. La
+        subida va por su hilo; aquí no se espera a nada ni a nadie."""
+        if self.sincronia is not None:
+            self.sincronia.marcar_pendiente()
+
+    def _atender_sincronia(self) -> None:
+        """Recoge los avisos del hilo de fondo. Solo el hilo principal puede
+        tocar la ventana, así que el de fondo los deja en una cola y este
+        método la vacía cada medio segundo."""
+        try:
+            while True:
+                self._atender_aviso(self.sincronia.avisos.get_nowait())
+        except queue.Empty:
+            pass
+        self.after(500, self._atender_sincronia)
+
+    def _atender_aviso(self, aviso: tuple) -> None:
+        tipo = aviso[0]
+        if tipo == "estado":
+            self.estado(aviso[1], aviso[2])
+        elif tipo == "caducada":
+            self.estado(aviso[1], "malo")
+        elif tipo == "descargar":
+            # El servidor va por delante y aquí no hay nada a medio subir:
+            # se trae su libro, dejando copia del de ahora por si acaso.
+            _crudo, revision = aviso[1], aviso[2]
+            self.almacen.reemplazar(Libro.desde_json(_crudo), "antes-de-sincronizar")
+            self.libro = self.almacen.libro
+            formato.ocultar_importes(self.libro.ajustes.ocultar_importes)
+            self.sincronia.confirmar_descarga(revision)
+            self.ensuciar()
+            self.refrescar()
+            self.estado("Contabilidad descargada de tu cuenta.", "bien")
+
     # --- ojo y tema -------------------------------------------------------
 
     def alternar_ocultos(self) -> None:
@@ -301,6 +354,7 @@ class Aplicacion(tk.Tk):
             return
         self.libro.ajustes.tema = valor
         self.almacen.guardar()
+        self._apuntar_para_subir()
         self.paleta = tema.paleta_para(valor)
         # Cambiar de tema toca colores de widgets que no se pueden repintar en
         # caliente, así que se rehace la ventana entera desde cero.
@@ -391,7 +445,19 @@ class Aplicacion(tk.Tk):
 
     def _al_cerrar(self) -> None:
         self._guardar_geometria()
+        if self.sincronia is not None:
+            # Si queda algo por subir ya está apuntado en la sesión: se
+            # subirá al abrir la próxima vez. No se hace esperar a nadie.
+            self.sincronia.detener()
         self.destroy()
+
+    def cerrar_sesion(self) -> None:
+        """Desde Ajustes: olvida la cuenta y vuelve a la puerta de entrada."""
+        if self.sincronia is None:
+            return
+        self.sincronia.salir()
+        self.reiniciar_para_entrar = True
+        self._al_cerrar()
 
 
 def _consejo(widget: tk.Widget, texto: str) -> None:
@@ -436,4 +502,28 @@ def _consejo(widget: tk.Widget, texto: str) -> None:
 
 
 def arrancar() -> None:
-    Aplicacion().mainloop()
+    """El arranque completo: la cuenta primero, la ventana después.
+
+    Con una sesión guardada la ventana abre directa, haya internet o no; el
+    token se comprueba de paso al descargar, sin hacer esperar a nadie. La
+    puerta de entrada solo aparece la primera vez o tras cerrar sesión. Con
+    CONTAXCELL_SIN_CUENTA=1 no hay cuenta ni servidor: la aplicación de
+    siempre, todo en local (es lo que usan las pruebas).
+    """
+    if os.environ.get("CONTAXCELL_SIN_CUENTA") == "1":
+        Aplicacion().mainloop()
+        return
+
+    from . import acceso
+    from .almacen import carpeta_de_datos
+    from .sincronia import Sincronia
+
+    while True:
+        sincronia = Sincronia(carpeta_de_datos())
+        if not sincronia.hay_sesion():
+            if acceso.pedir_cuenta(sincronia) == acceso.CANCELADO:
+                return
+        app = Aplicacion(sincronia)
+        app.mainloop()
+        if not app.reiniciar_para_entrar:
+            return

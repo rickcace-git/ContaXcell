@@ -1,0 +1,4 @@
+# Lo justo para el servidor. Nada más.
+fastapi
+uvicorn
+psycopg[binary]

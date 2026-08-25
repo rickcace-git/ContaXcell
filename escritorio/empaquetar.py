@@ -24,6 +24,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent
 NOMBRE = "ContaXcell"
 ICONO = RAIZ / "recursos" / "icono.ico"
+PLANTILLA = RAIZ / "recursos" / "plantilla.xlsx"
 
 # openpyxl arrastra dependencias opcionales que no usamos. Fuera hacen la
 # carpeta bastante más pequeña y el arranque más rápido.
@@ -71,8 +72,10 @@ def construir(consola: bool) -> Path:
         "--console" if consola else "--windowed",
         "--name", NOMBRE,
         "--icon", str(ICONO),
-        # El icono también va dentro, para la ventana y la barra de tareas.
+        # El icono también va dentro, para la ventana y la barra de tareas,
+        # y la plantilla de Excel, que es lo que rellena la exportación.
         "--add-data", f"{ICONO}{';' if sys.platform == 'win32' else ':'}recursos",
+        "--add-data", f"{PLANTILLA}{';' if sys.platform == 'win32' else ':'}recursos",
         # Todo lo accesorio en una subcarpeta: así lo primero que se ve al
         # abrir la carpeta es el ejecutable y no cien archivos sueltos.
         "--contents-directory", "recursos-internos",
