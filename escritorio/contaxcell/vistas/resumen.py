@@ -9,7 +9,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from .. import calculos, formato, widgets
+from .. import calculos, dialogos, formato, widgets
 
 
 class VistaResumen:
@@ -145,7 +145,8 @@ class VistaResumen:
         poner("colchon", "Meses de colchón",
               formato.decimal(indicadores.meses_de_colchon)
               if indicadores.gasto_medio > 0 else "—",
-              "", "con el saldo de hoy, a tu ritmo de gasto")
+              "", "con el saldo de hoy, a tu ritmo de gasto",
+              ayuda=lambda r=resumen, i=indicadores: self._explicar_colchon(r, i))
         poner("mayor", "Mes de mayor gasto", indicadores.mes_mayor_gasto or "—", "Suave")
         poner("cartera", "Valor de la cartera", formato.euros(indicadores.valor_cartera), "",
               f"{formato.euros_con_signo(indicadores.generado_mercado)} del mercado"
@@ -209,6 +210,63 @@ class VistaResumen:
                           ("Total", formato.euros(reparto.total), "", ""), ("total",)))
         tabla.poner(filas)
         tabla.ajustar_alto(len(filas) or 3, minimo=4, maximo=14)
+
+    # --- explicaciones ----------------------------------------------------
+
+    def _explicar_colchon(self, resumen, ind) -> None:
+        """La cuenta del colchón, con las cifras del año que se está mirando.
+
+        Es el indicador que más se malinterpreta: con pocos meses apuntados da
+        un número altísimo y tranquilizador que no significa nada, así que la
+        explicación avisa cuando ese es el caso.
+        """
+        meses = ind.meses_con_datos
+
+        if ind.gasto_medio <= 0:
+            dialogos.Explicacion(
+                self.app, "Meses de colchón",
+                "Cuántos meses aguantarías con lo que hay en el banco si dejaras "
+                "de ingresar y siguieras gastando a tu ritmo.",
+                cuenta=[],
+                detalle=f"Todavía no se puede calcular: no hay ningún gasto apuntado "
+                        f"en {resumen.anio}. En cuanto empieces a apuntar aparecerá "
+                        f"la cifra.").mostrar()
+            return
+
+        cuenta = [
+            (f"Gastos de {resumen.anio}", formato.euros(resumen.total.gastos)),
+            ("Meses con datos", "1 mes" if meses == 1 else f"{meses} meses"),
+            (None, None),
+            ("Gasto medio al mes", formato.euros(ind.gasto_medio)),
+            ("Saldo del banco hoy", formato.euros(ind.saldo_banco)),
+            (None, None),
+            ("Meses de colchón", f"{formato.decimal(ind.meses_de_colchon)} meses"),
+        ]
+
+        detalle = (
+            "Se divide lo que tienes en el banco entre lo que gastas en un mes "
+            "normal. El gasto medio sale de los gastos del año repartidos entre "
+            "los meses en los que apuntaste algo.\n\n"
+            "Las aportaciones a inversión no cuentan como gasto: si te quedaras "
+            "sin ingresos, dejar de invertir es lo primero que harías, así que no "
+            "es dinero que estés obligado a sacar todos los meses."
+        )
+
+        aviso = ""
+        if meses < 3:
+            aviso = (
+                f"Ojo: solo hay {'1 mes' if meses == 1 else f'{meses} meses'} con "
+                "datos, así que esta cifra no es de fiar todavía. Si aún no estás "
+                "apuntándolo todo, el gasto medio sale bajo y el colchón sale "
+                "mucho más grande de lo que es. Empieza a ser fiable a partir de "
+                "tres o cuatro meses completos."
+            )
+
+        dialogos.Explicacion(
+            self.app, "Meses de colchón",
+            "Cuántos meses aguantarías con lo que hay en el banco si dejaras de "
+            "ingresar y siguieras gastando a tu ritmo.",
+            cuenta=cuenta, detalle=detalle, aviso=aviso).mostrar()
 
     def al_entrar(self) -> None:
         self.desplazable.arriba()

@@ -122,14 +122,67 @@ class MarcoDesplazable(ttk.Frame):
 
 # --- textos y cifras -------------------------------------------------------
 
+class BotonAyuda(tk.Canvas):
+    """La interrogación pequeña que abre la explicación de una cifra.
+
+    Se dibuja en un lienzo en lugar de usar un botón con el texto «?» porque
+    así el círculo queda del tamaño justo y no arrastra el relleno que ttk le
+    pone a los botones, que aquí desencuadraría la casilla.
+    """
+
+    LADO = 17
+
+    def __init__(self, padre, comando, fondo: str | None = None):
+        self.fondo = fondo or PALETA.hundido
+        super().__init__(padre, width=self.LADO, height=self.LADO,
+                         highlightthickness=0, background=self.fondo,
+                         borderwidth=0, cursor="hand2")
+        self.comando = comando
+        self._encima = False
+        self.bind("<Button-1>", lambda _e: self.comando())
+        self.bind("<Enter>", lambda _e: self._resaltar(True))
+        self.bind("<Leave>", lambda _e: self._resaltar(False))
+        self.pintar()
+
+    def cambiar_comando(self, comando) -> None:
+        self.comando = comando
+
+    def _resaltar(self, encima: bool) -> None:
+        self._encima = encima
+        self.pintar()
+
+    def pintar(self) -> None:
+        self.delete("all")
+        color = PALETA.acento if self._encima else PALETA.suave
+        borde = 1.4 if self._encima else 1.0
+        self.create_oval(borde, borde, self.LADO - borde, self.LADO - borde,
+                         outline=color, width=borde)
+        self.create_text(self.LADO / 2, self.LADO / 2 + 0.5, text="?",
+                         fill=color, font=FUENTES.diminuta)
+
+
 class Cifra(ttk.Frame):
-    """Una casilla con un rótulo pequeño, un número grande y una nota."""
+    """Una casilla con un rótulo pequeño, un número grande y una nota.
+
+    Si se le pasa `ayuda`, aparece una interrogación junto al rótulo que la
+    llama al pulsarla. Se usa en los indicadores que se calculan de una forma
+    que no es evidente y conviene poder consultar.
+    """
 
     def __init__(self, padre, rotulo: str, valor: str = "", color: str = "",
-                 nota: str = "", **kw):
+                 nota: str = "", ayuda=None, **kw):
         super().__init__(padre, style="Hundido.TFrame", padding=(12, 10), **kw)
 
-        ttk.Label(self, text=rotulo.upper(), style="Hundido.Titulo.TLabel").pack(anchor="w")
+        cabecera = ttk.Frame(self, style="Hundido.TFrame")
+        cabecera.pack(fill="x")
+        ttk.Label(cabecera, text=rotulo.upper(),
+                  style="Hundido.Titulo.TLabel").pack(side="left")
+
+        self.boton_ayuda = None
+        if ayuda is not None:
+            self.boton_ayuda = BotonAyuda(cabecera, ayuda)
+            self.boton_ayuda.pack(side="right", padx=(6, 0))
+
         self.etiqueta_valor = ttk.Label(
             self, text=valor, style=f"Hundido.Grande{color}.TLabel")
         self.etiqueta_valor.pack(anchor="w", pady=(2, 0))
@@ -138,8 +191,13 @@ class Cifra(ttk.Frame):
         if nota:
             self.etiqueta_nota.pack(anchor="w")
 
-    def actualizar(self, valor: str, color: str = "", nota: str | None = None) -> None:
+    def actualizar(self, valor: str, color: str = "", nota: str | None = None,
+                   ayuda=None) -> None:
         self.etiqueta_valor.configure(text=valor, style=f"Hundido.Grande{color}.TLabel")
+        # La explicación se rehace en cada refresco porque lleva dentro las
+        # cifras del momento; hay que cambiarle el gatillo al botón.
+        if ayuda is not None and self.boton_ayuda is not None:
+            self.boton_ayuda.cambiar_comando(ayuda)
         if nota is not None:
             self.etiqueta_nota.configure(text=nota)
             if nota and not self.etiqueta_nota.winfo_ismapped():
@@ -159,14 +217,14 @@ class PanelCifras(ttk.Frame):
             self.columnconfigure(indice, weight=1, uniform="cifras")
 
     def poner(self, clave: str, rotulo: str, valor: str, color: str = "",
-              nota: str = "") -> None:
+              nota: str = "", ayuda=None) -> None:
         """Crea la casilla la primera vez y la actualiza las siguientes, para
         no destruir y rehacer widgets en cada refresco."""
         if clave in self._cifras:
-            self._cifras[clave].actualizar(valor, color, nota)
+            self._cifras[clave].actualizar(valor, color, nota, ayuda)
             return
         posicion = len(self._cifras)
-        cifra = Cifra(self, rotulo, valor, color, nota)
+        cifra = Cifra(self, rotulo, valor, color, nota, ayuda)
         cifra.grid(row=posicion // self.columnas, column=posicion % self.columnas,
                    sticky="nsew", padx=(0, 8), pady=(0, 8))
         self._cifras[clave] = cifra
@@ -182,14 +240,15 @@ class Aviso(ttk.Frame):
 
     COLORES = {"info": "acento", "alerta": "aviso", "malo": "gasto"}
 
-    def __init__(self, padre, texto: str, clase: str = "info", **kw):
+    def __init__(self, padre, texto: str, clase: str = "info",
+                 ancho: int = 760, **kw):
         color = getattr(PALETA, self.COLORES.get(clase, "acento"))
         self.marco = tk.Frame(padre, background=color)
         super().__init__(self.marco, padding=(11, 9), **kw)
         super().pack(fill="both", expand=True, padx=(3, 1), pady=1)
         self.configure(style="Tarjeta.TFrame")
         etiqueta = ttk.Label(self, text=texto, style="Tarjeta.TLabel",
-                             foreground=color, wraplength=760, justify="left")
+                             foreground=color, wraplength=ancho, justify="left")
         etiqueta.pack(anchor="w")
 
     def pack(self, **kw):

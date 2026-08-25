@@ -328,3 +328,83 @@ def avisar(padre, mensaje: str, detalle: str = "", titulo: str = "ContaXcell") -
 
 def error(padre, mensaje: str, detalle: str = "", titulo: str = "ContaXcell") -> None:
     messagebox.showerror(titulo, mensaje, detail=detalle, parent=padre)
+
+
+# --- explicaciones -----------------------------------------------------------
+
+class Explicacion(tk.Toplevel):
+    """La ventanita que se abre al pulsar la interrogación de una cifra.
+
+    Enseña la cuenta con los números del propio usuario en vez de con la
+    fórmula en abstracto: «5.232,98 / 123,19 = 42,5 meses» se entiende de un
+    vistazo, y «saldo entre gasto medio» no.
+    """
+
+    # Todo el texto se corta a este ancho: si cada bloque eligiera el suyo,
+    # el más largo decidiría el tamaño de la ventana.
+    ANCHO = 420
+
+    def __init__(self, padre, titulo: str, resumen: str, cuenta: list[tuple],
+                 detalle: str = "", aviso: str = ""):
+        super().__init__(padre)
+        self.title(titulo)
+        self.resizable(False, False)
+        self.configure(background=widgets.PALETA.tarjeta)
+        self.transient(padre)
+
+        cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=20)
+        cuerpo.pack(fill="both", expand=True)
+
+        ttk.Label(cuerpo, text=titulo, style="Tarjeta.Negrita.TLabel").pack(anchor="w")
+        ttk.Label(cuerpo, text=resumen, style="Tarjeta.TLabel",
+                  wraplength=self.ANCHO, justify="left").pack(anchor="w", pady=(6, 0))
+
+        if cuenta:
+            self._cuenta(cuerpo, cuenta)
+
+        if detalle:
+            ttk.Label(cuerpo, text=detalle, style="Tarjeta.Suave.TLabel",
+                      wraplength=self.ANCHO, justify="left").pack(anchor="w", pady=(14, 0))
+
+        if aviso:
+            widgets.Aviso(cuerpo, aviso, "alerta",
+                          ancho=self.ANCHO - 24).pack(fill="x", pady=(14, 0))
+
+        ttk.Button(cuerpo, text="Entendido", style="Principal.TButton",
+                   command=self.destroy).pack(anchor="e", pady=(18, 0))
+
+        self.bind("<Return>", lambda _e: self.destroy())
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _cuenta(self, padre, filas: list[tuple]) -> None:
+        """La cuenta, línea a línea. Una fila con `None` de valor es un
+        separador: debajo va el resultado."""
+        marco = tk.Frame(padre, background=widgets.PALETA.borde)
+        marco.pack(fill="x", pady=(14, 0))
+        rejilla = ttk.Frame(marco, style="Hundido.TFrame", padding=(14, 12))
+        rejilla.pack(fill="both", expand=True, padx=1, pady=1)
+        rejilla.columnconfigure(0, weight=1)
+
+        linea = 0
+        for concepto, valor in filas:
+            if valor is None:
+                tk.Frame(rejilla, background=widgets.PALETA.borde, height=1).grid(
+                    row=linea, column=0, columnspan=2, sticky="ew", pady=(8, 8))
+                linea += 1
+                continue
+            ultima = (concepto, valor) == filas[-1]
+            estilo = "Hundido.Negrita.TLabel" if ultima else "Hundido.TLabel"
+            ttk.Label(rejilla, text=concepto, style="Hundido.Suave.TLabel"
+                      if not ultima else estilo).grid(row=linea, column=0, sticky="w")
+            ttk.Label(rejilla, text=valor, style=estilo).grid(
+                row=linea, column=1, sticky="e", padx=(24, 0))
+            linea += 1
+
+    def mostrar(self) -> None:
+        self.update_idletasks()
+        _centrar(self)
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window()
