@@ -1,10 +1,8 @@
 # El servidor entero con un `docker compose up -d`: la base de datos y la API.
 #
-# Antes de arrancar en serio, cambia los dos secretos:
-#   - CONTAXCELL_SECRETO: firma las sesiones. Genera uno con
-#     `openssl rand -hex 32`. Si se cambia, todo el mundo tiene que volver
-#     a entrar (no se pierde ningún dato).
-#   - POSTGRES_PASSWORD (y su copia dentro de CONTAXCELL_BASE_DATOS).
+# Los dos secretos NO viven aquí: viven en el archivo `.env` de al lado, que
+# no se sube a git. Copia `.env.ejemplo` a `.env` y rellénalo antes del primer
+# arranque. Si falta alguno, docker compose se niega a arrancar y dice cuál.
 
 services:
   db:
@@ -12,7 +10,7 @@ services:
     environment:
       POSTGRES_DB: contaxcell
       POSTGRES_USER: contaxcell
-      POSTGRES_PASSWORD: cambiame-tambien
+      POSTGRES_PASSWORD: ${CONTAXCELL_CLAVE_DB:?falta CONTAXCELL_CLAVE_DB en el archivo .env}
     volumes:
       # Volumen con nombre: los datos sobreviven a reconstruir o borrar los
       # contenedores. Solo `docker volume rm` los borra de verdad.
@@ -29,9 +27,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      CONTAXCELL_BASE_DATOS: postgresql://contaxcell:cambiame-tambien@db:5432/contaxcell
-      # PON AQUÍ TU SECRETO. Sin él las sesiones mueren en cada reinicio.
-      CONTAXCELL_SECRETO: cambiame-por-un-secreto-largo-y-aleatorio
+      CONTAXCELL_BASE_DATOS: postgresql://contaxcell:${CONTAXCELL_CLAVE_DB}@db:5432/contaxcell
+      CONTAXCELL_SECRETO: ${CONTAXCELL_SECRETO:?falta CONTAXCELL_SECRETO en el archivo .env}
     depends_on:
       db:
         condition: service_healthy

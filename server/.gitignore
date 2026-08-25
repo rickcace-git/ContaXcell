@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Los secretos de cada máquina. Nunca a git.
+.env
