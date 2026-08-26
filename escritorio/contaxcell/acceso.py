@@ -12,12 +12,16 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import tema, widgets
-from .sincronia import ErrorDeSincronia, Sincronia
+from .sincronia import ErrorDeSincronia, FaltaCodigo, Sincronia
 
 # Lo que puede devolver la ventana.
 DENTRO = "dentro"
 SIN_CONEXION = "sin-conexion"
 CANCELADO = ""
+
+AVISO_TEXTO_CLARO = "Ojo: sin https la contraseña viaja en claro por la red."
+# Direcciones que son este mismo ordenador: ahí no hay red por la que espiar.
+MAQUINAS_DE_CASA = ("localhost", "127.0.0.1", "::1")
 
 
 class VentanaAcceso(tk.Toplevel):
@@ -56,6 +60,18 @@ class VentanaAcceso(tk.Toplevel):
         ttk.Entry(zona, textvariable=self.var_contrasena, width=34,
                   show="•").pack(fill="x")
 
+        # El código de invitación no lo piden todos los servidores, así que se
+        # queda escondido hasta que el servidor lo reclame. El hueco vacío no
+        # se ve y guarda el sitio, para que al aparecer salga donde toca.
+        hueco_codigo = ttk.Frame(zona, style="Tarjeta.TFrame")
+        hueco_codigo.pack(fill="x")
+        self.bloque_codigo = ttk.Frame(hueco_codigo, style="Tarjeta.TFrame")
+        widgets.etiqueta_campo(self.bloque_codigo, "Código de invitación")
+        self.var_codigo = tk.StringVar()
+        self.campo_codigo = ttk.Entry(self.bloque_codigo, textvariable=self.var_codigo,
+                                      width=34)
+        self.campo_codigo.pack(fill="x")
+
         # El servidor va escondido tras un enlace: casi nadie lo cambia.
         self.enlace_servidor = ttk.Button(zona, text="Cambiar el servidor…",
                                           style="Enlace.TButton",
@@ -67,9 +83,19 @@ class VentanaAcceso(tk.Toplevel):
         ttk.Entry(self.bloque_servidor, textvariable=self.var_servidor,
                   width=34).pack(fill="x")
 
+        # Aviso, no error: si el servidor va por http y no es este mismo
+        # ordenador, la contraseña cruza la red a la vista de cualquiera. Se
+        # queda puesto mientras la dirección lo merezca, no unos segundos.
+        self.aviso = ttk.Label(cuerpo, text="", style="Tarjeta.Aviso.TLabel",
+                               wraplength=340, justify="left")
+        self._aviso_puesto = False
+
         self.error = ttk.Label(cuerpo, text="", style="Tarjeta.Gasto.TLabel",
                                wraplength=340, justify="left")
         self.error.pack(anchor="w", pady=(8, 0))
+
+        self.var_servidor.trace_add("write", lambda *_a: self._revisar_cifrado())
+        self._revisar_cifrado()
 
         pie = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
         pie.pack(fill="x", pady=(12, 0))
@@ -94,18 +120,49 @@ class VentanaAcceso(tk.Toplevel):
         self.enlace_servidor.pack_forget()
         self.bloque_servidor.pack(fill="x")
 
+    def _ensenar_codigo(self) -> None:
+        """El servidor pide invitación: se saca el campo y se pone el cursor
+        dentro, que es lo único que falta para poder seguir."""
+        if not self.bloque_codigo.winfo_ismapped():
+            self.bloque_codigo.pack(fill="x")
+        self.campo_codigo.focus_set()
+
+    def _revisar_cifrado(self) -> None:
+        """Pone o quita el aviso según la dirección que haya escrita. Nunca
+        impide entrar: es un aviso, no un candado.
+
+        Si está puesto o no se lleva a mano y no se le pregunta a tkinter:
+        mientras se construye la ventana, `winfo_ismapped` contesta que no
+        a todo.
+        """
+        texto = aviso_de_texto_claro(self.var_servidor.get())
+        self.aviso.configure(text=texto)
+        if texto and not self._aviso_puesto:
+            self.aviso.pack(anchor="w", pady=(8, 0), before=self.error)
+            self._aviso_puesto = True
+        elif not texto and self._aviso_puesto:
+            self.aviso.pack_forget()
+            self._aviso_puesto = False
+
     def _enviar(self, registro: bool) -> None:
         self.error.configure(text="Hablando con el servidor…")
         self.update_idletasks()
         try:
             if registro:
+                # El código solo pinta algo al crear la cuenta.
                 self.sincronia.registrar(self.var_usuario.get(),
                                          self.var_contrasena.get(),
-                                         self.var_servidor.get())
+                                         self.var_servidor.get(),
+                                         self.var_codigo.get())
             else:
                 self.sincronia.entrar(self.var_usuario.get(),
                                       self.var_contrasena.get(),
                                       self.var_servidor.get())
+        except FaltaCodigo as error:
+            self._ensenar_codigo()
+            self.error.configure(text=str(error))
+            self.bell()
+            return
         except ErrorDeSincronia as error:
             self.error.configure(text=str(error))
             self.bell()
@@ -141,6 +198,26 @@ class VentanaAcceso(tk.Toplevel):
             x = (self.winfo_screenwidth() - ancho) // 2
             y = (self.winfo_screenheight() - alto) // 3
         self.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+
+def aviso_de_texto_claro(direccion: str) -> str:
+    """El aviso que toca para esa dirección, o cadena vacía si no hace falta.
+
+    Con `http://` la contraseña sale del ordenador legible, así que conviene
+    decirlo. Salvo cuando el servidor es este mismo ordenador: ahí no hay red
+    de por medio y avisar solo daría miedo para nada.
+    """
+    direccion = direccion.strip().lower()
+    if not direccion.startswith("http://"):
+        return ""
+    maquina = direccion[len("http://"):].split("/")[0].split("@")[-1]
+    if maquina.startswith("["):  # IPv6, que lleva el puerto fuera de corchetes
+        maquina = maquina[1:].split("]")[0]
+    else:
+        maquina = maquina.split(":")[0]
+    if maquina in MAQUINAS_DE_CASA or maquina.startswith("127."):
+        return ""
+    return AVISO_TEXTO_CLARO
 
 
 def pedir_cuenta(sincronia: Sincronia, padre: tk.Misc | None = None) -> str:

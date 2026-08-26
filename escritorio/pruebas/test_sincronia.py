@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import stat
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 from pathlib import Path
@@ -20,7 +23,8 @@ RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
 from contaxcell import sincronia as modulo  # noqa: E402
-from contaxcell.sincronia import ErrorDeSincronia, Sincronia  # noqa: E402
+from contaxcell.sincronia import (ErrorDeSincronia, FaltaCodigo,  # noqa: E402
+                                  Sincronia)
 
 
 # --- el servidor de mentira --------------------------------------------------
@@ -168,11 +172,116 @@ class PruebaEntrar(ConCarpeta):
         self.assertEqual(grabada["ultima_revision"], 7)
         self.assertTrue(grabada["pendiente"])
 
+    def test_el_mismo_usuario_escrito_con_mayusculas_sigue_siendo_el_mismo(self):
+        """El servidor deja el nombre en minúsculas y devuelve el bueno. Si se
+        mirara lo tecleado, entrar como «Pablo» apartaría la contabilidad de
+        «pablo» como si fuera de otra cuenta."""
+        self.escribir_datos()
+        sinc, _ = self.con_sesion((200, {"token": "renovado", "usuario": "pablo"}),
+                                  revision=7, pendiente=True)
+        sinc.entrar("Pablo", "secreta")
+
+        self.assertTrue((self.carpeta / "datos.json").exists())
+        self.assertEqual(list((self.carpeta / "copias").glob("*-cambio-de-usuario.json")),
+                         [])
+        grabada = self.sesion_grabada()
+        self.assertEqual(grabada["usuario"], "pablo")
+        self.assertEqual(grabada["ultima_revision"], 7)
+        self.assertTrue(grabada["pendiente"])
+
     def test_salir_olvida_la_sesion(self):
         sinc, _ = self.con_sesion()
         sinc.salir()
         self.assertFalse(sinc.hay_sesion())
         self.assertFalse((self.carpeta / modulo.ARCHIVO_SESION).exists())
+
+    def test_demasiados_intentos_lo_dice_con_palabras(self):
+        sinc, _ = self.nueva((429, {"detail": "rate limited"}))
+        with self.assertRaises(ErrorDeSincronia) as contexto:
+            sinc.entrar("pablo", "secreta")
+        self.assertEqual(str(contexto.exception), modulo.MENSAJE_DEMASIADOS_INTENTOS)
+        self.assertFalse(sinc.hay_sesion())
+
+    @unittest.skipIf(os.name == "nt", "los permisos de archivo son cosa de Unix")
+    def test_la_sesion_solo_la_lee_su_dueno(self):
+        # Dentro va el token: si lo lee cualquiera que entre en el ordenador,
+        # tiene la cuenta entera sin saber la contraseña.
+        sinc, _ = self.nueva((200, {"token": "abc", "usuario": "pablo"}))
+        sinc.entrar("pablo", "secreta")
+        modo = stat.S_IMODE((self.carpeta / modulo.ARCHIVO_SESION).stat().st_mode)
+        self.assertEqual(modo, 0o600)
+
+
+class PruebaCodigoDeInvitacion(ConCarpeta):
+    """Hay servidores que solo dejan crear cuentas con invitación."""
+
+    def test_el_codigo_va_en_el_cuerpo_cuando_se_pone(self):
+        sinc, servidor = self.nueva((201, {"token": "abc", "usuario": "pablo"}))
+        sinc.registrar("pablo", "secreta", "http://servidor:8000", "ABC-123")
+        self.assertEqual(servidor.peticiones[0]["cuerpo"],
+                         {"usuario": "pablo", "contrasena": "secreta",
+                          "codigo": "ABC-123"})
+
+    def test_sin_codigo_no_se_manda_el_campo(self):
+        sinc, servidor = self.nueva((201, {"token": "abc", "usuario": "pablo"}))
+        sinc.registrar("pablo", "secreta")
+        self.assertNotIn("codigo", servidor.peticiones[0]["cuerpo"])
+
+    def test_el_servidor_que_pide_invitacion_se_distingue(self):
+        sinc, _ = self.nueva((403, {"detail": "Hace falta un código de invitación."}))
+        with self.assertRaises(FaltaCodigo) as contexto:
+            sinc.registrar("pablo", "secreta")
+        # La ventana de acceso lo caza aparte para enseñar el campo, pero para
+        # todo lo demás es un error como los otros.
+        self.assertIsInstance(contexto.exception, ErrorDeSincronia)
+        self.assertIn("código de invitación", str(contexto.exception))
+        self.assertFalse(sinc.hay_sesion())
+
+
+class PruebaCambiarContrasena(ConCarpeta):
+    def test_el_token_nuevo_reemplaza_al_de_antes(self):
+        sinc, servidor = self.con_sesion((200, {"token": "recien-hecho"}))
+        sinc.cambiar_contrasena("la-de-antes", "la-nueva-larga")
+
+        peticion = servidor.peticiones[0]
+        self.assertEqual(peticion["url"],
+                         "http://servidor:8000/api/cuentas/contrasena")
+        self.assertEqual(peticion["cuerpo"], {"contrasena_actual": "la-de-antes",
+                                              "contrasena_nueva": "la-nueva-larga"})
+        self.assertEqual(peticion["cabeceras"].get("Authorization"), "Bearer t0ken")
+        # Y queda grabado: al abrir mañana se sigue dentro con el token nuevo.
+        self.assertEqual(self.sesion_grabada()["token"], "recien-hecho")
+
+    def test_la_contrasena_de_ahora_mal_puesta(self):
+        sinc, _ = self.con_sesion((403, {}))
+        with self.assertRaises(ErrorDeSincronia) as contexto:
+            sinc.cambiar_contrasena("la-que-no-es", "la-nueva-larga")
+        self.assertEqual(str(contexto.exception),
+                         "La contraseña actual no es correcta.")
+        self.assertEqual(self.sesion_grabada()["token"], "t0ken")
+
+    def test_sin_cuenta_no_hay_contrasena_que_cambiar(self):
+        sinc, _ = self.nueva()
+        with self.assertRaises(ErrorDeSincronia):
+            sinc.cambiar_contrasena("la-de-antes", "la-nueva-larga")
+
+    def test_la_nueva_que_no_le_gusta_al_servidor(self):
+        sinc, _ = self.con_sesion((422, {"detail": "La contraseña es muy corta."}))
+        with self.assertRaises(ErrorDeSincronia) as contexto:
+            sinc.cambiar_contrasena("la-de-antes", "corta")
+        self.assertIn("muy corta", str(contexto.exception))
+
+    def test_la_sesion_caducada_a_mitad(self):
+        sinc, _ = self.con_sesion((401, {}))
+        with self.assertRaises(ErrorDeSincronia):
+            sinc.cambiar_contrasena("la-de-antes", "la-nueva-larga")
+        self.assertTrue(sinc.caducada)
+
+    def test_sin_conexion_no_se_puede_cambiar(self):
+        sinc, _ = self.con_sesion(("sin-conexion", None))
+        with self.assertRaises(ErrorDeSincronia) as contexto:
+            sinc.cambiar_contrasena("la-de-antes", "la-nueva-larga")
+        self.assertIn("servidor", str(contexto.exception))
 
 
 # --- subir cambios -------------------------------------------------------------
@@ -240,6 +349,38 @@ class PruebaEmpujar(ConCarpeta):
         self.assertEqual(segunda["cuerpo"]["libro"]["ajustes"]["saldo_inicial"], 100)
         self.assertEqual(self.sesion_grabada()["ultima_revision"], 8)
 
+    def test_el_conflicto_se_avisa_en_voz_alta(self):
+        """Callarse un conflicto es callarse que puede haberse perdido el
+        trabajo del otro ordenador."""
+        self.escribir_datos({"version": 1, "ajustes": {"saldo_inicial": 100}})
+        del_servidor = {"version": 1, "ajustes": {"saldo_inicial": 999}}
+        sinc, _ = self.con_sesion((409, {"revision": 7, "libro": del_servidor}),
+                                  (200, {"revision": 8}),
+                                  revision=3)
+        sinc.marcar_pendiente()
+        self.assertTrue(sinc.empujar())
+
+        conflictos = [a for a in self.avisos_de(sinc) if a[0] == "conflicto"]
+        self.assertEqual(len(conflictos), 1)
+        # El aviso dice dónde está la copia, que es lo único que sirve para
+        # rescatar lo del otro ordenador.
+        copias = list((self.carpeta / "copias").glob("*-conflicto-sincronia.json"))
+        self.assertEqual(len(copias), 1)
+        self.assertIn(copias[0].name, conflictos[0][1])
+
+    def test_dos_conflictos_seguidos_avisan_una_sola_vez(self):
+        self.escribir_datos({"version": 1, "ajustes": {"saldo_inicial": 100}})
+        remoto = {"version": 1, "ajustes": {"saldo_inicial": 999}}
+        sinc, _ = self.con_sesion((409, {"revision": 7, "libro": remoto}),
+                                  (409, {"revision": 8, "libro": remoto}),
+                                  (200, {"revision": 9}),
+                                  revision=3)
+        sinc.marcar_pendiente()
+        self.assertTrue(sinc.empujar())
+
+        conflictos = [a for a in self.avisos_de(sinc) if a[0] == "conflicto"]
+        self.assertEqual(len(conflictos), 1)
+
     def test_token_caducado_pide_entrar_sin_perder_el_pendiente(self):
         self.escribir_datos()
         sinc, _ = self.con_sesion((401, {}))
@@ -261,11 +402,43 @@ class PruebaDescargar(ConCarpeta):
         sinc.descargar()
 
         avisos = self.avisos_de(sinc)
-        self.assertEqual(avisos, [("descargar", remoto, 5)])
+        # El último elemento dice si lo de aquí venía de esta misma cuenta;
+        # aquí sí (hay revisión apuntada), así que la ventana no da la lata.
+        self.assertEqual(avisos, [("descargar", remoto, 5, False)])
         # La revisión no se apunta hasta que la ventana aplica el libro.
         self.assertEqual(self.sesion_grabada()["ultima_revision"], 2)
         sinc.confirmar_descarga(5)
         self.assertEqual(self.sesion_grabada()["ultima_revision"], 5)
+
+    def test_lo_del_servidor_es_igual_que_lo_de_aqui(self):
+        """Volver a entrar sin haber cambiado nada no es una descarga: es
+        apuntar la revisión y callarse."""
+        mismo = {"version": 1, "movimientos": []}
+        self.escribir_datos(mismo)
+        sinc, _ = self.con_sesion((200, {"revision": 5, "libro": mismo}), revision=2)
+        sinc.descargar()
+
+        self.assertEqual(self.avisos_de(sinc), [])
+        self.assertEqual(sinc.sesion["ultima_revision"], 5)
+        self.assertEqual(self.sesion_grabada()["ultima_revision"], 5)
+
+    def test_sin_revision_apuntada_lo_de_aqui_no_se_sabe_de_donde_viene(self):
+        # El caso feo: se cerró sesión, se apuntaron cosas sin conexión y se
+        # vuelve a entrar. Esos apuntes están a punto de ser reemplazados.
+        self.escribir_datos({"version": 1, "movimientos": [{"fecha": "2026-01-05"}]})
+        remoto = {"version": 1, "movimientos": []}
+        sinc, _ = self.con_sesion((200, {"revision": 3, "libro": remoto}), revision=0)
+        sinc.descargar()
+
+        self.assertEqual(self.avisos_de(sinc), [("descargar", remoto, 3, True)])
+
+    def test_con_revision_apuntada_la_descarga_es_de_las_normales(self):
+        self.escribir_datos({"version": 1, "movimientos": [{"fecha": "2026-01-05"}]})
+        remoto = {"version": 1, "movimientos": []}
+        sinc, _ = self.con_sesion((200, {"revision": 3, "libro": remoto}), revision=2)
+        sinc.descargar()
+
+        self.assertEqual(self.avisos_de(sinc), [("descargar", remoto, 3, False)])
 
     def test_misma_revision_no_toca_nada(self):
         sinc, _ = self.con_sesion((200, {"revision": 2, "libro": {"version": 1}}),
@@ -299,6 +472,64 @@ class PruebaDescargar(ConCarpeta):
         sinc.descargar()
         self.assertTrue(sinc.caducada)
         self.assertEqual(self.avisos_de(sinc)[0][0], "caducada")
+
+
+class PruebaCuandoTocaDescargar(ConCarpeta):
+    """El otro ordenador puede estar apuntando cosas ahora mismo, así que hay
+    que volver a mirar el servidor cada tanto. La decisión se prueba pasándole
+    la hora a mano: esperar dos minutos de verdad no lo comprueba mejor."""
+
+    def test_recien_arrancada_toca_ya(self):
+        sinc, _ = self.con_sesion()
+        self.assertTrue(sinc.toca_descargar(time.monotonic()))
+
+    def test_justo_despues_de_bajar_no_toca(self):
+        sinc, _ = self.con_sesion((200, {"revision": 1, "libro": {"version": 1}}),
+                                  revision=1)
+        antes = time.monotonic()
+        sinc.descargar()
+        self.assertFalse(sinc.toca_descargar(antes))
+
+    def test_pasado_el_rato_vuelve_a_tocar(self):
+        sinc, _ = self.con_sesion((200, {"revision": 1, "libro": {"version": 1}}),
+                                  revision=1)
+        antes = time.monotonic()
+        sinc.descargar()
+        self.assertTrue(sinc.toca_descargar(antes + modulo.SEGUNDOS_ENTRE_DESCARGAS + 1))
+
+    def test_con_algo_por_subir_primero_se_sube(self):
+        sinc, _ = self.con_sesion(pendiente=True)
+        self.assertFalse(sinc.toca_descargar(time.monotonic()))
+
+    def test_con_la_sesion_caducada_no_se_insiste(self):
+        sinc, _ = self.con_sesion()
+        sinc._caducar()
+        self.assertFalse(sinc.toca_descargar(time.monotonic()))
+
+    def test_sin_cuenta_no_hay_nada_que_bajar(self):
+        sinc, _ = self.nueva()
+        self.assertFalse(sinc.toca_descargar(time.monotonic()))
+
+    def test_el_bucle_sube_lo_pendiente_antes_de_bajar(self):
+        sinc, _ = self.con_sesion(pendiente=True)
+        pasos = []
+
+        def empujar():
+            pasos.append("subir")
+            sinc.sesion["pendiente"] = False
+            # Acorta la espera del bucle: aquí solo importa comprobar el orden.
+            sinc._despertador.set()
+            return True
+
+        def descargar():
+            pasos.append("bajar")
+            sinc.detener()
+
+        sinc.empujar = empujar
+        sinc.descargar = descargar
+        sinc._bucle()
+
+        self.assertEqual(pasos, ["subir", "bajar"])
 
 
 class PruebaGuardadoDuranteLaSubida(ConCarpeta):
