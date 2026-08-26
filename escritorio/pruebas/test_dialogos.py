@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 import tkinter as tk
 import unittest
+from datetime import date
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -223,6 +224,95 @@ class PruebasCamposCondicionales(ConVentana):
         colocados = list(ventana.zona_campos.pack_slaves())
         self.assertEqual(colocados.index(ventana._bloques["dos"]),
                          colocados.index(ventana._bloques["uno"]) + 1)
+
+
+class PruebasCampoFecha(ConVentana):
+    def campo(self, iso: str = "2026-08-24") -> widgets.CampoFecha:
+        casilla = widgets.CampoFecha(self.raiz, iso)
+        self.addCleanup(casilla.destroy)
+        return casilla
+
+    def test_campo_fecha_ida_y_vuelta(self):
+        casilla = self.campo()
+        self.assertEqual(casilla.variable.get(), "24/08/2026")
+        self.assertEqual(casilla.iso(), "2026-08-24")
+
+    def test_campo_fecha_vacio(self):
+        self.assertIsNone(self.campo("").iso())
+
+    def test_no_deja_teclear_letras(self):
+        # En una fecha no pintan nada, y rechazarlas mientras se escribe
+        # ahorra el error de después.
+        casilla = self.campo()
+        for imposible in ("hola", "26/ago/2026", "26x08", "ayer", "26/08/2026 "):
+            self.assertFalse(casilla._admite(imposible), imposible)
+
+    def test_deja_teclear_lo_que_sí_es_una_fecha(self):
+        casilla = self.campo()
+        for vale in ("", "2", "26", "26/", "26/08/2026", "2026-08-26", "1.1.27"):
+            self.assertTrue(casilla._admite(vale), vale)
+
+    def test_no_deja_pasarse_de_largo(self):
+        self.assertFalse(self.campo()._admite("26/08/20260"))
+
+    def test_el_calendario_se_abre_en_el_mes_de_la_fecha(self):
+        casilla = self.campo("2026-03-09")
+        casilla.abrir_calendario()
+        self.addCleanup(casilla.calendario.cerrar)
+        self.assertEqual(casilla.calendario.mes, date(2026, 3, 1))
+        self.assertEqual(casilla.calendario.elegido, date(2026, 3, 9))
+
+    def test_elegir_un_día_lo_escribe_en_la_casilla(self):
+        casilla = self.campo("2026-08-24")
+        casilla.abrir_calendario()
+        casilla.calendario._elegir(date(2026, 3, 9))
+
+        self.assertEqual(casilla.iso(), "2026-03-09")
+        self.assertEqual(casilla.variable.get(), "09/03/2026")
+
+    def test_el_calendario_pasa_de_diciembre_a_enero(self):
+        casilla = self.campo("2026-12-15")
+        casilla.abrir_calendario()
+        self.addCleanup(casilla.calendario.cerrar)
+
+        casilla.calendario._mover(1)
+        self.assertEqual(casilla.calendario.mes, date(2027, 1, 1))
+        casilla.calendario._mover(-1)
+        casilla.calendario._mover(-1)
+        self.assertEqual(casilla.calendario.mes, date(2026, 11, 1))
+
+    def test_pulsar_el_botón_otra_vez_lo_cierra(self):
+        casilla = self.campo()
+        casilla.abrir_calendario()
+        abierto = casilla.calendario
+        self.assertTrue(abierto.winfo_exists())
+
+        casilla.abrir_calendario()
+        self.assertIsNone(casilla.calendario)
+        self.assertFalse(abierto.winfo_exists())
+
+    def test_al_cerrarse_devuelve_el_ratón_a_quien_lo_tenía(self):
+        """El calendario se abre dentro de formularios que son modales.
+
+        Si al cerrarse no devuelve el agarre del ratón, la ventana de detrás
+        se vuelve pulsable con el formulario todavía abierto.
+        """
+        dueno = tk.Toplevel(self.raiz)
+        self.addCleanup(dueno.destroy)
+        dueno.grab_set()
+
+        casilla = widgets.CampoFecha(dueno, "2026-08-24")
+        casilla.abrir_calendario()
+        self.assertEqual(str(casilla.calendario.agarraba), str(dueno))
+
+        casilla.calendario.cerrar()
+        self.assertEqual(str(dueno.grab_current()), str(dueno))
+
+    def test_con_la_casilla_vacía_el_calendario_se_abre_en_hoy(self):
+        casilla = self.campo("")
+        casilla.abrir_calendario()
+        self.addCleanup(casilla.calendario.cerrar)
+        self.assertEqual(casilla.calendario.mes, date.today().replace(day=1))
 
 
 class PruebasWidgets(ConVentana):

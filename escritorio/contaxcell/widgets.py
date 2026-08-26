@@ -6,7 +6,9 @@ construyen aquí una vez y las vistas se limitan a usarlas.
 
 from __future__ import annotations
 
+import calendar
 import tkinter as tk
+from datetime import date
 from tkinter import ttk
 
 from .tema import Fuentes, Paleta
@@ -516,18 +518,193 @@ class Tabla(ttk.Frame):
 
 # --- formularios -----------------------------------------------------------
 
-class CampoFecha(ttk.Entry):
-    """Casilla de fecha en dd/mm/aaaa.
+class Calendario(tk.Toplevel):
+    """Calendario para elegir el día con el ratón.
 
-    Tkinter no trae selector de fecha y añadir una dependencia solo por esto
-    no compensa: se escribe a mano y se admite casi cualquier separador.
+    Tkinter no trae ninguno y meter una dependencia solo por esto no compensa,
+    así que se dibuja con etiquetas: siete columnas y hasta seis filas, que es
+    lo que necesita el mes más largo.
+
+    La semana empieza en lunes, como aquí.
     """
 
-    def __init__(self, padre, valor_iso: str = "", **kw):
+    DIAS = ("L", "M", "X", "J", "V", "S", "D")
+    LADO = 30
+
+    def __init__(self, padre, iso: str, al_elegir):
+        super().__init__(padre)
+        self.al_elegir = al_elegir
+        # Quién tenía agarrado el ratón antes, para devolvérselo al cerrar.
+        self.agarraba = None
+        self.hoy = date.today()
+        self.elegido = _a_fecha(iso)
+        self.mes = (self.elegido or self.hoy).replace(day=1)
+
+        # Sin barra de título: es un desplegable, no una ventana.
+        self.wm_overrideredirect(True)
+        self.configure(background=PALETA.borde)
+        self.marco = tk.Frame(self, background=PALETA.tarjeta)
+        self.marco.pack(padx=1, pady=1)
+
+        self._cabecera()
+        self.rejilla = tk.Frame(self.marco, background=PALETA.tarjeta)
+        self.rejilla.pack(padx=10)
+        self._pie()
+        self._pintar()
+
+        self.bind("<Escape>", lambda _e: self.cerrar())
+        # Con el ratón agarrado, un clic fuera llega igual aquí, pero con
+        # coordenadas de fuera: así se cierra al pinchar en otro sitio.
+        self.bind("<Button-1>", self._quizas_fuera)
+
+    # --- montaje ---
+
+    def _cabecera(self) -> None:
+        fila = tk.Frame(self.marco, background=PALETA.tarjeta)
+        fila.pack(fill="x", padx=10, pady=(8, 6))
+        self._flecha(fila, "‹", -1).pack(side="left")
+        self.titulo = tk.Label(fila, background=PALETA.tarjeta, foreground=PALETA.texto,
+                               font=FUENTES.negrita, width=16)
+        self.titulo.pack(side="left", expand=True)
+        self._flecha(fila, "›", 1).pack(side="right")
+
+    def _flecha(self, padre, signo: str, salto: int) -> tk.Label:
+        flecha = tk.Label(padre, text=signo, background=PALETA.tarjeta,
+                          foreground=PALETA.suave, font=FUENTES.negrita,
+                          width=2, cursor="hand2")
+        flecha.bind("<Button-1>", lambda _e: self._mover(salto))
+        _al_pasar(flecha, PALETA.hundido, PALETA.tarjeta)
+        return flecha
+
+    def _pie(self) -> None:
+        pie = tk.Frame(self.marco, background=PALETA.tarjeta)
+        pie.pack(fill="x", padx=10, pady=(4, 8))
+        hoy = tk.Label(pie, text="Hoy", background=PALETA.tarjeta,
+                       foreground=PALETA.acento, font=FUENTES.pequena,
+                       cursor="hand2", padx=6, pady=2)
+        hoy.pack(side="right")
+        hoy.bind("<Button-1>", lambda _e: self._elegir(self.hoy))
+        _al_pasar(hoy, PALETA.hundido, PALETA.tarjeta)
+
+    # --- pintado ---
+
+    def _mover(self, salto: int) -> None:
+        mes = self.mes.month + salto
+        anio = self.mes.year + (mes - 1) // 12
+        self.mes = date(anio, (mes - 1) % 12 + 1, 1)
+        self._pintar()
+
+    def _pintar(self) -> None:
+        from .modelo import MESES
+
+        self.titulo.configure(text=f"{MESES[self.mes.month - 1]} {self.mes.year}".capitalize())
+        for hijo in self.rejilla.winfo_children():
+            hijo.destroy()
+
+        for columna, inicial in enumerate(self.DIAS):
+            tk.Label(self.rejilla, text=inicial, background=PALETA.tarjeta,
+                     foreground=PALETA.suave, font=FUENTES.diminuta,
+                     width=3).grid(row=0, column=columna, pady=(0, 2))
+
+        semanas = calendar.Calendar(firstweekday=0).monthdayscalendar(
+            self.mes.year, self.mes.month)
+        for fila, semana in enumerate(semanas, start=1):
+            for columna, numero in enumerate(semana):
+                if numero == 0:
+                    continue  # días del mes de al lado: se dejan en blanco
+                self._dia(date(self.mes.year, self.mes.month, numero)).grid(
+                    row=fila, column=columna)
+
+    def _dia(self, fecha) -> tk.Label:
+        if fecha == self.elegido:
+            fondo, color, fuente = PALETA.acento, "#ffffff", FUENTES.negrita
+        elif fecha == self.hoy:
+            fondo, color, fuente = PALETA.hundido, PALETA.acento, FUENTES.negrita
+        else:
+            fondo, color, fuente = PALETA.tarjeta, PALETA.texto, FUENTES.normal
+
+        celda = tk.Label(self.rejilla, text=str(fecha.day), background=fondo,
+                         foreground=color, font=fuente, width=3, pady=3,
+                         cursor="hand2")
+        celda.bind("<Button-1>", lambda _e, f=fecha: self._elegir(f))
+        if fecha != self.elegido:
+            _al_pasar(celda, PALETA.boton, fondo)
+        return celda
+
+    # --- cierre ---
+
+    def _elegir(self, fecha) -> None:
+        self.al_elegir(fecha.isoformat())
+        self.cerrar()
+
+    def _quizas_fuera(self, evento) -> None:
+        dentro = (0 <= evento.x < self.winfo_width()
+                  and 0 <= evento.y < self.winfo_height())
+        if not dentro:
+            self.cerrar()
+
+    def cerrar(self) -> None:
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.destroy()
+        # Si el calendario se abrió dentro de un formulario, ese formulario
+        # tenía agarrado el ratón y hay que devolvérselo: si no, al cerrar el
+        # calendario la ventana de detrás se volvería pulsable con el
+        # formulario todavía abierto.
+        if self.agarraba is not None:
+            try:
+                if self.agarraba.winfo_exists():
+                    self.agarraba.grab_set()
+            except tk.TclError:
+                pass
+
+    def abrir_junto_a(self, widget: tk.Widget) -> None:
+        """Lo coloca debajo del campo, sin salirse de la pantalla."""
+        self.update_idletasks()
+        x = widget.winfo_rootx()
+        y = widget.winfo_rooty() + widget.winfo_height() + 2
+        if y + self.winfo_height() > self.winfo_screenheight():
+            y = widget.winfo_rooty() - self.winfo_height() - 2
+        x = min(x, self.winfo_screenwidth() - self.winfo_width() - 8)
+        self.wm_geometry(f"+{max(0, x)}+{max(0, y)}")
+        try:
+            self.agarraba = self.grab_current()
+            self.grab_set()
+        except tk.TclError:
+            self.agarraba = None
+
+
+class CampoFecha(ttk.Frame):
+    """Casilla de fecha en dd/mm/aaaa con un calendario al lado.
+
+    No deja teclear letras: en una fecha no pintan nada, y rechazarlas
+    mientras se escribe evita tener que dar un error después. Se sigue
+    admitiendo casi cualquier separador, que es cómodo para quien teclea
+    rápido, y el botón abre un calendario para quien prefiera el ratón.
+    """
+
+    # Todo lo que puede aparecer en una fecha escrita y nada más.
+    PERMITIDOS = set("0123456789/-.")
+    LARGO = 10  # «24/08/2026» y «2026-08-24» miden lo mismo
+
+    def __init__(self, padre, valor_iso: str = "", fondo: str = "Tarjeta", **kw):
+        super().__init__(padre, style=f"{fondo}.TFrame")
         self.variable = tk.StringVar()
-        super().__init__(padre, textvariable=self.variable, width=12, **kw)
-        from .formato import fecha_a_texto
-        self.variable.set(fecha_a_texto(valor_iso))
+        self.calendario: Calendario | None = None
+        comprobante = self.register(self._admite)
+        self.entrada = ttk.Entry(self, textvariable=self.variable, width=12,
+                                 validate="key", validatecommand=(comprobante, "%P"),
+                                 **kw)
+        self.entrada.pack(side="left")
+        self.boton = BotonIcono(self, "calendario", self.abrir_calendario, lado=27,
+                                fondo=getattr(PALETA, fondo.lower(), PALETA.tarjeta))
+        self.boton.pack(side="left", padx=(4, 0))
+        self.poner(valor_iso)
+
+    def _admite(self, propuesto: str) -> bool:
+        return len(propuesto) <= self.LARGO and set(propuesto) <= self.PERMITIDOS
 
     def iso(self) -> str | None:
         from .formato import texto_a_fecha
@@ -536,6 +713,44 @@ class CampoFecha(ttk.Entry):
     def poner(self, valor_iso: str) -> None:
         from .formato import fecha_a_texto
         self.variable.set(fecha_a_texto(valor_iso))
+        # Tk apaga la validación en cuanto una escritura del programa la
+        # incumple. Se vuelve a encender por si acaso, que si no la casilla
+        # se queda admitiendo cualquier cosa sin avisar.
+        self.entrada.configure(validate="key")
+
+    def abrir_calendario(self) -> None:
+        # Solo uno abierto a la vez: pulsar el botón otra vez lo cierra, que
+        # es lo que espera cualquiera de un desplegable.
+        if self.calendario is not None and self.calendario.winfo_exists():
+            self.calendario.cerrar()
+            self.calendario = None
+            return
+        self.calendario = Calendario(self, self.iso() or "", self._elegido)
+        self.calendario.abrir_junto_a(self)
+
+    def _elegido(self, iso: str) -> None:
+        self.poner(iso)
+        self.entrada.focus_set()
+
+    # El campo de verdad es la casilla: el marco solo la sujeta junto al botón.
+    def focus_set(self) -> None:
+        self.entrada.focus_set()
+
+    def bind(self, secuencia=None, funcion=None, add=None):
+        return self.entrada.bind(secuencia, funcion, add)
+
+
+def _a_fecha(iso: str):
+    try:
+        return date.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return None
+
+
+def _al_pasar(widget: tk.Widget, encima: str, normal: str) -> None:
+    """Cambia el fondo al pasar el ratón. Dice que se puede pulsar."""
+    widget.bind("<Enter>", lambda _e: widget.configure(background=encima), add="+")
+    widget.bind("<Leave>", lambda _e: widget.configure(background=normal), add="+")
 
 
 def etiqueta_campo(padre, texto: str, fondo: str = "Tarjeta") -> ttk.Label:
@@ -608,6 +823,23 @@ def _dibujar_pantalla(lienzo, x, y, lado, color):
                        fill=color, width=grosor, capstyle="round")
 
 
+def _dibujar_calendario(lienzo, x, y, lado, color):
+    """Una hojita de calendario: el marco, la barra de arriba y dos anillas."""
+    ancho = alto = lado * 0.78
+    grosor = max(1.2, lado / 14)
+    izquierda, arriba = x - ancho / 2, y - alto / 2 + lado * 0.06
+    lienzo.create_rectangle(izquierda, arriba, izquierda + ancho, arriba + alto,
+                            outline=color, width=grosor)
+    # La franja del encabezado, que es lo que lo hace reconocible de un vistazo.
+    lienzo.create_line(izquierda, arriba + alto * 0.3,
+                       izquierda + ancho, arriba + alto * 0.3,
+                       fill=color, width=grosor)
+    for lado_anilla in (0.3, 0.7):
+        equis = izquierda + ancho * lado_anilla
+        lienzo.create_line(equis, arriba - lado * 0.13, equis, arriba + alto * 0.1,
+                           fill=color, width=grosor, capstyle="round")
+
+
 class BotonIcono(tk.Canvas):
     """Un botón cuadrado con el icono dibujado, para la barra de arriba."""
 
@@ -654,5 +886,7 @@ class BotonIcono(tk.Canvas):
             _dibujar_sol(self, centro, centro, tamano, color)
         elif self.icono == "luna":
             _dibujar_luna(self, centro, centro, tamano, color, fondo)
+        elif self.icono == "calendario":
+            _dibujar_calendario(self, centro, centro, tamano, color)
         else:
             _dibujar_pantalla(self, centro, centro, tamano, color)
