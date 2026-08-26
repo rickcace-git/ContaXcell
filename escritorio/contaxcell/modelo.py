@@ -66,6 +66,10 @@ MESES_CORTOS = (
     "jul", "ago", "sep", "oct", "nov", "dic",
 )
 
+# Categorías de activo que se ofrecen al crear uno. No son obligatorias ni
+# cerradas: se puede escribir cualquier otra.
+CATEGORIAS_ACTIVO = ("Indexados", "Acciones sueltas", "Cripto", "Bonos", "Oro")
+
 CATEGORIAS_INICIALES = (
     ("Sueldo", INGRESO, 0),
     ("Otros Ingresos", INGRESO, 0),
@@ -95,6 +99,23 @@ def redondea(valor) -> float:
     if numero != numero or numero in (float("inf"), float("-inf")):
         return 0.0
     return float(Decimal(str(numero)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def redondea_titulos(valor) -> float:
+    """Seis decimales, que es lo que hace falta para las participaciones.
+
+    Los títulos no son dinero: un fondo indexado se compra por fracciones, y
+    con dos decimales una compra de 0,795628 participaciones se quedaría en
+    0,80 y todas las cuentas saldrían torcidas.
+    """
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        return 0.0
+    if numero != numero or numero in (float("inf"), float("-inf")):
+        return 0.0
+    return float(Decimal(str(numero)).quantize(Decimal("0.000001"),
+                                               rounding=ROUND_HALF_UP))
 
 
 def es_fecha(texto) -> bool:
@@ -197,6 +218,12 @@ class Activo:
     aportacion_inicial: float = 0.0
     valor_mercado: float = 0.0
     ultima_valoracion: str = ""
+    # Para agrupar la cartera: «Indexados», «Acciones sueltas», «Cripto».
+    categoria: str = ""
+    # El código con el que lo llama el banco. No se enseña en ningún sitio:
+    # sirve para reconocer el activo al importar un extracto y no crear uno
+    # nuevo cada vez que el nombre venga escrito de otra manera.
+    isin: str = ""
 
     @classmethod
     def desde_json(cls, d: dict) -> "Activo":
@@ -206,6 +233,8 @@ class Activo:
             aportacion_inicial=redondea(d.get("aportacion_inicial")),
             valor_mercado=redondea(d.get("valor_mercado")),
             ultima_valoracion=fecha if es_fecha(fecha) else "",
+            categoria=_texto(d.get("categoria")),
+            isin=_texto(d.get("isin")).upper(),
         )
 
 
@@ -219,6 +248,9 @@ class Movimiento:
     # Si lo apuntó solo un pago periódico, el id de ese periódico. A partir
     # de aquí es un movimiento como cualquier otro: se edita y se borra igual.
     origen: str = ""
+    # Participaciones que compró esta aportación. Solo lo traen las compras
+    # importadas del banco: a mano casi nunca se sabe, y se queda en cero.
+    titulos: float = 0.0
     id: str = field(default_factory=nuevo_id)
 
     @classmethod
@@ -233,6 +265,7 @@ class Movimiento:
             importe=abs(redondea(d.get("importe"))),
             activo=_texto(d.get("activo")),
             origen=_texto(d.get("origen")),
+            titulos=redondea_titulos(d.get("titulos")),
         )
 
 
@@ -245,6 +278,9 @@ class AportacionGratis:
     activo: str = ""
     concepto: str = ""
     importe: float = 0.0
+    # Si el regalo se reinvirtió, las participaciones que compró. Cuentan
+    # igual que las de una compra: son títulos que tienes.
+    titulos: float = 0.0
     id: str = field(default_factory=nuevo_id)
 
     @classmethod
@@ -255,6 +291,7 @@ class AportacionGratis:
             activo=_texto(d.get("activo")),
             concepto=_texto(d.get("concepto")),
             importe=redondea(d.get("importe")),
+            titulos=redondea_titulos(d.get("titulos")),
         )
 
 
@@ -454,6 +491,20 @@ class Libro:
     def activo(self, nombre: str) -> Activo | None:
         for a in self.activos:
             if a.nombre == nombre:
+                return a
+        return None
+
+    def activo_por_isin(self, isin: str) -> Activo | None:
+        """El activo con ese código del banco, si ya lo conocemos.
+
+        Es lo que evita que importar el extracto dos veces cree dos fondos
+        distintos porque el nombre venía escrito de otra manera.
+        """
+        codigo = _texto(isin).upper()
+        if not codigo:
+            return None
+        for a in self.activos:
+            if a.isin == codigo:
                 return a
         return None
 

@@ -19,7 +19,8 @@ from datetime import date
 from .modelo import (
     GASTO, INGRESO, INVERSION, MESES, MESES_CORTOS, PASO, VECES_AL_ANIO,
     Libro, Movimiento, Periodico,
-    anio_de, clave_mes, es_fecha, hoy, mes_de, redondea, suma_dias, suma_meses,
+    anio_de, clave_mes, es_fecha, hoy, mes_de, redondea, redondea_titulos,
+    suma_dias, suma_meses,
 )
 
 
@@ -327,6 +328,32 @@ class FilaActivo:
     aportado_gratis: float
     valor_mercado: float
     ultima_valoracion: str
+    categoria: str = ""
+    # Participaciones que se tienen, sumando las compras que las traían.
+    titulos: float = 0.0
+    # Nadie ha dicho todavía lo que vale. No es lo mismo que valer cero: si se
+    # tomara por cero, un activo recién importado diría que has perdido todo
+    # lo que metiste. Mientras no se diga otra cosa se da por hecho que vale
+    # lo aportado, y así lo generado es cero en vez de ser una alarma falsa.
+    sin_valorar: bool = False
+
+    @property
+    def precio_hoy(self) -> float:
+        """Lo que vale hoy una participación.
+
+        No hay que apuntarlo: sale de dividir lo que vale el activo entre las
+        participaciones que hay. Con este precio ya se puede saber cómo va
+        cada compra por separado, sin esperar a ninguna API. Cuando llegue,
+        lo único que cambia es de dónde sale el número.
+        """
+        return self.valor_mercado / self.titulos if self.titulos > 0 else 0.0
+
+    @property
+    def hay_titulos(self) -> bool:
+        """Si se sabe en participaciones o solo en euros. Las aportaciones
+        apuntadas a mano no las traen, y entonces no hay evolución por
+        compra que enseñar."""
+        return self.titulos > 0
 
     @property
     def total_aportado(self) -> float:
@@ -405,6 +432,19 @@ class Cartera:
         el mercado más lo que te han regalado."""
         return redondea(self.generado + self.aportado_gratis)
 
+    @property
+    def sin_valorar(self) -> list[FilaActivo]:
+        """Los activos de los que todavía no se ha dicho lo que valen.
+
+        Mientras estén así, su rentabilidad sale como cero y la de la cartera
+        entera se queda corta. Por eso la pantalla avisa.
+        """
+        return [a for a in self.activos if a.sin_valorar]
+
+    @property
+    def aportado_sin_valorar(self) -> float:
+        return redondea(sum(a.total_aportado for a in self.sin_valorar))
+
 
 def cartera(libro: Libro) -> Cartera:
     aportaciones = [m for m in libro.movimientos if libro.tipo_de(m.categoria) == INVERSION]
@@ -413,14 +453,30 @@ def cartera(libro: Libro) -> Cartera:
     for activo in libro.activos:
         del_banco = redondea(sum(m.importe for m in aportaciones if m.activo == activo.nombre))
         gratis = redondea(sum(g.importe for g in libro.aportaciones_gratis if g.activo == activo.nombre))
-        activos.append(FilaActivo(
+        # Los títulos que compró una bonificación reinvertida son títulos
+        # igual que los demás: cuentan para el precio y para lo que vale.
+        titulos = redondea_titulos(
+            sum(m.titulos for m in aportaciones if m.activo == activo.nombre)
+            + sum(g.titulos for g in libro.aportaciones_gratis
+                  if g.activo == activo.nombre))
+        # Sin fecha de valoración y sin valor es que nunca se ha dicho lo que
+        # vale, no que valga cero. Poner un cero y una fecha sí es decir que
+        # se ha ido a cero, y eso se respeta.
+        sin_valorar = not activo.ultima_valoracion and not activo.valor_mercado
+        fila = FilaActivo(
             nombre=activo.nombre,
             aportacion_inicial=activo.aportacion_inicial,
             aportado_banco=del_banco,
             aportado_gratis=gratis,
             valor_mercado=activo.valor_mercado,
             ultima_valoracion=activo.ultima_valoracion,
-        ))
+            categoria=activo.categoria,
+            titulos=titulos,
+            sin_valorar=sin_valorar,
+        )
+        if sin_valorar:
+            fila.valor_mercado = fila.total_aportado
+        activos.append(fila)
 
     resultado = Cartera(
         activos=activos,
@@ -699,3 +755,117 @@ def resumen_periodicos(libro: Libro, fecha: str = "") -> ResumenPeriodicos:
 def apuntados_por(libro: Libro, periodico: Periodico) -> int:
     """Cuántos movimientos del libro los apuntó este periódico."""
     return sum(1 for m in libro.movimientos if m.origen == periodico.id)
+
+
+# --- las compras, una a una ------------------------------------------------
+
+@dataclass
+class Compra:
+    """Una aportación concreta con lo que compró y lo que vale hoy.
+
+    Es lo que contesta a «los mismos 100 € de cada semana, ¿cómo van?».
+    Cien euros compran más participaciones cuando el fondo está barato, y
+    esa compra sube más que la de la semana en que estaba caro.
+    """
+
+    id: str
+    fecha: str
+    descripcion: str
+    importe: float
+    titulos: float
+    precio_hoy: float
+
+    @property
+    def precio_pagado(self) -> float:
+        """Lo que costó cada participación aquel día."""
+        return self.importe / self.titulos if self.titulos > 0 else 0.0
+
+    @property
+    def valor_hoy(self) -> float:
+        return redondea(self.titulos * self.precio_hoy)
+
+    @property
+    def generado(self) -> float:
+        return redondea(self.valor_hoy - self.importe)
+
+    @property
+    def rentabilidad(self) -> float:
+        return self.generado / self.importe if self.importe > 0 else 0.0
+
+
+def compras_de(libro: Libro, nombre_activo: str) -> list[Compra]:
+    """Las aportaciones a ese activo que dijeron cuántos títulos compraban.
+
+    Las apuntadas a mano no lo dicen y se quedan fuera: sin participaciones
+    no se puede saber cómo ha ido esa compra en concreto, solo cuánto se
+    metió. Van de la más reciente a la más antigua.
+    """
+    fila = next((a for a in cartera(libro).activos if a.nombre == nombre_activo), None)
+    if fila is None:
+        return []
+
+    # Si nadie ha dicho lo que vale el activo, no hay precio de hoy y no se
+    # inventa: para la cartera se da por hecho que vale lo aportado, pero eso
+    # es el precio medio, y usarlo aquí haría que la compra barata saliera
+    # ganando y la cara perdiendo por pura aritmética.
+    precio = 0.0 if fila.sin_valorar else fila.precio_hoy
+    compras = [
+        Compra(id=m.id, fecha=m.fecha, descripcion=m.descripcion,
+               importe=m.importe, titulos=m.titulos, precio_hoy=precio)
+        for m in libro.movimientos
+        if m.activo == nombre_activo and m.titulos > 0
+        and libro.tipo_de(m.categoria) == INVERSION
+    ]
+    return sorted(compras, key=lambda c: (c.fecha, c.id), reverse=True)
+
+
+@dataclass
+class GrupoCartera:
+    """Los activos de una misma categoría, sumados."""
+
+    categoria: str
+    activos: list[FilaActivo]
+    # Qué parte de la cartera es este grupo. Lo rellena `por_categoria`, que
+    # es quien conoce el total.
+    peso: float = 0.0
+
+    def _suma(self, campo: str) -> float:
+        return redondea(sum(getattr(a, campo) for a in self.activos))
+
+    @property
+    def total_aportado(self) -> float:
+        return self._suma("total_aportado")
+
+    @property
+    def valor_mercado(self) -> float:
+        return self._suma("valor_mercado")
+
+    @property
+    def generado(self) -> float:
+        return redondea(self.valor_mercado - self.total_aportado)
+
+    @property
+    def rentabilidad(self) -> float:
+        return self.generado / self.total_aportado if self.total_aportado > 0 else 0.0
+
+
+SIN_CATEGORIA = "Sin categoría"
+
+
+def por_categoria(cartera_actual: Cartera) -> list[GrupoCartera]:
+    """La cartera agrupada, de más dinero a menos.
+
+    Sirve para ver cuánto hay en índices y cuánto en acciones sueltas aunque
+    haya diez fondos distintos. Lo que no tiene categoría se agrupa aparte en
+    vez de esconderse.
+    """
+    grupos: dict[str, list[FilaActivo]] = {}
+    for activo in cartera_actual.activos:
+        grupos.setdefault(activo.categoria or SIN_CATEGORIA, []).append(activo)
+
+    total = cartera_actual.valor_mercado
+    resultado = [GrupoCartera(categoria=nombre, activos=lista)
+                 for nombre, lista in grupos.items()]
+    for grupo in resultado:
+        grupo.peso = grupo.valor_mercado / total if total > 0 else 0.0
+    return sorted(resultado, key=lambda g: -g.valor_mercado)
