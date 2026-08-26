@@ -61,6 +61,16 @@ To_Do_List.md        lo que queda por hacer
   cada 500 ms desde el hilo principal.
 - Las vistas **nunca** modifican el libro por su cuenta: llaman a
   `app.cambiar(funcion, mensaje)`, que aplica, guarda en disco y refresca.
+- **Un periódico no es un movimiento**: es la receta para fabricarlos.
+  `calculos.apuntar_pendientes` los convierte en movimientos normales al
+  abrir, y solo hasta hoy, nunca por delante. Cada uno guarda `apuntado_hasta`
+  y esa marca solo avanza: es lo que impide que un movimiento borrado a mano
+  vuelva a aparecer y que reencender uno apagado recupere los meses de en
+  medio. El día sale de `desde` (la fecha del primer pago) y se cuenta siempre
+  desde ahí, para que un recibo del 31 vuelva al 31 después de febrero. Con
+  `hasta` puesta se acaba solo al llegar: eso es **terminado**, que no es lo
+  mismo que **apagado** (el apagado puede volver). `calculos.esta_vigente`
+  distingue los tres estados y es lo que decide qué suma en el total del mes.
 
 ## Comandos
 
@@ -68,7 +78,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      108 pruebas, ~7 s
+python -m unittest discover -s pruebas      178 pruebas, ~7 s
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
 python pruebas/ver.py --pestana resumen --captura foto.png
 python empaquetar.py                        genera el .exe y el .zip
