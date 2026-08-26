@@ -46,6 +46,8 @@ class Fecha:
     etiqueta: str
     valor: str = ""
     ayuda: str = ""
+    # Si es opcional, dejarla en blanco vale y devuelve cadena vacía.
+    opcional: bool = False
 
 
 @dataclass
@@ -87,6 +89,10 @@ class Formulario(tk.Toplevel):
         self._controles: dict[str, tk.Widget] = {}
         self._bloques: dict[str, ttk.Frame] = {}
         self._orden: list[str] = []
+        # Qué campos están puestos. Se lleva a mano y no se le pregunta a
+        # tkinter: mientras se construye el formulario la ventana todavía no
+        # está dibujada y `winfo_ismapped` contesta que no a todo.
+        self._visible: dict[str, bool] = {}
 
         cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=18)
         cuerpo.pack(fill="both", expand=True)
@@ -127,6 +133,7 @@ class Formulario(tk.Toplevel):
             if campo.clave:
                 self._bloques[campo.clave] = bloque
                 self._orden.append(campo.clave)
+                self._visible[campo.clave] = True
             return
 
         widgets.etiqueta_campo(bloque, campo.etiqueta)
@@ -166,6 +173,7 @@ class Formulario(tk.Toplevel):
         self._controles[campo.clave] = control
         self._bloques[campo.clave] = bloque
         self._orden.append(campo.clave)
+        self._visible[campo.clave] = True
 
     def _cambio(self) -> None:
         if self.al_cambiar:
@@ -177,11 +185,13 @@ class Formulario(tk.Toplevel):
         variable = self._variables.get(clave)
         if variable is None:
             return ""
-        texto = variable.get()
         # El texto de ejemplo en gris no es algo que haya escrito el usuario.
-        if getattr(self._controles.get(clave), "pista", None) == texto:
+        # Se pregunta si está puesto, no se compara con lo escrito: si no,
+        # teclear «Gimnasio» en un campo cuyo ejemplo es «Gimnasio» pasaría
+        # por no haber escrito nada.
+        if getattr(self._controles.get(clave), "pista_puesta", False):
             return ""
-        return texto
+        return variable.get()
 
     def poner_opciones(self, clave: str, opciones: list[str], vacio: str | None = None) -> None:
         control = self._controles.get(clave)
@@ -195,22 +205,27 @@ class Formulario(tk.Toplevel):
     def mostrar_campo(self, clave: str, visible: bool) -> None:
         """Enseña u oculta un campo sin perder su sitio en el orden."""
         bloque = self._bloques.get(clave)
-        if bloque is None:
+        if bloque is None or self._visible.get(clave, True) == visible:
             return
-        if visible and not bloque.winfo_ismapped():
-            posicion = self._orden.index(clave)
-            despues = None
-            for siguiente in self._orden[posicion + 1:]:
-                candidato = self._bloques.get(siguiente)
-                if candidato is not None and candidato.winfo_ismapped():
-                    despues = candidato
-                    break
-            if despues is not None:
-                bloque.pack(fill="x", before=despues)
-            else:
-                bloque.pack(fill="x")
-        elif not visible and bloque.winfo_ismapped():
+        self._visible[clave] = visible
+
+        if not visible:
             bloque.pack_forget()
+            return
+
+        # Vuelve a su hueco, delante del primer campo visible que va después.
+        posicion = self._orden.index(clave)
+        despues = next((self._bloques[siguiente]
+                        for siguiente in self._orden[posicion + 1:]
+                        if siguiente in self._bloques and self._visible.get(siguiente)),
+                       None)
+        if despues is not None:
+            bloque.pack(fill="x", before=despues)
+        else:
+            bloque.pack(fill="x")
+
+    def campo_visible(self, clave: str) -> bool:
+        return self._visible.get(clave, False)
 
     # --- validación y cierre ---
 
@@ -233,6 +248,9 @@ class Formulario(tk.Toplevel):
                 recogido[campo.clave] = numero
 
             elif isinstance(campo, Fecha):
+                if campo.opcional and not crudo.strip():
+                    recogido[campo.clave] = ""
+                    continue
                 iso = texto_a_fecha(crudo)
                 if iso is None:
                     return self._fallo(f"«{campo.etiqueta}» no es una fecha válida. "
@@ -283,28 +301,36 @@ class Formulario(tk.Toplevel):
 
 
 def _pista(control: ttk.Entry, variable: tk.StringVar, texto: str) -> None:
-    """Texto de ejemplo en gris que desaparece al escribir."""
+    """Texto de ejemplo en gris que desaparece al escribir.
+
+    La casilla lleva apuntado si lo que se ve es el ejemplo (`pista_puesta`)
+    en vez de reconocerlo comparando el texto. Comparándolo, escribir el
+    ejemplo se tomaba por no haber escrito nada, y llamar «Gimnasio» a un
+    gimnasio o «Fondo indexado» a un fondo indexado daba «no puede quedar
+    vacío».
+    """
     gris, normal = widgets.PALETA.suave, widgets.PALETA.texto
 
     def poner():
         if not variable.get():
             variable.set(texto)
             control.configure(foreground=gris)
+            control.pista_puesta = True
 
     def quitar(_evento=None):
-        if variable.get() == texto:
+        if control.pista_puesta:
             variable.set("")
+            control.pista_puesta = False
         control.configure(foreground=normal)
 
     def revisar(_evento=None):
         if not variable.get():
             poner()
 
+    control.pista_puesta = False
     poner()
     control.bind("<FocusIn>", quitar)
     control.bind("<FocusOut>", revisar)
-    # Lo que quede como pista no cuenta como valor escrito.
-    control.pista = texto
 
 
 def _centrar(ventana: tk.Toplevel) -> None:

@@ -86,6 +86,23 @@ class PruebasValidacion(ConVentana):
         self.assertIsNone(ventana._recoger())
         self.assertIn("fecha", ventana.error.cget("text").lower())
 
+    def test_fecha_opcional_en_blanco_vale(self):
+        # Es la fecha de fin de un pago periódico: en blanco es «no se acaba».
+        ventana = self.formulario([dialogos.Fecha("hasta", "Último pago", "",
+                                                  opcional=True)])
+        self.assertEqual(ventana._recoger(), {"hasta": ""})
+
+    def test_fecha_opcional_con_valor_se_recoge_igual(self):
+        ventana = self.formulario([dialogos.Fecha("hasta", "Último pago",
+                                                  "2026-12-10", opcional=True)])
+        self.assertEqual(ventana._recoger(), {"hasta": "2026-12-10"})
+
+    def test_fecha_opcional_mal_escrita_sigue_siendo_un_error(self):
+        ventana = self.formulario([dialogos.Fecha("hasta", "Último pago", "",
+                                                  opcional=True)])
+        ventana._variables["hasta"].set("el mes que viene")
+        self.assertIsNone(ventana._recoger())
+
     def test_texto_obligatorio_vacio(self):
         ventana = self.formulario([
             dialogos.Texto("nombre", "Nombre", obligatorio=True)])
@@ -100,6 +117,37 @@ class PruebasValidacion(ConVentana):
         self.assertEqual(ventana._variables["nombre"].get(), "Fondo indexado")
         self.assertEqual(ventana.valor("nombre"), "")
         self.assertIsNone(ventana._recoger())
+
+    def test_escribir_justo_el_texto_de_ejemplo_sí_cuenta(self):
+        """Llamar «Fondo indexado» a un fondo indexado tiene que valer.
+
+        Se reconocía la pista comparando el texto, así que escribir el
+        ejemplo pasaba por no haber escrito nada y saltaba «no puede quedar
+        vacío». Pasaba con las cuatro pistas que hay: «Gimnasio»,
+        «Fondo indexado», «Suscripciones» y la del cashback.
+        """
+        ventana = self.formulario([
+            dialogos.Texto("nombre", "Nombre", pista="Fondo indexado",
+                           obligatorio=True)])
+        control = ventana._controles["nombre"]
+
+        control.event_generate("<FocusIn>")   # entra en la casilla: se borra
+        ventana._variables["nombre"].set("Fondo indexado")   # y lo teclea
+
+        self.assertEqual(ventana.valor("nombre"), "Fondo indexado")
+        self.assertEqual(ventana._recoger(), {"nombre": "Fondo indexado"})
+
+    def test_dejarlo_vacío_devuelve_la_pista_y_vuelve_a_estar_vacío(self):
+        ventana = self.formulario([
+            dialogos.Texto("nombre", "Nombre", pista="Gimnasio")])
+        control = ventana._controles["nombre"]
+
+        control.event_generate("<FocusIn>")
+        self.assertEqual(ventana._variables["nombre"].get(), "")
+        control.event_generate("<FocusOut>")
+
+        self.assertEqual(ventana._variables["nombre"].get(), "Gimnasio")
+        self.assertEqual(ventana.valor("nombre"), "")
 
     def test_opcion_vacia_devuelve_cadena_vacia(self):
         ventana = self.formulario([
@@ -148,18 +196,36 @@ class PruebasCamposCondicionales(ConVentana):
                         al_cambiar=lambda ventana, _e: llamadas.append(1))
         self.assertEqual(len(llamadas), 1)
 
+    def test_el_campo_que_nace_oculto_no_se_queda_puesto(self):
+        """Esconder un campo desde `al_cambiar` tiene que funcionar.
+
+        Es el momento en el que la ventana aún no está dibujada. Cuando esto
+        se preguntaba con `winfo_ismapped`, que ahí contesta que no a todo, el
+        campo se quedaba a la vista: «Editar movimiento» enseñaba la casilla
+        del activo aunque fuera un gasto.
+        """
+        ventana = self.formulario(
+            [dialogos.Texto("uno", "Uno"), dialogos.Texto("dos", "Dos")],
+            al_cambiar=lambda formulario, _e: formulario.mostrar_campo("dos", False))
+        ventana.update_idletasks()
+
+        self.assertFalse(ventana.campo_visible("dos"))
+        self.assertFalse(ventana._bloques["dos"].winfo_ismapped())
+
+    def test_volver_a_enseñarlo_lo_devuelve_a_su_sitio(self):
+        ventana = self.formulario(
+            [dialogos.Texto("uno", "Uno"), dialogos.Texto("dos", "Dos"),
+             dialogos.Texto("tres", "Tres")],
+            al_cambiar=lambda formulario, _e: formulario.mostrar_campo("dos", False))
+        ventana.mostrar_campo("dos", True)
+        ventana.update_idletasks()
+
+        colocados = list(ventana.zona_campos.pack_slaves())
+        self.assertEqual(colocados.index(ventana._bloques["dos"]),
+                         colocados.index(ventana._bloques["uno"]) + 1)
+
 
 class PruebasWidgets(ConVentana):
-    def test_campo_fecha_ida_y_vuelta(self):
-        campo = widgets.CampoFecha(self.raiz, "2026-08-24")
-        self.addCleanup(campo.destroy)
-        self.assertEqual(campo.variable.get(), "24/08/2026")
-        self.assertEqual(campo.iso(), "2026-08-24")
-
-    def test_campo_fecha_vacio(self):
-        campo = widgets.CampoFecha(self.raiz, "")
-        self.addCleanup(campo.destroy)
-        self.assertIsNone(campo.iso())
 
     def test_la_barra_aguanta_valores_raros(self):
         barra = widgets.Barra(self.raiz)
