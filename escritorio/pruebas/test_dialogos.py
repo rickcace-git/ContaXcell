@@ -87,6 +87,27 @@ class PruebasValidacion(ConVentana):
         self.assertIsNone(ventana._recoger())
         self.assertIn("fecha", ventana.error.cget("text").lower())
 
+    def test_importe_opcional_en_blanco_es_none_y_no_cero(self):
+        """«No lo sé» no es «vale cero», y hay que poder distinguirlo.
+
+        Rellenar el valor de un fondo con lo invertido apuntaba una
+        valoración que nadie había hecho: el fondo decía valer justo lo que
+        costó, y cualquier diferencia salía como pérdida.
+        """
+        ventana = self.formulario([
+            dialogos.Importe("valor", "Valor de mercado hoy", None, opcional=True)])
+        self.assertIsNone(ventana._recoger()["valor"])
+
+    def test_importe_opcional_con_un_cero_escrito_sí_es_cero(self):
+        ventana = self.formulario([
+            dialogos.Importe("valor", "Valor de mercado hoy", None, opcional=True)])
+        ventana._variables["valor"].set("0")
+        self.assertEqual(ventana._recoger()["valor"], 0.0)
+
+    def test_un_importe_normal_en_blanco_sigue_siendo_un_error(self):
+        ventana = self.formulario([dialogos.Importe("importe", "Importe")])
+        self.assertIsNone(ventana._recoger())
+
     def test_fecha_opcional_en_blanco_vale(self):
         # Es la fecha de fin de un pago periódico: en blanco es «no se acaba».
         ventana = self.formulario([dialogos.Fecha("hasta", "Último pago", "",

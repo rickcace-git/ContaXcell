@@ -38,6 +38,10 @@ class Importe:
     ayuda: str = ""
     permitir_cero: bool = True
     permitir_negativo: bool = False
+    # Si es opcional, dejarlo en blanco vale y devuelve None. Sirve para lo
+    # que no se sabe todavía: «no lo sé» no es lo mismo que «vale cero», y
+    # un cero devuelto aquí se confundiría con uno escrito a mano.
+    opcional: bool = False
 
 
 @dataclass
@@ -237,6 +241,11 @@ class Formulario(tk.Toplevel):
             crudo = self.valor(campo.clave)
 
             if isinstance(campo, Importe):
+                if campo.opcional and not crudo.strip():
+                    # None y no cero: «no lo sé» no es «vale cero», y quien
+                    # lo reciba tiene que poder distinguirlo.
+                    recogido[campo.clave] = None
+                    continue
                 numero = texto_a_numero(crudo)
                 if numero is None:
                     return self._fallo(f"«{campo.etiqueta}» tiene que ser un número.")
