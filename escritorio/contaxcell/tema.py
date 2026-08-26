@@ -16,9 +16,24 @@ from tkinter import ttk
 
 @dataclass(frozen=True)
 class Paleta:
+    """Los colores de la ventana.
+
+    Los cuatro grises van en escalera y cada escalón se tiene que notar:
+    `fondo` (la página) es el más oscuro, encima va `tarjeta`, dentro de ella
+    `hundido` para las casillas, y `boton` más marcado todavía para que un
+    botón se distinga de lo que tiene detrás sin necesidad de mirarlo dos
+    veces. Si dos escalones se acercan demasiado, todo se vuelve una masa
+    blanca y no se sabe qué se puede pulsar.
+
+    Los grises tiran ligeramente a azul, hacia el color de acento, para que
+    parezcan elegidos y no un gris de fábrica.
+    """
+
     fondo: str
     tarjeta: str
     hundido: str
+    boton: str
+    boton_encima: str
     texto: str
     suave: str
     borde: str
@@ -28,22 +43,26 @@ class Paleta:
     acento: str
     aviso: str
     seleccion: str
+    campo: str
     oscuro: bool
 
 
 CLARA = Paleta(
-    fondo="#f4f5f7",
-    tarjeta="#ffffff",
-    hundido="#eef0f4",
+    fondo="#d6dae2",
+    tarjeta="#f8f9fb",
+    hundido="#e9ecf1",
+    boton="#dbdfe7",
+    boton_encima="#c8ced9",
     texto="#1a1d21",
-    suave="#6b7280",
-    borde="#e2e5ea",
-    gasto="#c93b3b",
-    ingreso="#1a7f49",
-    inversion="#7040b8",
+    suave="#5c6470",
+    borde="#c3c9d4",
+    gasto="#c02f2f",
+    ingreso="#15733f",
+    inversion="#6836ad",
     acento="#2f6feb",
-    aviso="#a5730a",
-    seleccion="#dbe6fd",
+    aviso="#96680a",
+    seleccion="#cddffb",
+    campo="#ffffff",
     oscuro=False,
 )
 
@@ -51,15 +70,18 @@ OSCURA = Paleta(
     fondo="#15181c",
     tarjeta="#1e2228",
     hundido="#262b32",
+    boton="#333a44",
+    boton_encima="#414954",
     texto="#eceef1",
     suave="#9aa2ad",
-    borde="#2e343c",
+    borde="#3a414b",
     gasto="#f0736f",
     ingreso="#4cc98a",
     inversion="#b492e8",
     acento="#6c9bff",
     aviso="#e0b84c",
     seleccion="#2c3a54",
+    campo="#1a1e23",
     oscuro=True,
 )
 
@@ -176,38 +198,55 @@ def aplicar(raiz: tk.Misc, paleta: Paleta, fuentes: Fuentes) -> ttk.Style:
 
 
 def _botones(estilo: ttk.Style, p: Paleta, fuentes: Fuentes) -> None:
-    estilo.configure("TButton", background=p.hundido, foreground=p.texto,
+    # Un botón normal tiene color propio y borde marcado: es lo que lo separa
+    # de la tarjeta que tiene detrás y lo que dice que se puede pulsar.
+    estilo.configure("TButton", background=p.boton, foreground=p.texto,
                      font=fuentes.normal, relief="flat", padding=(12, 6),
-                     borderwidth=1, bordercolor=p.borde)
+                     borderwidth=1, bordercolor=p.borde,
+                     lightcolor=p.boton, darkcolor=p.boton)
     estilo.map("TButton",
-               background=[("pressed", p.borde), ("active", p.borde), ("disabled", p.hundido)],
+               background=[("pressed", p.boton_encima), ("active", p.boton_encima),
+                           ("disabled", p.hundido)],
+               lightcolor=[("pressed", p.boton_encima), ("active", p.boton_encima)],
+               darkcolor=[("pressed", p.boton_encima), ("active", p.boton_encima)],
+               bordercolor=[("active", p.suave)],
                foreground=[("disabled", p.suave)])
 
     estilo.configure("Principal.TButton", background=p.acento, foreground="#ffffff",
-                     font=fuentes.negrita, padding=(12, 9), bordercolor=p.acento)
+                     font=fuentes.negrita, padding=(12, 9), bordercolor=p.acento,
+                     lightcolor=p.acento, darkcolor=p.acento)
     estilo.map("Principal.TButton",
                background=[("pressed", p.acento), ("active", p.acento), ("disabled", p.borde)],
                foreground=[("disabled", p.suave)])
 
-    estilo.configure("Peligro.TButton", background=p.hundido, foreground=p.gasto)
+    estilo.configure("Peligro.TButton", background=p.boton, foreground=p.gasto,
+                     lightcolor=p.boton, darkcolor=p.boton)
     estilo.map("Peligro.TButton",
                background=[("active", p.gasto), ("pressed", p.gasto)],
+               lightcolor=[("active", p.gasto), ("pressed", p.gasto)],
+               darkcolor=[("active", p.gasto), ("pressed", p.gasto)],
+               bordercolor=[("active", p.gasto), ("pressed", p.gasto)],
                foreground=[("active", "#ffffff"), ("pressed", "#ffffff")])
 
     # Botones-icono de la barra superior: cuadrados y sin relleno.
     estilo.configure("Icono.TButton", background=p.tarjeta, foreground=p.suave,
                      padding=(8, 5), bordercolor=p.borde)
     estilo.map("Icono.TButton",
-               background=[("active", p.hundido), ("pressed", p.hundido)],
+               background=[("active", p.boton), ("pressed", p.boton)],
                foreground=[("active", p.texto)])
 
     # Los dos botones Gasto / Ingreso del formulario de apuntar.
     for nombre, color in (("Gasto", p.gasto), ("Ingreso", p.ingreso)):
-        estilo.configure(f"{nombre}Apagado.TButton", background=p.tarjeta,
+        estilo.configure(f"{nombre}Apagado.TButton", background=p.boton,
                          foreground=p.suave, font=fuentes.negrita, padding=(12, 9),
-                         bordercolor=p.borde, borderwidth=2)
+                         bordercolor=p.borde, borderwidth=2,
+                         lightcolor=p.boton, darkcolor=p.boton)
         estilo.map(f"{nombre}Apagado.TButton",
-                   background=[("active", p.hundido)], foreground=[("active", color)])
+                   background=[("active", p.boton_encima)],
+                   lightcolor=[("active", p.boton_encima)],
+                   darkcolor=[("active", p.boton_encima)],
+                   bordercolor=[("active", color)],
+                   foreground=[("active", color)])
         estilo.configure(f"{nombre}Encendido.TButton", background=color,
                          foreground="#ffffff", font=fuentes.negrita, padding=(12, 9),
                          bordercolor=color, borderwidth=2)
@@ -222,7 +261,7 @@ def _botones(estilo: ttk.Style, p: Paleta, fuentes: Fuentes) -> None:
 
 
 def _entradas(estilo: ttk.Style, p: Paleta, fuentes: Fuentes) -> None:
-    campo = p.fondo if not p.oscuro else p.hundido
+    campo = p.campo
     estilo.configure("TEntry", fieldbackground=campo, background=campo,
                      foreground=p.texto, insertcolor=p.texto, bordercolor=p.borde,
                      lightcolor=p.borde, darkcolor=p.borde, borderwidth=1,

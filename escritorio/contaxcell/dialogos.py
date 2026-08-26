@@ -38,6 +38,10 @@ class Importe:
     ayuda: str = ""
     permitir_cero: bool = True
     permitir_negativo: bool = False
+    # Si es opcional, dejarlo en blanco vale y devuelve None. Sirve para lo
+    # que no se sabe todavía: «no lo sé» no es lo mismo que «vale cero», y
+    # un cero devuelto aquí se confundiría con uno escrito a mano.
+    opcional: bool = False
 
 
 @dataclass
@@ -46,6 +50,8 @@ class Fecha:
     etiqueta: str
     valor: str = ""
     ayuda: str = ""
+    # Si es opcional, dejarla en blanco vale y devuelve cadena vacía.
+    opcional: bool = False
 
 
 @dataclass
@@ -87,6 +93,10 @@ class Formulario(tk.Toplevel):
         self._controles: dict[str, tk.Widget] = {}
         self._bloques: dict[str, ttk.Frame] = {}
         self._orden: list[str] = []
+        # Qué campos están puestos. Se lleva a mano y no se le pregunta a
+        # tkinter: mientras se construye el formulario la ventana todavía no
+        # está dibujada y `winfo_ismapped` contesta que no a todo.
+        self._visible: dict[str, bool] = {}
 
         cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=18)
         cuerpo.pack(fill="both", expand=True)
@@ -127,6 +137,7 @@ class Formulario(tk.Toplevel):
             if campo.clave:
                 self._bloques[campo.clave] = bloque
                 self._orden.append(campo.clave)
+                self._visible[campo.clave] = True
             return
 
         widgets.etiqueta_campo(bloque, campo.etiqueta)
@@ -166,6 +177,7 @@ class Formulario(tk.Toplevel):
         self._controles[campo.clave] = control
         self._bloques[campo.clave] = bloque
         self._orden.append(campo.clave)
+        self._visible[campo.clave] = True
 
     def _cambio(self) -> None:
         if self.al_cambiar:
@@ -177,11 +189,13 @@ class Formulario(tk.Toplevel):
         variable = self._variables.get(clave)
         if variable is None:
             return ""
-        texto = variable.get()
         # El texto de ejemplo en gris no es algo que haya escrito el usuario.
-        if getattr(self._controles.get(clave), "pista", None) == texto:
+        # Se pregunta si está puesto, no se compara con lo escrito: si no,
+        # teclear «Gimnasio» en un campo cuyo ejemplo es «Gimnasio» pasaría
+        # por no haber escrito nada.
+        if getattr(self._controles.get(clave), "pista_puesta", False):
             return ""
-        return texto
+        return variable.get()
 
     def poner_opciones(self, clave: str, opciones: list[str], vacio: str | None = None) -> None:
         control = self._controles.get(clave)
@@ -195,22 +209,27 @@ class Formulario(tk.Toplevel):
     def mostrar_campo(self, clave: str, visible: bool) -> None:
         """Enseña u oculta un campo sin perder su sitio en el orden."""
         bloque = self._bloques.get(clave)
-        if bloque is None:
+        if bloque is None or self._visible.get(clave, True) == visible:
             return
-        if visible and not bloque.winfo_ismapped():
-            posicion = self._orden.index(clave)
-            despues = None
-            for siguiente in self._orden[posicion + 1:]:
-                candidato = self._bloques.get(siguiente)
-                if candidato is not None and candidato.winfo_ismapped():
-                    despues = candidato
-                    break
-            if despues is not None:
-                bloque.pack(fill="x", before=despues)
-            else:
-                bloque.pack(fill="x")
-        elif not visible and bloque.winfo_ismapped():
+        self._visible[clave] = visible
+
+        if not visible:
             bloque.pack_forget()
+            return
+
+        # Vuelve a su hueco, delante del primer campo visible que va después.
+        posicion = self._orden.index(clave)
+        despues = next((self._bloques[siguiente]
+                        for siguiente in self._orden[posicion + 1:]
+                        if siguiente in self._bloques and self._visible.get(siguiente)),
+                       None)
+        if despues is not None:
+            bloque.pack(fill="x", before=despues)
+        else:
+            bloque.pack(fill="x")
+
+    def campo_visible(self, clave: str) -> bool:
+        return self._visible.get(clave, False)
 
     # --- validación y cierre ---
 
@@ -222,6 +241,11 @@ class Formulario(tk.Toplevel):
             crudo = self.valor(campo.clave)
 
             if isinstance(campo, Importe):
+                if campo.opcional and not crudo.strip():
+                    # None y no cero: «no lo sé» no es «vale cero», y quien
+                    # lo reciba tiene que poder distinguirlo.
+                    recogido[campo.clave] = None
+                    continue
                 numero = texto_a_numero(crudo)
                 if numero is None:
                     return self._fallo(f"«{campo.etiqueta}» tiene que ser un número.")
@@ -233,6 +257,9 @@ class Formulario(tk.Toplevel):
                 recogido[campo.clave] = numero
 
             elif isinstance(campo, Fecha):
+                if campo.opcional and not crudo.strip():
+                    recogido[campo.clave] = ""
+                    continue
                 iso = texto_a_fecha(crudo)
                 if iso is None:
                     return self._fallo(f"«{campo.etiqueta}» no es una fecha válida. "
@@ -283,28 +310,36 @@ class Formulario(tk.Toplevel):
 
 
 def _pista(control: ttk.Entry, variable: tk.StringVar, texto: str) -> None:
-    """Texto de ejemplo en gris que desaparece al escribir."""
+    """Texto de ejemplo en gris que desaparece al escribir.
+
+    La casilla lleva apuntado si lo que se ve es el ejemplo (`pista_puesta`)
+    en vez de reconocerlo comparando el texto. Comparándolo, escribir el
+    ejemplo se tomaba por no haber escrito nada, y llamar «Gimnasio» a un
+    gimnasio o «Fondo indexado» a un fondo indexado daba «no puede quedar
+    vacío».
+    """
     gris, normal = widgets.PALETA.suave, widgets.PALETA.texto
 
     def poner():
         if not variable.get():
             variable.set(texto)
             control.configure(foreground=gris)
+            control.pista_puesta = True
 
     def quitar(_evento=None):
-        if variable.get() == texto:
+        if control.pista_puesta:
             variable.set("")
+            control.pista_puesta = False
         control.configure(foreground=normal)
 
     def revisar(_evento=None):
         if not variable.get():
             poner()
 
+    control.pista_puesta = False
     poner()
     control.bind("<FocusIn>", quitar)
     control.bind("<FocusOut>", revisar)
-    # Lo que quede como pista no cuenta como valor escrito.
-    control.pista = texto
 
 
 def _centrar(ventana: tk.Toplevel) -> None:
@@ -328,3 +363,83 @@ def avisar(padre, mensaje: str, detalle: str = "", titulo: str = "ContaXcell") -
 
 def error(padre, mensaje: str, detalle: str = "", titulo: str = "ContaXcell") -> None:
     messagebox.showerror(titulo, mensaje, detail=detalle, parent=padre)
+
+
+# --- explicaciones -----------------------------------------------------------
+
+class Explicacion(tk.Toplevel):
+    """La ventanita que se abre al pulsar la interrogación de una cifra.
+
+    Enseña la cuenta con los números del propio usuario en vez de con la
+    fórmula en abstracto: «5.232,98 / 123,19 = 42,5 meses» se entiende de un
+    vistazo, y «saldo entre gasto medio» no.
+    """
+
+    # Todo el texto se corta a este ancho: si cada bloque eligiera el suyo,
+    # el más largo decidiría el tamaño de la ventana.
+    ANCHO = 420
+
+    def __init__(self, padre, titulo: str, resumen: str, cuenta: list[tuple],
+                 detalle: str = "", aviso: str = ""):
+        super().__init__(padre)
+        self.title(titulo)
+        self.resizable(False, False)
+        self.configure(background=widgets.PALETA.tarjeta)
+        self.transient(padre)
+
+        cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=20)
+        cuerpo.pack(fill="both", expand=True)
+
+        ttk.Label(cuerpo, text=titulo, style="Tarjeta.Negrita.TLabel").pack(anchor="w")
+        ttk.Label(cuerpo, text=resumen, style="Tarjeta.TLabel",
+                  wraplength=self.ANCHO, justify="left").pack(anchor="w", pady=(6, 0))
+
+        if cuenta:
+            self._cuenta(cuerpo, cuenta)
+
+        if detalle:
+            ttk.Label(cuerpo, text=detalle, style="Tarjeta.Suave.TLabel",
+                      wraplength=self.ANCHO, justify="left").pack(anchor="w", pady=(14, 0))
+
+        if aviso:
+            widgets.Aviso(cuerpo, aviso, "alerta",
+                          ancho=self.ANCHO - 24).pack(fill="x", pady=(14, 0))
+
+        ttk.Button(cuerpo, text="Entendido", style="Principal.TButton",
+                   command=self.destroy).pack(anchor="e", pady=(18, 0))
+
+        self.bind("<Return>", lambda _e: self.destroy())
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _cuenta(self, padre, filas: list[tuple]) -> None:
+        """La cuenta, línea a línea. Una fila con `None` de valor es un
+        separador: debajo va el resultado."""
+        marco = tk.Frame(padre, background=widgets.PALETA.borde)
+        marco.pack(fill="x", pady=(14, 0))
+        rejilla = ttk.Frame(marco, style="Hundido.TFrame", padding=(14, 12))
+        rejilla.pack(fill="both", expand=True, padx=1, pady=1)
+        rejilla.columnconfigure(0, weight=1)
+
+        linea = 0
+        for concepto, valor in filas:
+            if valor is None:
+                tk.Frame(rejilla, background=widgets.PALETA.borde, height=1).grid(
+                    row=linea, column=0, columnspan=2, sticky="ew", pady=(8, 8))
+                linea += 1
+                continue
+            ultima = (concepto, valor) == filas[-1]
+            estilo = "Hundido.Negrita.TLabel" if ultima else "Hundido.TLabel"
+            ttk.Label(rejilla, text=concepto, style="Hundido.Suave.TLabel"
+                      if not ultima else estilo).grid(row=linea, column=0, sticky="w")
+            ttk.Label(rejilla, text=valor, style=estilo).grid(
+                row=linea, column=1, sticky="e", padx=(24, 0))
+            linea += 1
+
+    def mostrar(self) -> None:
+        self.update_idletasks()
+        _centrar(self)
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window()

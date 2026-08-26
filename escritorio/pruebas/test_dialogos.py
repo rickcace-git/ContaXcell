@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 import tkinter as tk
 import unittest
+from datetime import date
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -86,6 +87,44 @@ class PruebasValidacion(ConVentana):
         self.assertIsNone(ventana._recoger())
         self.assertIn("fecha", ventana.error.cget("text").lower())
 
+    def test_importe_opcional_en_blanco_es_none_y_no_cero(self):
+        """«No lo sé» no es «vale cero», y hay que poder distinguirlo.
+
+        Rellenar el valor de un fondo con lo invertido apuntaba una
+        valoración que nadie había hecho: el fondo decía valer justo lo que
+        costó, y cualquier diferencia salía como pérdida.
+        """
+        ventana = self.formulario([
+            dialogos.Importe("valor", "Valor de mercado hoy", None, opcional=True)])
+        self.assertIsNone(ventana._recoger()["valor"])
+
+    def test_importe_opcional_con_un_cero_escrito_sí_es_cero(self):
+        ventana = self.formulario([
+            dialogos.Importe("valor", "Valor de mercado hoy", None, opcional=True)])
+        ventana._variables["valor"].set("0")
+        self.assertEqual(ventana._recoger()["valor"], 0.0)
+
+    def test_un_importe_normal_en_blanco_sigue_siendo_un_error(self):
+        ventana = self.formulario([dialogos.Importe("importe", "Importe")])
+        self.assertIsNone(ventana._recoger())
+
+    def test_fecha_opcional_en_blanco_vale(self):
+        # Es la fecha de fin de un pago periódico: en blanco es «no se acaba».
+        ventana = self.formulario([dialogos.Fecha("hasta", "Último pago", "",
+                                                  opcional=True)])
+        self.assertEqual(ventana._recoger(), {"hasta": ""})
+
+    def test_fecha_opcional_con_valor_se_recoge_igual(self):
+        ventana = self.formulario([dialogos.Fecha("hasta", "Último pago",
+                                                  "2026-12-10", opcional=True)])
+        self.assertEqual(ventana._recoger(), {"hasta": "2026-12-10"})
+
+    def test_fecha_opcional_mal_escrita_sigue_siendo_un_error(self):
+        ventana = self.formulario([dialogos.Fecha("hasta", "Último pago", "",
+                                                  opcional=True)])
+        ventana._variables["hasta"].set("el mes que viene")
+        self.assertIsNone(ventana._recoger())
+
     def test_texto_obligatorio_vacio(self):
         ventana = self.formulario([
             dialogos.Texto("nombre", "Nombre", obligatorio=True)])
@@ -100,6 +139,37 @@ class PruebasValidacion(ConVentana):
         self.assertEqual(ventana._variables["nombre"].get(), "Fondo indexado")
         self.assertEqual(ventana.valor("nombre"), "")
         self.assertIsNone(ventana._recoger())
+
+    def test_escribir_justo_el_texto_de_ejemplo_sí_cuenta(self):
+        """Llamar «Fondo indexado» a un fondo indexado tiene que valer.
+
+        Se reconocía la pista comparando el texto, así que escribir el
+        ejemplo pasaba por no haber escrito nada y saltaba «no puede quedar
+        vacío». Pasaba con las cuatro pistas que hay: «Gimnasio»,
+        «Fondo indexado», «Suscripciones» y la del cashback.
+        """
+        ventana = self.formulario([
+            dialogos.Texto("nombre", "Nombre", pista="Fondo indexado",
+                           obligatorio=True)])
+        control = ventana._controles["nombre"]
+
+        control.event_generate("<FocusIn>")   # entra en la casilla: se borra
+        ventana._variables["nombre"].set("Fondo indexado")   # y lo teclea
+
+        self.assertEqual(ventana.valor("nombre"), "Fondo indexado")
+        self.assertEqual(ventana._recoger(), {"nombre": "Fondo indexado"})
+
+    def test_dejarlo_vacío_devuelve_la_pista_y_vuelve_a_estar_vacío(self):
+        ventana = self.formulario([
+            dialogos.Texto("nombre", "Nombre", pista="Gimnasio")])
+        control = ventana._controles["nombre"]
+
+        control.event_generate("<FocusIn>")
+        self.assertEqual(ventana._variables["nombre"].get(), "")
+        control.event_generate("<FocusOut>")
+
+        self.assertEqual(ventana._variables["nombre"].get(), "Gimnasio")
+        self.assertEqual(ventana.valor("nombre"), "")
 
     def test_opcion_vacia_devuelve_cadena_vacia(self):
         ventana = self.formulario([
@@ -148,18 +218,125 @@ class PruebasCamposCondicionales(ConVentana):
                         al_cambiar=lambda ventana, _e: llamadas.append(1))
         self.assertEqual(len(llamadas), 1)
 
+    def test_el_campo_que_nace_oculto_no_se_queda_puesto(self):
+        """Esconder un campo desde `al_cambiar` tiene que funcionar.
 
-class PruebasWidgets(ConVentana):
+        Es el momento en el que la ventana aún no está dibujada. Cuando esto
+        se preguntaba con `winfo_ismapped`, que ahí contesta que no a todo, el
+        campo se quedaba a la vista: «Editar movimiento» enseñaba la casilla
+        del activo aunque fuera un gasto.
+        """
+        ventana = self.formulario(
+            [dialogos.Texto("uno", "Uno"), dialogos.Texto("dos", "Dos")],
+            al_cambiar=lambda formulario, _e: formulario.mostrar_campo("dos", False))
+        ventana.update_idletasks()
+
+        self.assertFalse(ventana.campo_visible("dos"))
+        self.assertFalse(ventana._bloques["dos"].winfo_ismapped())
+
+    def test_volver_a_enseñarlo_lo_devuelve_a_su_sitio(self):
+        ventana = self.formulario(
+            [dialogos.Texto("uno", "Uno"), dialogos.Texto("dos", "Dos"),
+             dialogos.Texto("tres", "Tres")],
+            al_cambiar=lambda formulario, _e: formulario.mostrar_campo("dos", False))
+        ventana.mostrar_campo("dos", True)
+        ventana.update_idletasks()
+
+        colocados = list(ventana.zona_campos.pack_slaves())
+        self.assertEqual(colocados.index(ventana._bloques["dos"]),
+                         colocados.index(ventana._bloques["uno"]) + 1)
+
+
+class PruebasCampoFecha(ConVentana):
+    def campo(self, iso: str = "2026-08-24") -> widgets.CampoFecha:
+        casilla = widgets.CampoFecha(self.raiz, iso)
+        self.addCleanup(casilla.destroy)
+        return casilla
+
     def test_campo_fecha_ida_y_vuelta(self):
-        campo = widgets.CampoFecha(self.raiz, "2026-08-24")
-        self.addCleanup(campo.destroy)
-        self.assertEqual(campo.variable.get(), "24/08/2026")
-        self.assertEqual(campo.iso(), "2026-08-24")
+        casilla = self.campo()
+        self.assertEqual(casilla.variable.get(), "24/08/2026")
+        self.assertEqual(casilla.iso(), "2026-08-24")
 
     def test_campo_fecha_vacio(self):
-        campo = widgets.CampoFecha(self.raiz, "")
-        self.addCleanup(campo.destroy)
-        self.assertIsNone(campo.iso())
+        self.assertIsNone(self.campo("").iso())
+
+    def test_no_deja_teclear_letras(self):
+        # En una fecha no pintan nada, y rechazarlas mientras se escribe
+        # ahorra el error de después.
+        casilla = self.campo()
+        for imposible in ("hola", "26/ago/2026", "26x08", "ayer", "26/08/2026 "):
+            self.assertFalse(casilla._admite(imposible), imposible)
+
+    def test_deja_teclear_lo_que_sí_es_una_fecha(self):
+        casilla = self.campo()
+        for vale in ("", "2", "26", "26/", "26/08/2026", "2026-08-26", "1.1.27"):
+            self.assertTrue(casilla._admite(vale), vale)
+
+    def test_no_deja_pasarse_de_largo(self):
+        self.assertFalse(self.campo()._admite("26/08/20260"))
+
+    def test_el_calendario_se_abre_en_el_mes_de_la_fecha(self):
+        casilla = self.campo("2026-03-09")
+        casilla.abrir_calendario()
+        self.addCleanup(casilla.calendario.cerrar)
+        self.assertEqual(casilla.calendario.mes, date(2026, 3, 1))
+        self.assertEqual(casilla.calendario.elegido, date(2026, 3, 9))
+
+    def test_elegir_un_día_lo_escribe_en_la_casilla(self):
+        casilla = self.campo("2026-08-24")
+        casilla.abrir_calendario()
+        casilla.calendario._elegir(date(2026, 3, 9))
+
+        self.assertEqual(casilla.iso(), "2026-03-09")
+        self.assertEqual(casilla.variable.get(), "09/03/2026")
+
+    def test_el_calendario_pasa_de_diciembre_a_enero(self):
+        casilla = self.campo("2026-12-15")
+        casilla.abrir_calendario()
+        self.addCleanup(casilla.calendario.cerrar)
+
+        casilla.calendario._mover(1)
+        self.assertEqual(casilla.calendario.mes, date(2027, 1, 1))
+        casilla.calendario._mover(-1)
+        casilla.calendario._mover(-1)
+        self.assertEqual(casilla.calendario.mes, date(2026, 11, 1))
+
+    def test_pulsar_el_botón_otra_vez_lo_cierra(self):
+        casilla = self.campo()
+        casilla.abrir_calendario()
+        abierto = casilla.calendario
+        self.assertTrue(abierto.winfo_exists())
+
+        casilla.abrir_calendario()
+        self.assertIsNone(casilla.calendario)
+        self.assertFalse(abierto.winfo_exists())
+
+    def test_al_cerrarse_devuelve_el_ratón_a_quien_lo_tenía(self):
+        """El calendario se abre dentro de formularios que son modales.
+
+        Si al cerrarse no devuelve el agarre del ratón, la ventana de detrás
+        se vuelve pulsable con el formulario todavía abierto.
+        """
+        dueno = tk.Toplevel(self.raiz)
+        self.addCleanup(dueno.destroy)
+        dueno.grab_set()
+
+        casilla = widgets.CampoFecha(dueno, "2026-08-24")
+        casilla.abrir_calendario()
+        self.assertEqual(str(casilla.calendario.agarraba), str(dueno))
+
+        casilla.calendario.cerrar()
+        self.assertEqual(str(dueno.grab_current()), str(dueno))
+
+    def test_con_la_casilla_vacía_el_calendario_se_abre_en_hoy(self):
+        casilla = self.campo("")
+        casilla.abrir_calendario()
+        self.addCleanup(casilla.calendario.cerrar)
+        self.assertEqual(casilla.calendario.mes, date.today().replace(day=1))
+
+
+class PruebasWidgets(ConVentana):
 
     def test_la_barra_aguanta_valores_raros(self):
         barra = widgets.Barra(self.raiz)

@@ -17,8 +17,10 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from .modelo import (
-    GASTO, INGRESO, INVERSION, MESES, MESES_CORTOS,
-    Libro, Movimiento, anio_de, clave_mes, es_fecha, hoy, mes_de, redondea,
+    GASTO, INGRESO, INVERSION, MESES, MESES_CORTOS, PASO, VECES_AL_ANIO,
+    Libro, Movimiento, Periodico,
+    anio_de, clave_mes, es_fecha, hoy, mes_de, redondea, redondea_titulos,
+    suma_dias, suma_meses,
 )
 
 
@@ -326,6 +328,32 @@ class FilaActivo:
     aportado_gratis: float
     valor_mercado: float
     ultima_valoracion: str
+    categoria: str = ""
+    # Participaciones que se tienen, sumando las compras que las traían.
+    titulos: float = 0.0
+    # Nadie ha dicho todavía lo que vale. No es lo mismo que valer cero: si se
+    # tomara por cero, un activo recién importado diría que has perdido todo
+    # lo que metiste. Mientras no se diga otra cosa se da por hecho que vale
+    # lo aportado, y así lo generado es cero en vez de ser una alarma falsa.
+    sin_valorar: bool = False
+
+    @property
+    def precio_hoy(self) -> float:
+        """Lo que vale hoy una participación.
+
+        No hay que apuntarlo: sale de dividir lo que vale el activo entre las
+        participaciones que hay. Con este precio ya se puede saber cómo va
+        cada compra por separado, sin esperar a ninguna API. Cuando llegue,
+        lo único que cambia es de dónde sale el número.
+        """
+        return self.valor_mercado / self.titulos if self.titulos > 0 else 0.0
+
+    @property
+    def hay_titulos(self) -> bool:
+        """Si se sabe en participaciones o solo en euros. Las aportaciones
+        apuntadas a mano no las traen, y entonces no hay evolución por
+        compra que enseñar."""
+        return self.titulos > 0
 
     @property
     def total_aportado(self) -> float:
@@ -404,6 +432,19 @@ class Cartera:
         el mercado más lo que te han regalado."""
         return redondea(self.generado + self.aportado_gratis)
 
+    @property
+    def sin_valorar(self) -> list[FilaActivo]:
+        """Los activos de los que todavía no se ha dicho lo que valen.
+
+        Mientras estén así, su rentabilidad sale como cero y la de la cartera
+        entera se queda corta. Por eso la pantalla avisa.
+        """
+        return [a for a in self.activos if a.sin_valorar]
+
+    @property
+    def aportado_sin_valorar(self) -> float:
+        return redondea(sum(a.total_aportado for a in self.sin_valorar))
+
 
 def cartera(libro: Libro) -> Cartera:
     aportaciones = [m for m in libro.movimientos if libro.tipo_de(m.categoria) == INVERSION]
@@ -412,14 +453,30 @@ def cartera(libro: Libro) -> Cartera:
     for activo in libro.activos:
         del_banco = redondea(sum(m.importe for m in aportaciones if m.activo == activo.nombre))
         gratis = redondea(sum(g.importe for g in libro.aportaciones_gratis if g.activo == activo.nombre))
-        activos.append(FilaActivo(
+        # Los títulos que compró una bonificación reinvertida son títulos
+        # igual que los demás: cuentan para el precio y para lo que vale.
+        titulos = redondea_titulos(
+            sum(m.titulos for m in aportaciones if m.activo == activo.nombre)
+            + sum(g.titulos for g in libro.aportaciones_gratis
+                  if g.activo == activo.nombre))
+        # Sin fecha de valoración y sin valor es que nunca se ha dicho lo que
+        # vale, no que valga cero. Poner un cero y una fecha sí es decir que
+        # se ha ido a cero, y eso se respeta.
+        sin_valorar = not activo.ultima_valoracion and not activo.valor_mercado
+        fila = FilaActivo(
             nombre=activo.nombre,
             aportacion_inicial=activo.aportacion_inicial,
             aportado_banco=del_banco,
             aportado_gratis=gratis,
             valor_mercado=activo.valor_mercado,
             ultima_valoracion=activo.ultima_valoracion,
-        ))
+            categoria=activo.categoria,
+            titulos=titulos,
+            sin_valorar=sin_valorar,
+        )
+        if sin_valorar:
+            fila.valor_mercado = fila.total_aportado
+        activos.append(fila)
 
     resultado = Cartera(
         activos=activos,
@@ -517,3 +574,298 @@ def meses_con_datos(libro: Libro) -> list[str]:
     meses = {mes_de(m.fecha) for m in libro.movimientos if es_fecha(m.fecha)}
     meses.add(mes_de(hoy()))
     return sorted(meses, reverse=True)
+
+
+# --- pagos periódicos ------------------------------------------------------
+
+# Tope de seguridad al recorrer vencimientos. Con un semanal desde hace veinte
+# años salen mil y pico fechas; más que eso es un dato corrupto, y el bucle
+# tiene que parar igualmente en vez de colgar la ventana.
+TOPE_VENCIMIENTOS = 4000
+
+
+def vencimiento(periodico: Periodico, numero: int) -> str:
+    """La fecha del pago que hace `numero` (el primero es el cero).
+
+    Se cuenta siempre desde `desde` y nunca desde el pago anterior: así los
+    recibos del día 31 vuelven al 31 después de pasar por un febrero corto,
+    en vez de quedarse en el 28 para siempre.
+    """
+    dias, meses = PASO.get(periodico.periodo, (0, 1))
+    if dias:
+        return suma_dias(periodico.desde, dias * numero)
+    return suma_meses(periodico.desde, meses * numero)
+
+
+def vencimientos(periodico: Periodico, hasta: str, desde: str = "") -> list[str]:
+    """Las fechas en las que toca pagar, hasta `hasta` incluida.
+
+    Con `desde` se recorta por abajo, para pedir solo lo que falta. La fecha
+    de fin del propio periódico manda siempre: lo que se acaba, se acaba.
+    """
+    if not es_fecha(periodico.desde) or not es_fecha(hasta) or hasta < periodico.desde:
+        return []
+    tope = min(hasta, periodico.hasta) if periodico.hasta else hasta
+
+    fechas = []
+    for numero in range(TOPE_VENCIMIENTOS):
+        fecha = vencimiento(periodico, numero)
+        if not fecha or fecha > tope:
+            break
+        if not desde or fecha >= desde:
+            fechas.append(fecha)
+    return fechas
+
+
+def proximo_vencimiento(periodico: Periodico, desde: str = "") -> str:
+    """El siguiente pago a partir de `desde` (hoy si no se dice otra cosa)."""
+    referencia = desde if es_fecha(desde) else hoy()
+    if not es_fecha(periodico.desde):
+        return ""
+    for numero in range(TOPE_VENCIMIENTOS):
+        fecha = vencimiento(periodico, numero)
+        if not fecha or (periodico.hasta and fecha > periodico.hasta):
+            return ""
+        if fecha >= referencia:
+            return fecha
+    return ""
+
+
+def esta_vigente(periodico: Periodico, fecha: str = "") -> bool:
+    """Si sigue en marcha: encendido y sin haber llegado a su fecha de fin.
+
+    Uno terminado no es lo mismo que uno apagado. El apagado puede volver; el
+    terminado ya cumplió, y por eso ninguno de los dos suma en el total del
+    mes pero se cuentan por separado.
+    """
+    if not periodico.encendido:
+        return False
+    referencia = fecha if es_fecha(fecha) else hoy()
+    return not periodico.hasta or periodico.hasta >= referencia
+
+
+def coste_mensual(periodico: Periodico) -> float:
+    """Lo que supone al mes, para poder sumar cosas de distinto periodo.
+
+    Un seguro anual de 240 € son 20 € al mes aunque solo se pague una vez.
+    No se apunta así en ningún sitio: es solo para poder comparar.
+    """
+    return redondea(periodico.importe * VECES_AL_ANIO.get(periodico.periodo, 12) / 12)
+
+
+def pendientes(libro: Libro, hasta: str) -> list[tuple[Periodico, list[str]]]:
+    """Lo que cada periódico encendido tiene vencido y sin apuntar.
+
+    Arranca en el día siguiente al último apuntado. Por eso borrar a mano un
+    movimiento que salió solo no lo resucita: el periódico ya pasó por esa
+    fecha y no vuelve sobre sus pasos.
+    """
+    resultado = []
+    for periodico in libro.periodicos:
+        if not periodico.encendido:
+            continue
+        arranque = suma_dias(periodico.apuntado_hasta, 1) if periodico.apuntado_hasta else ""
+        fechas = vencimientos(periodico, hasta, arranque)
+        if fechas:
+            resultado.append((periodico, fechas))
+    return resultado
+
+
+def saltar_lo_pasado(periodico: Periodico, hasta: str) -> None:
+    """Adelanta la marca hasta el último vencimiento anterior a `hasta`.
+
+    Es lo que hay que hacer al volver a encender uno que estuvo apagado: esos
+    meses no se pagaron, así que no se apuntan. Y al crear uno con fecha
+    antigua cuando se dice que no se rellene el pasado.
+
+    Solo adelanta, nunca retrasa: si no, apagar y encender el mismo día
+    volvería a apuntar el pago de ese día.
+    """
+    pasados = [f for f in vencimientos(periodico, hasta) if f < hasta]
+    if pasados and pasados[-1] > periodico.apuntado_hasta:
+        periodico.apuntado_hasta = pasados[-1]
+
+
+def apuntar_pendientes(libro: Libro, hasta: str) -> list[Movimiento]:
+    """Convierte en movimientos de verdad todo lo vencido y sin apuntar.
+
+    Es la única función de este módulo que modifica el libro. Vive aquí de
+    todos modos porque es la regla del dominio, no interfaz: no toca disco ni
+    ventana, y se prueba sin abrir nada.
+    """
+    creados = []
+    for periodico, fechas in pendientes(libro, hasta):
+        for fecha in fechas:
+            creados.append(Movimiento(
+                fecha=fecha,
+                descripcion=periodico.nombre,
+                categoria=periodico.categoria,
+                importe=periodico.importe,
+                activo=periodico.activo,
+                origen=periodico.id,
+            ))
+        periodico.apuntado_hasta = fechas[-1]
+    libro.movimientos.extend(creados)
+    return creados
+
+
+@dataclass
+class ResumenPeriodicos:
+    """Lo que suman los pagos periódicos, todo puesto en meses."""
+
+    encendidos: int = 0
+    apagados: int = 0
+    terminados: int = 0
+    gasto: float = 0.0
+    ingreso: float = 0.0
+    inversion: float = 0.0
+
+    @property
+    def total(self) -> int:
+        return self.encendidos + self.apagados + self.terminados
+
+
+def resumen_periodicos(libro: Libro, fecha: str = "") -> ResumenPeriodicos:
+    """Cuánto se va y cuánto entra al mes por lo que sigue en marcha.
+
+    Ni los apagados ni los terminados suman: meter en el total de este mes un
+    gimnasio del que te diste de baja, o la última cuota de un préstamo que ya
+    pagaste, engañaría.
+    """
+    resumen = ResumenPeriodicos()
+    for periodico in libro.periodicos:
+        if not esta_vigente(periodico, fecha):
+            if periodico.encendido:
+                resumen.terminados += 1
+            else:
+                resumen.apagados += 1
+            continue
+        resumen.encendidos += 1
+        al_mes = coste_mensual(periodico)
+        tipo = libro.tipo_de(periodico.categoria)
+        if tipo == INGRESO:
+            resumen.ingreso = redondea(resumen.ingreso + al_mes)
+        elif tipo == INVERSION:
+            resumen.inversion = redondea(resumen.inversion + al_mes)
+        else:
+            resumen.gasto = redondea(resumen.gasto + al_mes)
+    return resumen
+
+
+def apuntados_por(libro: Libro, periodico: Periodico) -> int:
+    """Cuántos movimientos del libro los apuntó este periódico."""
+    return sum(1 for m in libro.movimientos if m.origen == periodico.id)
+
+
+# --- las compras, una a una ------------------------------------------------
+
+@dataclass
+class Compra:
+    """Una aportación concreta con lo que compró y lo que vale hoy.
+
+    Es lo que contesta a «los mismos 100 € de cada semana, ¿cómo van?».
+    Cien euros compran más participaciones cuando el fondo está barato, y
+    esa compra sube más que la de la semana en que estaba caro.
+    """
+
+    id: str
+    fecha: str
+    descripcion: str
+    importe: float
+    titulos: float
+    precio_hoy: float
+
+    @property
+    def precio_pagado(self) -> float:
+        """Lo que costó cada participación aquel día."""
+        return self.importe / self.titulos if self.titulos > 0 else 0.0
+
+    @property
+    def valor_hoy(self) -> float:
+        return redondea(self.titulos * self.precio_hoy)
+
+    @property
+    def generado(self) -> float:
+        return redondea(self.valor_hoy - self.importe)
+
+    @property
+    def rentabilidad(self) -> float:
+        return self.generado / self.importe if self.importe > 0 else 0.0
+
+
+def compras_de(libro: Libro, nombre_activo: str) -> list[Compra]:
+    """Las aportaciones a ese activo que dijeron cuántos títulos compraban.
+
+    Las apuntadas a mano no lo dicen y se quedan fuera: sin participaciones
+    no se puede saber cómo ha ido esa compra en concreto, solo cuánto se
+    metió. Van de la más reciente a la más antigua.
+    """
+    fila = next((a for a in cartera(libro).activos if a.nombre == nombre_activo), None)
+    if fila is None:
+        return []
+
+    # Si nadie ha dicho lo que vale el activo, no hay precio de hoy y no se
+    # inventa: para la cartera se da por hecho que vale lo aportado, pero eso
+    # es el precio medio, y usarlo aquí haría que la compra barata saliera
+    # ganando y la cara perdiendo por pura aritmética.
+    precio = 0.0 if fila.sin_valorar else fila.precio_hoy
+    compras = [
+        Compra(id=m.id, fecha=m.fecha, descripcion=m.descripcion,
+               importe=m.importe, titulos=m.titulos, precio_hoy=precio)
+        for m in libro.movimientos
+        if m.activo == nombre_activo and m.titulos > 0
+        and libro.tipo_de(m.categoria) == INVERSION
+    ]
+    return sorted(compras, key=lambda c: (c.fecha, c.id), reverse=True)
+
+
+@dataclass
+class GrupoCartera:
+    """Los activos de una misma categoría, sumados."""
+
+    categoria: str
+    activos: list[FilaActivo]
+    # Qué parte de la cartera es este grupo. Lo rellena `por_categoria`, que
+    # es quien conoce el total.
+    peso: float = 0.0
+
+    def _suma(self, campo: str) -> float:
+        return redondea(sum(getattr(a, campo) for a in self.activos))
+
+    @property
+    def total_aportado(self) -> float:
+        return self._suma("total_aportado")
+
+    @property
+    def valor_mercado(self) -> float:
+        return self._suma("valor_mercado")
+
+    @property
+    def generado(self) -> float:
+        return redondea(self.valor_mercado - self.total_aportado)
+
+    @property
+    def rentabilidad(self) -> float:
+        return self.generado / self.total_aportado if self.total_aportado > 0 else 0.0
+
+
+SIN_CATEGORIA = "Sin categoría"
+
+
+def por_categoria(cartera_actual: Cartera) -> list[GrupoCartera]:
+    """La cartera agrupada, de más dinero a menos.
+
+    Sirve para ver cuánto hay en índices y cuánto en acciones sueltas aunque
+    haya diez fondos distintos. Lo que no tiene categoría se agrupa aparte en
+    vez de esconderse.
+    """
+    grupos: dict[str, list[FilaActivo]] = {}
+    for activo in cartera_actual.activos:
+        grupos.setdefault(activo.categoria or SIN_CATEGORIA, []).append(activo)
+
+    total = cartera_actual.valor_mercado
+    resultado = [GrupoCartera(categoria=nombre, activos=lista)
+                 for nombre, lista in grupos.items()]
+    for grupo in resultado:
+        grupo.peso = grupo.valor_mercado / total if total > 0 else 0.0
+    return sorted(resultado, key=lambda g: -g.valor_mercado)

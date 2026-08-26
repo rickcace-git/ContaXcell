@@ -6,7 +6,9 @@ construyen aquí una vez y las vistas se limitan a usarlas.
 
 from __future__ import annotations
 
+import calendar
 import tkinter as tk
+from datetime import date
 from tkinter import ttk
 
 from .tema import Fuentes, Paleta
@@ -122,14 +124,67 @@ class MarcoDesplazable(ttk.Frame):
 
 # --- textos y cifras -------------------------------------------------------
 
+class BotonAyuda(tk.Canvas):
+    """La interrogación pequeña que abre la explicación de una cifra.
+
+    Se dibuja en un lienzo en lugar de usar un botón con el texto «?» porque
+    así el círculo queda del tamaño justo y no arrastra el relleno que ttk le
+    pone a los botones, que aquí desencuadraría la casilla.
+    """
+
+    LADO = 17
+
+    def __init__(self, padre, comando, fondo: str | None = None):
+        self.fondo = fondo or PALETA.hundido
+        super().__init__(padre, width=self.LADO, height=self.LADO,
+                         highlightthickness=0, background=self.fondo,
+                         borderwidth=0, cursor="hand2")
+        self.comando = comando
+        self._encima = False
+        self.bind("<Button-1>", lambda _e: self.comando())
+        self.bind("<Enter>", lambda _e: self._resaltar(True))
+        self.bind("<Leave>", lambda _e: self._resaltar(False))
+        self.pintar()
+
+    def cambiar_comando(self, comando) -> None:
+        self.comando = comando
+
+    def _resaltar(self, encima: bool) -> None:
+        self._encima = encima
+        self.pintar()
+
+    def pintar(self) -> None:
+        self.delete("all")
+        color = PALETA.acento if self._encima else PALETA.suave
+        borde = 1.4 if self._encima else 1.0
+        self.create_oval(borde, borde, self.LADO - borde, self.LADO - borde,
+                         outline=color, width=borde)
+        self.create_text(self.LADO / 2, self.LADO / 2 + 0.5, text="?",
+                         fill=color, font=FUENTES.diminuta)
+
+
 class Cifra(ttk.Frame):
-    """Una casilla con un rótulo pequeño, un número grande y una nota."""
+    """Una casilla con un rótulo pequeño, un número grande y una nota.
+
+    Si se le pasa `ayuda`, aparece una interrogación junto al rótulo que la
+    llama al pulsarla. Se usa en los indicadores que se calculan de una forma
+    que no es evidente y conviene poder consultar.
+    """
 
     def __init__(self, padre, rotulo: str, valor: str = "", color: str = "",
-                 nota: str = "", **kw):
+                 nota: str = "", ayuda=None, **kw):
         super().__init__(padre, style="Hundido.TFrame", padding=(12, 10), **kw)
 
-        ttk.Label(self, text=rotulo.upper(), style="Hundido.Titulo.TLabel").pack(anchor="w")
+        cabecera = ttk.Frame(self, style="Hundido.TFrame")
+        cabecera.pack(fill="x")
+        ttk.Label(cabecera, text=rotulo.upper(),
+                  style="Hundido.Titulo.TLabel").pack(side="left")
+
+        self.boton_ayuda = None
+        if ayuda is not None:
+            self.boton_ayuda = BotonAyuda(cabecera, ayuda)
+            self.boton_ayuda.pack(side="right", padx=(6, 0))
+
         self.etiqueta_valor = ttk.Label(
             self, text=valor, style=f"Hundido.Grande{color}.TLabel")
         self.etiqueta_valor.pack(anchor="w", pady=(2, 0))
@@ -138,8 +193,13 @@ class Cifra(ttk.Frame):
         if nota:
             self.etiqueta_nota.pack(anchor="w")
 
-    def actualizar(self, valor: str, color: str = "", nota: str | None = None) -> None:
+    def actualizar(self, valor: str, color: str = "", nota: str | None = None,
+                   ayuda=None) -> None:
         self.etiqueta_valor.configure(text=valor, style=f"Hundido.Grande{color}.TLabel")
+        # La explicación se rehace en cada refresco porque lleva dentro las
+        # cifras del momento; hay que cambiarle el gatillo al botón.
+        if ayuda is not None and self.boton_ayuda is not None:
+            self.boton_ayuda.cambiar_comando(ayuda)
         if nota is not None:
             self.etiqueta_nota.configure(text=nota)
             if nota and not self.etiqueta_nota.winfo_ismapped():
@@ -159,14 +219,14 @@ class PanelCifras(ttk.Frame):
             self.columnconfigure(indice, weight=1, uniform="cifras")
 
     def poner(self, clave: str, rotulo: str, valor: str, color: str = "",
-              nota: str = "") -> None:
+              nota: str = "", ayuda=None) -> None:
         """Crea la casilla la primera vez y la actualiza las siguientes, para
         no destruir y rehacer widgets en cada refresco."""
         if clave in self._cifras:
-            self._cifras[clave].actualizar(valor, color, nota)
+            self._cifras[clave].actualizar(valor, color, nota, ayuda)
             return
         posicion = len(self._cifras)
-        cifra = Cifra(self, rotulo, valor, color, nota)
+        cifra = Cifra(self, rotulo, valor, color, nota, ayuda)
         cifra.grid(row=posicion // self.columnas, column=posicion % self.columnas,
                    sticky="nsew", padx=(0, 8), pady=(0, 8))
         self._cifras[clave] = cifra
@@ -182,14 +242,15 @@ class Aviso(ttk.Frame):
 
     COLORES = {"info": "acento", "alerta": "aviso", "malo": "gasto"}
 
-    def __init__(self, padre, texto: str, clase: str = "info", **kw):
+    def __init__(self, padre, texto: str, clase: str = "info",
+                 ancho: int = 760, **kw):
         color = getattr(PALETA, self.COLORES.get(clase, "acento"))
         self.marco = tk.Frame(padre, background=color)
         super().__init__(self.marco, padding=(11, 9), **kw)
         super().pack(fill="both", expand=True, padx=(3, 1), pady=1)
         self.configure(style="Tarjeta.TFrame")
         etiqueta = ttk.Label(self, text=texto, style="Tarjeta.TLabel",
-                             foreground=color, wraplength=760, justify="left")
+                             foreground=color, wraplength=ancho, justify="left")
         etiqueta.pack(anchor="w")
 
     def pack(self, **kw):
@@ -409,6 +470,10 @@ class Tabla(ttk.Frame):
                               ("aviso", PALETA.aviso)):
             self.arbol.tag_configure(nombre, foreground=color)
         self.arbol.tag_configure("total", font=FUENTES.negrita)
+        # Franjas alternas. Solo tocan el fondo, así que se llevan bien con
+        # las etiquetas de color, que solo tocan la letra: una fila puede ir
+        # con las dos. Con seis columnas, el ojo no se va de fila.
+        self.arbol.tag_configure("franja", background=PALETA.hundido)
 
         if al_activar:
             self.arbol.bind("<Double-1>", self._activar)
@@ -437,9 +502,11 @@ class Tabla(ttk.Frame):
     def poner(self, filas: list[tuple]) -> None:
         """`filas` es una lista de (clave, valores, etiquetas)."""
         self.arbol.delete(*self.arbol.get_children())
-        for clave, valores, etiquetas in filas:
-            self.arbol.insert("", "end", iid=str(clave),
-                              values=valores, tags=etiquetas or ())
+        for numero, (clave, valores, etiquetas) in enumerate(filas):
+            marcas = tuple(etiquetas or ())
+            if numero % 2:
+                marcas += ("franja",)
+            self.arbol.insert("", "end", iid=str(clave), values=valores, tags=marcas)
 
     def seleccion(self) -> str | None:
         elegido = self.arbol.selection()
@@ -451,18 +518,193 @@ class Tabla(ttk.Frame):
 
 # --- formularios -----------------------------------------------------------
 
-class CampoFecha(ttk.Entry):
-    """Casilla de fecha en dd/mm/aaaa.
+class Calendario(tk.Toplevel):
+    """Calendario para elegir el día con el ratón.
 
-    Tkinter no trae selector de fecha y añadir una dependencia solo por esto
-    no compensa: se escribe a mano y se admite casi cualquier separador.
+    Tkinter no trae ninguno y meter una dependencia solo por esto no compensa,
+    así que se dibuja con etiquetas: siete columnas y hasta seis filas, que es
+    lo que necesita el mes más largo.
+
+    La semana empieza en lunes, como aquí.
     """
 
-    def __init__(self, padre, valor_iso: str = "", **kw):
+    DIAS = ("L", "M", "X", "J", "V", "S", "D")
+    LADO = 30
+
+    def __init__(self, padre, iso: str, al_elegir):
+        super().__init__(padre)
+        self.al_elegir = al_elegir
+        # Quién tenía agarrado el ratón antes, para devolvérselo al cerrar.
+        self.agarraba = None
+        self.hoy = date.today()
+        self.elegido = _a_fecha(iso)
+        self.mes = (self.elegido or self.hoy).replace(day=1)
+
+        # Sin barra de título: es un desplegable, no una ventana.
+        self.wm_overrideredirect(True)
+        self.configure(background=PALETA.borde)
+        self.marco = tk.Frame(self, background=PALETA.tarjeta)
+        self.marco.pack(padx=1, pady=1)
+
+        self._cabecera()
+        self.rejilla = tk.Frame(self.marco, background=PALETA.tarjeta)
+        self.rejilla.pack(padx=10)
+        self._pie()
+        self._pintar()
+
+        self.bind("<Escape>", lambda _e: self.cerrar())
+        # Con el ratón agarrado, un clic fuera llega igual aquí, pero con
+        # coordenadas de fuera: así se cierra al pinchar en otro sitio.
+        self.bind("<Button-1>", self._quizas_fuera)
+
+    # --- montaje ---
+
+    def _cabecera(self) -> None:
+        fila = tk.Frame(self.marco, background=PALETA.tarjeta)
+        fila.pack(fill="x", padx=10, pady=(8, 6))
+        self._flecha(fila, "‹", -1).pack(side="left")
+        self.titulo = tk.Label(fila, background=PALETA.tarjeta, foreground=PALETA.texto,
+                               font=FUENTES.negrita, width=16)
+        self.titulo.pack(side="left", expand=True)
+        self._flecha(fila, "›", 1).pack(side="right")
+
+    def _flecha(self, padre, signo: str, salto: int) -> tk.Label:
+        flecha = tk.Label(padre, text=signo, background=PALETA.tarjeta,
+                          foreground=PALETA.suave, font=FUENTES.negrita,
+                          width=2, cursor="hand2")
+        flecha.bind("<Button-1>", lambda _e: self._mover(salto))
+        _al_pasar(flecha, PALETA.hundido, PALETA.tarjeta)
+        return flecha
+
+    def _pie(self) -> None:
+        pie = tk.Frame(self.marco, background=PALETA.tarjeta)
+        pie.pack(fill="x", padx=10, pady=(4, 8))
+        hoy = tk.Label(pie, text="Hoy", background=PALETA.tarjeta,
+                       foreground=PALETA.acento, font=FUENTES.pequena,
+                       cursor="hand2", padx=6, pady=2)
+        hoy.pack(side="right")
+        hoy.bind("<Button-1>", lambda _e: self._elegir(self.hoy))
+        _al_pasar(hoy, PALETA.hundido, PALETA.tarjeta)
+
+    # --- pintado ---
+
+    def _mover(self, salto: int) -> None:
+        mes = self.mes.month + salto
+        anio = self.mes.year + (mes - 1) // 12
+        self.mes = date(anio, (mes - 1) % 12 + 1, 1)
+        self._pintar()
+
+    def _pintar(self) -> None:
+        from .modelo import MESES
+
+        self.titulo.configure(text=f"{MESES[self.mes.month - 1]} {self.mes.year}".capitalize())
+        for hijo in self.rejilla.winfo_children():
+            hijo.destroy()
+
+        for columna, inicial in enumerate(self.DIAS):
+            tk.Label(self.rejilla, text=inicial, background=PALETA.tarjeta,
+                     foreground=PALETA.suave, font=FUENTES.diminuta,
+                     width=3).grid(row=0, column=columna, pady=(0, 2))
+
+        semanas = calendar.Calendar(firstweekday=0).monthdayscalendar(
+            self.mes.year, self.mes.month)
+        for fila, semana in enumerate(semanas, start=1):
+            for columna, numero in enumerate(semana):
+                if numero == 0:
+                    continue  # días del mes de al lado: se dejan en blanco
+                self._dia(date(self.mes.year, self.mes.month, numero)).grid(
+                    row=fila, column=columna)
+
+    def _dia(self, fecha) -> tk.Label:
+        if fecha == self.elegido:
+            fondo, color, fuente = PALETA.acento, "#ffffff", FUENTES.negrita
+        elif fecha == self.hoy:
+            fondo, color, fuente = PALETA.hundido, PALETA.acento, FUENTES.negrita
+        else:
+            fondo, color, fuente = PALETA.tarjeta, PALETA.texto, FUENTES.normal
+
+        celda = tk.Label(self.rejilla, text=str(fecha.day), background=fondo,
+                         foreground=color, font=fuente, width=3, pady=3,
+                         cursor="hand2")
+        celda.bind("<Button-1>", lambda _e, f=fecha: self._elegir(f))
+        if fecha != self.elegido:
+            _al_pasar(celda, PALETA.boton, fondo)
+        return celda
+
+    # --- cierre ---
+
+    def _elegir(self, fecha) -> None:
+        self.al_elegir(fecha.isoformat())
+        self.cerrar()
+
+    def _quizas_fuera(self, evento) -> None:
+        dentro = (0 <= evento.x < self.winfo_width()
+                  and 0 <= evento.y < self.winfo_height())
+        if not dentro:
+            self.cerrar()
+
+    def cerrar(self) -> None:
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.destroy()
+        # Si el calendario se abrió dentro de un formulario, ese formulario
+        # tenía agarrado el ratón y hay que devolvérselo: si no, al cerrar el
+        # calendario la ventana de detrás se volvería pulsable con el
+        # formulario todavía abierto.
+        if self.agarraba is not None:
+            try:
+                if self.agarraba.winfo_exists():
+                    self.agarraba.grab_set()
+            except tk.TclError:
+                pass
+
+    def abrir_junto_a(self, widget: tk.Widget) -> None:
+        """Lo coloca debajo del campo, sin salirse de la pantalla."""
+        self.update_idletasks()
+        x = widget.winfo_rootx()
+        y = widget.winfo_rooty() + widget.winfo_height() + 2
+        if y + self.winfo_height() > self.winfo_screenheight():
+            y = widget.winfo_rooty() - self.winfo_height() - 2
+        x = min(x, self.winfo_screenwidth() - self.winfo_width() - 8)
+        self.wm_geometry(f"+{max(0, x)}+{max(0, y)}")
+        try:
+            self.agarraba = self.grab_current()
+            self.grab_set()
+        except tk.TclError:
+            self.agarraba = None
+
+
+class CampoFecha(ttk.Frame):
+    """Casilla de fecha en dd/mm/aaaa con un calendario al lado.
+
+    No deja teclear letras: en una fecha no pintan nada, y rechazarlas
+    mientras se escribe evita tener que dar un error después. Se sigue
+    admitiendo casi cualquier separador, que es cómodo para quien teclea
+    rápido, y el botón abre un calendario para quien prefiera el ratón.
+    """
+
+    # Todo lo que puede aparecer en una fecha escrita y nada más.
+    PERMITIDOS = set("0123456789/-.")
+    LARGO = 10  # «24/08/2026» y «2026-08-24» miden lo mismo
+
+    def __init__(self, padre, valor_iso: str = "", fondo: str = "Tarjeta", **kw):
+        super().__init__(padre, style=f"{fondo}.TFrame")
         self.variable = tk.StringVar()
-        super().__init__(padre, textvariable=self.variable, width=12, **kw)
-        from .formato import fecha_a_texto
-        self.variable.set(fecha_a_texto(valor_iso))
+        self.calendario: Calendario | None = None
+        comprobante = self.register(self._admite)
+        self.entrada = ttk.Entry(self, textvariable=self.variable, width=12,
+                                 validate="key", validatecommand=(comprobante, "%P"),
+                                 **kw)
+        self.entrada.pack(side="left")
+        self.boton = BotonIcono(self, "calendario", self.abrir_calendario, lado=27,
+                                fondo=getattr(PALETA, fondo.lower(), PALETA.tarjeta))
+        self.boton.pack(side="left", padx=(4, 0))
+        self.poner(valor_iso)
+
+    def _admite(self, propuesto: str) -> bool:
+        return len(propuesto) <= self.LARGO and set(propuesto) <= self.PERMITIDOS
 
     def iso(self) -> str | None:
         from .formato import texto_a_fecha
@@ -471,6 +713,44 @@ class CampoFecha(ttk.Entry):
     def poner(self, valor_iso: str) -> None:
         from .formato import fecha_a_texto
         self.variable.set(fecha_a_texto(valor_iso))
+        # Tk apaga la validación en cuanto una escritura del programa la
+        # incumple. Se vuelve a encender por si acaso, que si no la casilla
+        # se queda admitiendo cualquier cosa sin avisar.
+        self.entrada.configure(validate="key")
+
+    def abrir_calendario(self) -> None:
+        # Solo uno abierto a la vez: pulsar el botón otra vez lo cierra, que
+        # es lo que espera cualquiera de un desplegable.
+        if self.calendario is not None and self.calendario.winfo_exists():
+            self.calendario.cerrar()
+            self.calendario = None
+            return
+        self.calendario = Calendario(self, self.iso() or "", self._elegido)
+        self.calendario.abrir_junto_a(self)
+
+    def _elegido(self, iso: str) -> None:
+        self.poner(iso)
+        self.entrada.focus_set()
+
+    # El campo de verdad es la casilla: el marco solo la sujeta junto al botón.
+    def focus_set(self) -> None:
+        self.entrada.focus_set()
+
+    def bind(self, secuencia=None, funcion=None, add=None):
+        return self.entrada.bind(secuencia, funcion, add)
+
+
+def _a_fecha(iso: str):
+    try:
+        return date.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return None
+
+
+def _al_pasar(widget: tk.Widget, encima: str, normal: str) -> None:
+    """Cambia el fondo al pasar el ratón. Dice que se puede pulsar."""
+    widget.bind("<Enter>", lambda _e: widget.configure(background=encima), add="+")
+    widget.bind("<Leave>", lambda _e: widget.configure(background=normal), add="+")
 
 
 def etiqueta_campo(padre, texto: str, fondo: str = "Tarjeta") -> ttk.Label:
@@ -543,6 +823,23 @@ def _dibujar_pantalla(lienzo, x, y, lado, color):
                        fill=color, width=grosor, capstyle="round")
 
 
+def _dibujar_calendario(lienzo, x, y, lado, color):
+    """Una hojita de calendario: el marco, la barra de arriba y dos anillas."""
+    ancho = alto = lado * 0.78
+    grosor = max(1.2, lado / 14)
+    izquierda, arriba = x - ancho / 2, y - alto / 2 + lado * 0.06
+    lienzo.create_rectangle(izquierda, arriba, izquierda + ancho, arriba + alto,
+                            outline=color, width=grosor)
+    # La franja del encabezado, que es lo que lo hace reconocible de un vistazo.
+    lienzo.create_line(izquierda, arriba + alto * 0.3,
+                       izquierda + ancho, arriba + alto * 0.3,
+                       fill=color, width=grosor)
+    for lado_anilla in (0.3, 0.7):
+        equis = izquierda + ancho * lado_anilla
+        lienzo.create_line(equis, arriba - lado * 0.13, equis, arriba + alto * 0.1,
+                           fill=color, width=grosor, capstyle="round")
+
+
 class BotonIcono(tk.Canvas):
     """Un botón cuadrado con el icono dibujado, para la barra de arriba."""
 
@@ -589,5 +886,7 @@ class BotonIcono(tk.Canvas):
             _dibujar_sol(self, centro, centro, tamano, color)
         elif self.icono == "luna":
             _dibujar_luna(self, centro, centro, tamano, color, fondo)
+        elif self.icono == "calendario":
+            _dibujar_calendario(self, centro, centro, tamano, color)
         else:
             _dibujar_pantalla(self, centro, centro, tamano, color)
