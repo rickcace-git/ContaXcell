@@ -37,6 +37,7 @@ escritorio/          la aplicación (Python + tkinter, solo openpyxl de extra)
     calculos.py      TODA la aritmética. No toca disco ni interfaz
     almacen.py       datos.json, escritura atómica, copias
     excel.py         importar/exportar .xlsx (rellena la plantilla original)
+    traderepublic.py lee el extracto en PDF del banco. Sin librerías
     sincronia.py     cliente del servidor. Hilo de fondo, sin tkinter dentro
     acceso.py        ventana de usuario/contraseña
     ventana.py       ventana principal y estado compartido
@@ -61,6 +62,34 @@ To_Do_List.md        lo que queda por hacer
   cada 500 ms desde el hilo principal.
 - Las vistas **nunca** modifican el libro por su cuenta: llaman a
   `app.cambiar(funcion, mensaje)`, que aplica, guarda en disco y refresca.
+- **Los intereses y el cashback del banco no son lo mismo.** Los intereses se
+  quedan en la cuenta: son un ingreso. La bonificación se reinvierte sola a
+  los pocos días, así que es la tercera forma de entrar dinero, «aportado
+  gratis», con sus títulos. Apuntarla como ingreso *y* como aportación desde
+  el banco la contaría dos veces y parecería que la pusiste tú. El importador
+  las empareja por importe exacto dentro de diez días; la que no encuentre su
+  compra se queda como ingreso, que es lo que es, y puede ir a su propia
+  categoría. Reimportar **corrige** las que una versión anterior dejó como
+  dinero del banco: si solo se añadiera la aportación gratis, el regalo
+  quedaría contado dos veces.
+- **Importar un extracto choca con lo apuntado a mano.** Si apuntas «400 € a
+  inversión» una vez al mes y luego importas seis meses, entran 24 compras de
+  100 € que son ese mismo dinero: quedándose las dos cosas, la cartera diría
+  que metiste el doble. `traderepublic.aportaciones_a_mano` las reconoce (son
+  las que **no traen participaciones**, en los mismos meses y al mismo activo)
+  y la importación pregunta si sustituirlas. Los duplicados exactos se
+  detectan aparte, por fecha, importe y participaciones.
+- **Sin valorar no es valer cero.** Un activo sin `ultima_valoracion` y sin
+  `valor_mercado` es que nadie ha dicho todavía lo que vale: se da por hecho
+  que vale lo aportado, y así lo generado sale cero en vez de anunciar que has
+  perdido todo lo que metiste (que es lo que pasaba al importar un extracto).
+  Un cero **con** fecha sí es valer cero, y se respeta. Por compra no se
+  inventa nada: ahí sale «—» hasta que haya un valor de verdad.
+- **Los títulos van con seis decimales** (`redondea_titulos`), no con dos: un
+  fondo se compra por fracciones y 0,795628 participaciones no son 0,80. Solo
+  los traen las compras importadas del banco; a mano se quedan en cero. El
+  precio de hoy no se apunta: sale de dividir el valor de mercado entre los
+  títulos, y de ahí sale la evolución de cada compra por separado.
 - **Un periódico no es un movimiento**: es la receta para fabricarlos.
   `calculos.apuntar_pendientes` los convierte en movimientos normales al
   abrir, y solo hasta hoy, nunca por delante. Cada uno guarda `apuntado_hasta`
@@ -78,7 +107,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      178 pruebas, ~7 s
+python -m unittest discover -s pruebas      230 pruebas, ~8 s
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
 python pruebas/ver.py --pestana resumen --captura foto.png
 python empaquetar.py                        genera el .exe y el .zip
