@@ -468,6 +468,10 @@ class Tabla(ttk.Frame):
                               ("aviso", PALETA.aviso)):
             self.arbol.tag_configure(nombre, foreground=color)
         self.arbol.tag_configure("total", font=FUENTES.negrita)
+        # Franjas alternas. Solo tocan el fondo, así que se llevan bien con
+        # las etiquetas de color, que solo tocan la letra: una fila puede ir
+        # con las dos. Con seis columnas, el ojo no se va de fila.
+        self.arbol.tag_configure("franja", background=PALETA.hundido)
 
         if al_activar:
             self.arbol.bind("<Double-1>", self._activar)
@@ -496,9 +500,11 @@ class Tabla(ttk.Frame):
     def poner(self, filas: list[tuple]) -> None:
         """`filas` es una lista de (clave, valores, etiquetas)."""
         self.arbol.delete(*self.arbol.get_children())
-        for clave, valores, etiquetas in filas:
-            self.arbol.insert("", "end", iid=str(clave),
-                              values=valores, tags=etiquetas or ())
+        for numero, (clave, valores, etiquetas) in enumerate(filas):
+            marcas = tuple(etiquetas or ())
+            if numero % 2:
+                marcas += ("franja",)
+            self.arbol.insert("", "end", iid=str(clave), values=valores, tags=marcas)
 
     def seleccion(self) -> str | None:
         elegido = self.arbol.selection()
