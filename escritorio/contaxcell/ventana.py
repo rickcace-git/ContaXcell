@@ -18,7 +18,7 @@ from tkinter import ttk
 
 from . import calculos, dialogos, formato, tema, widgets
 from .almacen import Almacen
-from .modelo import Libro
+from .modelo import Libro, hoy
 
 VERSION = "1.0.0"
 ARCHIVO_VENTANA = "ventana.json"
@@ -95,6 +95,10 @@ class Aplicacion(tk.Tk):
             self.sincronia.arrancar_fondo()
             self.after(500, self._atender_sincronia)
 
+        # Después de la cuenta, para que su aviso sea el que quede a la vista:
+        # que se hayan apuntado recibos importa más que el estado de la copia.
+        self._apuntar_periodicos()
+
     # --- montaje ---------------------------------------------------------
 
     def _construir(self) -> None:
@@ -137,7 +141,8 @@ class Aplicacion(tk.Tk):
         tk.Frame(cabecera, background=self.paleta.borde, height=1).pack(fill="x")
 
     def _construir_pestanas(self) -> None:
-        from .vistas import ajustes, apuntar, inversiones, movimientos, presupuesto, resumen
+        from .vistas import (ajustes, apuntar, inversiones, movimientos, periodicos,
+                             presupuesto, resumen)
 
         self.cuaderno = ttk.Notebook(self.raiz)
         self.cuaderno.pack(fill="both", expand=True)
@@ -145,6 +150,7 @@ class Aplicacion(tk.Tk):
         definicion = [
             ("apuntar", "Apuntar", apuntar.VistaApuntar),
             ("movimientos", "Movimientos", movimientos.VistaMovimientos),
+            ("periodicos", "Periódicos", periodicos.VistaPeriodicos),
             ("resumen", "Resumen", resumen.VistaResumen),
             ("presupuesto", "Presupuesto", presupuesto.VistaPresupuesto),
             ("inversiones", "Inversiones", inversiones.VistaInversiones),
@@ -247,6 +253,26 @@ class Aplicacion(tk.Tk):
         if mensaje:
             self.estado(mensaje)
         return True
+
+    def _apuntar_periodicos(self) -> None:
+        """Apunta los pagos periódicos que ya han vencido.
+
+        Solo hasta hoy, nunca por delante: el saldo del banco tiene que ser el
+        que hay de verdad, no uno con recibos que aún no han pasado. Si no hay
+        nada vencido esto no toca el libro ni escribe en disco.
+        """
+        vencidos = calculos.pendientes(self.libro, hoy())
+        if not vencidos:
+            return
+        cuantos = sum(len(fechas) for _periodico, fechas in vencidos)
+        if not self.cambiar(lambda libro: calculos.apuntar_pendientes(libro, hoy())):
+            return
+        nombres = ", ".join(p.nombre for p, _ in vencidos[:3])
+        if len(vencidos) > 3:
+            nombres += "…"
+        self.estado(f"Se ha apuntado 1 pago periódico ({nombres})." if cuantos == 1
+                    else f"Se han apuntado {cuantos} pagos periódicos ({nombres}).",
+                    "bien")
 
     def reemplazar_libro(self, libro: Libro, motivo: str, mensaje: str = "") -> None:
         """Para importar y restaurar: cambia la contabilidad entera dejando

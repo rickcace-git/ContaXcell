@@ -17,8 +17,9 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from .modelo import (
-    GASTO, INGRESO, INVERSION, MESES, MESES_CORTOS,
-    Libro, Movimiento, anio_de, clave_mes, es_fecha, hoy, mes_de, redondea,
+    GASTO, INGRESO, INVERSION, MESES, MESES_CORTOS, PASO, VECES_AL_ANIO,
+    Libro, Movimiento, Periodico,
+    anio_de, clave_mes, es_fecha, hoy, mes_de, redondea, suma_dias, suma_meses,
 )
 
 
@@ -517,3 +518,184 @@ def meses_con_datos(libro: Libro) -> list[str]:
     meses = {mes_de(m.fecha) for m in libro.movimientos if es_fecha(m.fecha)}
     meses.add(mes_de(hoy()))
     return sorted(meses, reverse=True)
+
+
+# --- pagos periódicos ------------------------------------------------------
+
+# Tope de seguridad al recorrer vencimientos. Con un semanal desde hace veinte
+# años salen mil y pico fechas; más que eso es un dato corrupto, y el bucle
+# tiene que parar igualmente en vez de colgar la ventana.
+TOPE_VENCIMIENTOS = 4000
+
+
+def vencimiento(periodico: Periodico, numero: int) -> str:
+    """La fecha del pago que hace `numero` (el primero es el cero).
+
+    Se cuenta siempre desde `desde` y nunca desde el pago anterior: así los
+    recibos del día 31 vuelven al 31 después de pasar por un febrero corto,
+    en vez de quedarse en el 28 para siempre.
+    """
+    dias, meses = PASO.get(periodico.periodo, (0, 1))
+    if dias:
+        return suma_dias(periodico.desde, dias * numero)
+    return suma_meses(periodico.desde, meses * numero)
+
+
+def vencimientos(periodico: Periodico, hasta: str, desde: str = "") -> list[str]:
+    """Las fechas en las que toca pagar, hasta `hasta` incluida.
+
+    Con `desde` se recorta por abajo, para pedir solo lo que falta. La fecha
+    de fin del propio periódico manda siempre: lo que se acaba, se acaba.
+    """
+    if not es_fecha(periodico.desde) or not es_fecha(hasta) or hasta < periodico.desde:
+        return []
+    tope = min(hasta, periodico.hasta) if periodico.hasta else hasta
+
+    fechas = []
+    for numero in range(TOPE_VENCIMIENTOS):
+        fecha = vencimiento(periodico, numero)
+        if not fecha or fecha > tope:
+            break
+        if not desde or fecha >= desde:
+            fechas.append(fecha)
+    return fechas
+
+
+def proximo_vencimiento(periodico: Periodico, desde: str = "") -> str:
+    """El siguiente pago a partir de `desde` (hoy si no se dice otra cosa)."""
+    referencia = desde if es_fecha(desde) else hoy()
+    if not es_fecha(periodico.desde):
+        return ""
+    for numero in range(TOPE_VENCIMIENTOS):
+        fecha = vencimiento(periodico, numero)
+        if not fecha or (periodico.hasta and fecha > periodico.hasta):
+            return ""
+        if fecha >= referencia:
+            return fecha
+    return ""
+
+
+def esta_vigente(periodico: Periodico, fecha: str = "") -> bool:
+    """Si sigue en marcha: encendido y sin haber llegado a su fecha de fin.
+
+    Uno terminado no es lo mismo que uno apagado. El apagado puede volver; el
+    terminado ya cumplió, y por eso ninguno de los dos suma en el total del
+    mes pero se cuentan por separado.
+    """
+    if not periodico.encendido:
+        return False
+    referencia = fecha if es_fecha(fecha) else hoy()
+    return not periodico.hasta or periodico.hasta >= referencia
+
+
+def coste_mensual(periodico: Periodico) -> float:
+    """Lo que supone al mes, para poder sumar cosas de distinto periodo.
+
+    Un seguro anual de 240 € son 20 € al mes aunque solo se pague una vez.
+    No se apunta así en ningún sitio: es solo para poder comparar.
+    """
+    return redondea(periodico.importe * VECES_AL_ANIO.get(periodico.periodo, 12) / 12)
+
+
+def pendientes(libro: Libro, hasta: str) -> list[tuple[Periodico, list[str]]]:
+    """Lo que cada periódico encendido tiene vencido y sin apuntar.
+
+    Arranca en el día siguiente al último apuntado. Por eso borrar a mano un
+    movimiento que salió solo no lo resucita: el periódico ya pasó por esa
+    fecha y no vuelve sobre sus pasos.
+    """
+    resultado = []
+    for periodico in libro.periodicos:
+        if not periodico.encendido:
+            continue
+        arranque = suma_dias(periodico.apuntado_hasta, 1) if periodico.apuntado_hasta else ""
+        fechas = vencimientos(periodico, hasta, arranque)
+        if fechas:
+            resultado.append((periodico, fechas))
+    return resultado
+
+
+def saltar_lo_pasado(periodico: Periodico, hasta: str) -> None:
+    """Adelanta la marca hasta el último vencimiento anterior a `hasta`.
+
+    Es lo que hay que hacer al volver a encender uno que estuvo apagado: esos
+    meses no se pagaron, así que no se apuntan. Y al crear uno con fecha
+    antigua cuando se dice que no se rellene el pasado.
+
+    Solo adelanta, nunca retrasa: si no, apagar y encender el mismo día
+    volvería a apuntar el pago de ese día.
+    """
+    pasados = [f for f in vencimientos(periodico, hasta) if f < hasta]
+    if pasados and pasados[-1] > periodico.apuntado_hasta:
+        periodico.apuntado_hasta = pasados[-1]
+
+
+def apuntar_pendientes(libro: Libro, hasta: str) -> list[Movimiento]:
+    """Convierte en movimientos de verdad todo lo vencido y sin apuntar.
+
+    Es la única función de este módulo que modifica el libro. Vive aquí de
+    todos modos porque es la regla del dominio, no interfaz: no toca disco ni
+    ventana, y se prueba sin abrir nada.
+    """
+    creados = []
+    for periodico, fechas in pendientes(libro, hasta):
+        for fecha in fechas:
+            creados.append(Movimiento(
+                fecha=fecha,
+                descripcion=periodico.nombre,
+                categoria=periodico.categoria,
+                importe=periodico.importe,
+                activo=periodico.activo,
+                origen=periodico.id,
+            ))
+        periodico.apuntado_hasta = fechas[-1]
+    libro.movimientos.extend(creados)
+    return creados
+
+
+@dataclass
+class ResumenPeriodicos:
+    """Lo que suman los pagos periódicos, todo puesto en meses."""
+
+    encendidos: int = 0
+    apagados: int = 0
+    terminados: int = 0
+    gasto: float = 0.0
+    ingreso: float = 0.0
+    inversion: float = 0.0
+
+    @property
+    def total(self) -> int:
+        return self.encendidos + self.apagados + self.terminados
+
+
+def resumen_periodicos(libro: Libro, fecha: str = "") -> ResumenPeriodicos:
+    """Cuánto se va y cuánto entra al mes por lo que sigue en marcha.
+
+    Ni los apagados ni los terminados suman: meter en el total de este mes un
+    gimnasio del que te diste de baja, o la última cuota de un préstamo que ya
+    pagaste, engañaría.
+    """
+    resumen = ResumenPeriodicos()
+    for periodico in libro.periodicos:
+        if not esta_vigente(periodico, fecha):
+            if periodico.encendido:
+                resumen.terminados += 1
+            else:
+                resumen.apagados += 1
+            continue
+        resumen.encendidos += 1
+        al_mes = coste_mensual(periodico)
+        tipo = libro.tipo_de(periodico.categoria)
+        if tipo == INGRESO:
+            resumen.ingreso = redondea(resumen.ingreso + al_mes)
+        elif tipo == INVERSION:
+            resumen.inversion = redondea(resumen.inversion + al_mes)
+        else:
+            resumen.gasto = redondea(resumen.gasto + al_mes)
+    return resumen
+
+
+def apuntados_por(libro: Libro, periodico: Periodico) -> int:
+    """Cuántos movimientos del libro los apuntó este periódico."""
+    return sum(1 for m in libro.movimientos if m.origen == periodico.id)
