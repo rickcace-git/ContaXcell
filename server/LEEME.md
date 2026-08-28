@@ -31,8 +31,10 @@ subidas a la vez no pueden ganar las dos.
 | `POST /api/cuentas/contrasena` | Cambia la contraseña. Cuerpo: `{"contrasena_actual", "contrasena_nueva"}`. Devuelve `{"token"}`, uno nuevo. |
 | `GET /api/libro` | El libro guardado: `{"revision", "libro"}`. Revisión 0 y libro nulo si nunca se subió nada. |
 | `PUT /api/libro` | Sube el libro. Cuerpo: `{"revision_base", "libro"}`. Devuelve `{"revision"}`, o 409 con el estado del servidor. |
+| `GET /api/precios/buscar?q=` | Busca la cotización de un fondo: `{"encontrados": [{"simbolo", "nombre", "bolsa", "moneda", "precio"}]}`. |
+| `GET /api/precios?simbolo=&desde=` | Los cierres diarios: `{"simbolo", "cotizaciones": [{"fecha", "precio", "moneda"}]}`. |
 
-El libro y el cambio de contraseña piden la cabecera
+El libro, el cambio de contraseña y los precios piden la cabecera
 `Authorization: Bearer <token>`. El token dura treinta días; después hay que
 volver a entrar. Las contraseñas se guardan pasadas por scrypt con sal por
 usuario: en la base de datos nunca hay una contraseña.
@@ -89,6 +91,35 @@ mandar ese mismo texto en el campo `codigo`; si no, el registro contesta
 **403**. Vacío o sin poner, el registro queda abierto a cualquiera que
 conozca la dirección. Para un servidor personal en Internet, conviene
 ponerlo.
+
+### Las cotizaciones de los fondos
+
+**No hace falta ninguna clave.** Los precios se sacan de Yahoo, que no la
+pide. Aun así están aquí y no en cada aplicación, por tres razones:
+
+1. **Yahoo no es una API oficial y puede romperse cualquier día.** Estando
+   aquí se arregla en una máquina; estando dentro del `.exe` habría que
+   repartir un ejecutable nuevo a todo el mundo.
+2. **Se pregunta una vez al día por fondo, para todo el grupo.** Ocho amigos
+   abriendo la ventana cinco veces al día son 120 peticiones al servidor y
+   tres viajes a internet, uno por fondo.
+3. **El histórico se acumula en un sitio.** Quien entre mañana se encuentra
+   los precios de todo el año ya guardados.
+
+Se probó antes con [Twelve Data](https://twelvedata.com), que sí es oficial y
+con contrato, pero su plan gratuito **solo cubre bolsas de Estados Unidos**:
+cualquier fondo europeo contesta «available starting with the Grow plan», y
+eso son 29 dólares al mes. El cliente está aislado en una clase con dos
+métodos (`buscar` e `historico`), así que volver a un proveedor con clave
+sería reescribir esa clase y poner la clave en `.env`, no en el ejecutable.
+
+Si el proveedor se cae no falla nada: se sirve el último precio guardado, que
+para una cartera vale mucho más que un error en pantalla.
+
+Un aviso: el mismo fondo cotiza en varias bolsas y monedas. El iShares Core
+MSCI World sale en libras en Londres, en euros en Milán y en dólares en
+Dublín. Por eso hay que elegir la cotización buena una vez por fondo, y la
+buena es aquella en la que compraste.
 
 ## Probar en local
 
@@ -214,10 +245,11 @@ disco que el original solo protege a medias.
 ```
 server/
 ├── contaserver/
-│   ├── aplicacion.py     las seis rutas de la API
+│   ├── aplicacion.py     las ocho rutas de la API
 │   ├── almacen.py        guardar y leer: SQLite (pruebas) y Postgres (producción)
 │   ├── seguridad.py      contraseñas (scrypt) y fichas de sesión (HMAC)
-│   └── limites.py        contar intentos para frenar a quien prueba a lo bruto
+│   ├── limites.py        contar intentos para frenar a quien prueba a lo bruto
+│   └── precios.py        cotizaciones: proveedor y caché de un día
 ├── pruebas/              sin red y sin Docker, con SQLite en memoria
 ├── Dockerfile            la imagen de la API
 ├── Caddyfile             el HTTPS de delante (perfil `https`)

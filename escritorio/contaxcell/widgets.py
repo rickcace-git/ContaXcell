@@ -370,7 +370,21 @@ class GraficoLineas(Grafico):
 
     El eje horizontal es el tiempo real, no la posición en la lista: si dejas
     tres meses sin apuntar, el hueco se ve.
+
+    Con `marcas` se pone un punto en cada dato. Va bien con las valoraciones,
+    que son unas pocas y se apuntan a mano, y estorba con una cotización
+    diaria: cuarenta puntos seguidos no dicen nada y tapan la línea.
+
+    Con `desde_cero` el eje empieza en cero, que es lo que hay que hacer con
+    el dinero para no exagerar una subida pequeña. Para un precio hay que
+    apagarlo: entre 126 y 128 euros no se vería nada.
     """
+
+    def __init__(self, padre, alto: int = 190, marcas: bool = True,
+                 desde_cero: bool = True, **kw):
+        super().__init__(padre, alto=alto, **kw)
+        self.marcas = marcas
+        self.desde_cero = desde_cero
 
     def _pintar_datos(self, ancho: int, alto: int) -> None:
         puntos = self._datos
@@ -383,8 +397,18 @@ class GraficoLineas(Grafico):
         rango_dias = max(1, max_dia - min_dia)
 
         valores = [v for _, a, v in puntos] + [a for _, a, _ in puntos]
-        maximo, minimo = max(valores), min(min(valores), 0)
-        rango = max(1, maximo - minimo)
+        if self.desde_cero:
+            # Para dinero, el cero tiene que verse: si no, una cartera que ha
+            # subido un 2 % parece que se ha disparado.
+            maximo, minimo = max(valores), min(min(valores), 0)
+        else:
+            # Para un precio, arrancar en cero aplasta la linea contra el
+            # techo: 126 y 128 euros serian la misma raya. Se ajusta a lo que
+            # hay, con un respiro arriba y abajo.
+            maximo, minimo = max(valores), min(valores)
+            respiro = max((maximo - minimo) * 0.15, maximo * 0.002)
+            maximo, minimo = maximo + respiro, minimo - respiro
+        rango = max(1e-9, maximo - minimo)
 
         def x_de(dia):
             return margen_lados + (dia - min_dia) / rango_dias * (ancho - margen_lados * 2)
@@ -400,10 +424,11 @@ class GraficoLineas(Grafico):
         self.create_line(*aportado, fill=PALETA.suave, width=2, dash=(4, 3), smooth=False)
         self.create_line(*valor, fill=PALETA.acento, width=3, smooth=False)
 
-        for dia, _, val in puntos:
-            x, y = x_de(dia), y_de(val)
-            self.create_oval(x - 4, y - 4, x + 4, y + 4,
-                             fill=PALETA.acento, outline=PALETA.tarjeta, width=2)
+        if self.marcas:
+            for dia, _, val in puntos:
+                x, y = x_de(dia), y_de(val)
+                self.create_oval(x - 4, y - 4, x + 4, y + 4,
+                                 fill=PALETA.acento, outline=PALETA.tarjeta, width=2)
 
 
 class Leyenda(ttk.Frame):

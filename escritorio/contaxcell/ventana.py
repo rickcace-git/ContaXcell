@@ -99,6 +99,10 @@ class Aplicacion(tk.Tk):
         # que se hayan apuntado recibos importa más que el estado de la copia.
         self._apuntar_periodicos()
 
+        # Los precios van en un hilo aparte y llegan cuando lleguen: la
+        # ventana no espera por ellos.
+        self.after(900, self.pedir_precios)
+
     # --- montaje ---------------------------------------------------------
 
     def _construir(self) -> None:
@@ -274,6 +278,43 @@ class Aplicacion(tk.Tk):
                     else f"Se han apuntado {cuantos} pagos periódicos ({nombres}).",
                     "bien")
 
+    def pedir_precios(self, forzando: bool = False) -> bool:
+        """Pide al servidor los precios de los fondos que tengan cotización.
+
+        Una vez al día basta: la bolsa cierra una vez y el servidor guarda lo
+        que trae, así que insistir no daría nada nuevo. Con `forzando` se
+        pide igual, que es lo que hace el botón.
+
+        Devuelve si se ha llegado a pedir algo, para poder decirlo.
+        """
+        if self.sincronia is None:
+            return False
+        peticiones = [(simbolo, calculos.desde_cuando_hacen_falta(self.libro, simbolo))
+                      for simbolo in calculos.simbolos_del_libro(self.libro)]
+        if not peticiones:
+            return False
+        if not forzando and self.libro.ajustes.precios_al_dia == hoy():
+            return False
+
+        self.sincronia.pedir_precios_de_fondo(peticiones)
+        return True
+
+    def _guardar_precios(self, traidas: dict) -> None:
+        """Mete en el libro los precios que ha traído el hilo de fondo."""
+        def aplicar(libro):
+            nuevos = 0
+            for simbolo, cotizaciones in traidas.items():
+                nuevos += calculos.guardar_cotizaciones(libro, simbolo, cotizaciones)
+            libro.ajustes.precios_al_dia = hoy()
+            self._cuantos_precios = nuevos
+
+        self._cuantos_precios = 0
+        if not self.cambiar(aplicar):
+            return
+        if self._cuantos_precios:
+            self.estado(f"Precios al día: {self._cuantos_precios} cierres nuevos.",
+                        "bien")
+
     def reemplazar_libro(self, libro: Libro, motivo: str, mensaje: str = "") -> None:
         """Para importar y restaurar: cambia la contabilidad entera dejando
         antes una copia de seguridad."""
@@ -362,6 +403,8 @@ class Aplicacion(tk.Tk):
             self.estado(aviso[1], aviso[2])
         elif tipo == "caducada":
             self.estado(aviso[1], "malo")
+        elif tipo == "precios":
+            self._guardar_precios(aviso[1])
         elif tipo == "conflicto":
             # Dos ordenadores han escrito a la vez y uno se ha quedado atrás.
             # Pasa poquísimo y puede llevarse trabajo por delante, así que no

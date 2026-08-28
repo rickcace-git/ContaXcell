@@ -41,7 +41,11 @@ def cliente_nuevo(**opciones) -> TestClient:
     Las opciones van tal cual a ``crear_aplicacion``: sirven para pedir un
     código de invitación o unos límites de intentos más bajos, que es lo que
     permite probar el 429 sin tener que fallar diez veces.
+
+    Sin cliente de precios: estas pruebas no van de eso y así no avisan de
+    nada por una fuente que no van a usar.
     """
+    opciones.setdefault("cliente_precios", None)
     app = crear_aplicacion(almacen=AlmacenSQLite(), secreto=SECRETO_DE_PRUEBA, **opciones)
     return TestClient(app)
 

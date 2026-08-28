@@ -20,6 +20,7 @@ import shutil
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +58,11 @@ MENSAJE_CONFLICTO = ("Otro ordenador había subido cambios a tu cuenta antes que
 class ErrorDeSincronia(Exception):
     """Algo que hay que contarle al usuario con sus palabras, no un fallo
     del programa: contraseña mala, usuario cogido, servidor apagado…"""
+
+
+class SinPrecios(ErrorDeSincronia):
+    """El servidor no ha podido dar precios. No es grave: se siguen usando
+    los que ya hubiera guardados."""
 
 
 class FaltaCodigo(ErrorDeSincronia):
@@ -533,6 +539,88 @@ class Sincronia:
             return None
 
     # --- la petición en sí ----------------------------------------------------------
+
+    # --- precios ---
+    #
+    # Los sirve el servidor, no el proveedor: la clave está allí y no en el
+    # `.exe`, donde sería pública. Aquí solo se piden y se guardan, para que
+    # la cartera siga saliendo bien cuando no haya conexión.
+
+    def buscar_cotizacion(self, texto: str) -> list[dict]:
+        """Las cotizaciones que encajan con lo buscado.
+
+        Se llama al elegir la cotización de un activo, que es cosa de una
+        vez. Va en el hilo principal a propósito: el usuario está delante
+        esperando la respuesta.
+        """
+        if not self.hay_sesion():
+            raise SinPrecios("Hace falta una cuenta para buscar cotizaciones.")
+        try:
+            codigo, datos = self._pedir(
+                "GET", "/api/precios/buscar?q=" + urllib.parse.quote(texto.strip()))
+        except _SinConexion as error:
+            raise SinPrecios("No se ha podido hablar con el servidor.") from error
+
+        if codigo == 200 and isinstance(datos, dict):
+            return datos.get("encontrados") or []
+        if codigo == 503:
+            raise SinPrecios(
+                "El servidor no tiene configurada la clave de precios. "
+                "Hay que ponerla en su archivo .env.")
+        if codigo == 401:
+            self._caducar()
+            raise SinPrecios("La sesión ha caducado: entra de nuevo.")
+        raise SinPrecios(_detalle(datos) or f"El servidor ha contestado {codigo}.")
+
+    def traer_cotizaciones(self, simbolo: str, desde: str) -> list:
+        """Los cierres diarios de una cotización. Lista vacía si no hay forma.
+
+        Este no lanza nada cuando falla la red: se llama desde el hilo de
+        fondo, y que hoy no haya precios nuevos no es un problema del que
+        haya que avisar. Lo guardado sigue sirviendo.
+        """
+        from .modelo import Cotizacion
+
+        if not self.hay_sesion():
+            return []
+        consulta = urllib.parse.urlencode({"simbolo": simbolo, "desde": desde})
+        try:
+            codigo, datos = self._pedir("GET", "/api/precios?" + consulta)
+        except _SinConexion:
+            return []
+        if codigo != 200 or not isinstance(datos, dict):
+            return []
+
+        traidas = [Cotizacion.desde_json({**cruda, "simbolo": simbolo})
+                   for cruda in (datos.get("cotizaciones") or [])
+                   if isinstance(cruda, dict)]
+        return [c for c in traidas if c.fecha and c.precio > 0]
+
+    def pedir_precios_de_fondo(self, peticiones: list) -> None:
+        """Trae los precios en un hilo aparte y los deja en la cola.
+
+        `peticiones` son pares (símbolo, desde). El hilo no puede tocar la
+        ventana, así que deja el resultado en `self.avisos` y es el hilo
+        principal quien lo guarda en el libro, como todo lo demás de aquí.
+
+        Si no hay conexión no avisa de nada: que hoy no haya precios nuevos
+        no es un problema que merezca una línea en la barra de estado.
+        """
+        if not peticiones or not self.hay_sesion():
+            return
+
+        def trabajo():
+            traidas = {}
+            for simbolo, desde in peticiones:
+                cotizaciones = self.traer_cotizaciones(simbolo, desde)
+                if cotizaciones:
+                    traidas[simbolo] = cotizaciones
+            if traidas:
+                self.avisos.put(("precios", traidas))
+
+        hilo = threading.Thread(target=trabajo, daemon=True,
+                                name="contaxcell-precios")
+        hilo.start()
 
     def _pedir(self, metodo: str, ruta: str, cuerpo: dict | None = None,
                servidor: str = "", con_token: bool = True) -> tuple[int, object]:

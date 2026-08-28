@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 from tkinter import filedialog, ttk
 
-from .. import calculos, dialogos, formato, traderepublic, widgets
+from .. import calculos, dialogos, formato, sincronia, traderepublic, widgets
 from ..modelo import (CATEGORIAS_ACTIVO, INGRESO, INVERSION,
                       Activo, AportacionGratis, Valoracion, hoy)
 from . import comun
@@ -19,6 +19,7 @@ from . import comun
 
 SUSTITUIR = "Sustituirlas por las del extracto"
 MANTENER = "Dejarlas como están"
+SIN_COTIZACION = "— sin cotización, lo apunto a mano —"
 
 
 class VistaInversiones:
@@ -89,6 +90,17 @@ class VistaInversiones:
             widgets.Columna("rentabilidad", "Rentab.", 90, anclaje="e"),
         ], alto=8)
         self.tabla_compras.pack(fill="both", expand=True)
+
+        # La cotizacion frente a lo que pagaste de media: donde se cruzan es
+        # donde tu dinero pasa de ganar a perder, o al reves.
+        self.grafico_precio = widgets.GraficoLineas(
+            self.tarjeta_compras.cuerpo, alto=170, marcas=False,
+            desde_cero=False)
+        self.leyenda_precio = widgets.Leyenda(self.tarjeta_compras.cuerpo, [
+            (widgets.PALETA.acento, "Precio del fondo"),
+            (widgets.PALETA.suave, "Lo que pagaste de media"),
+        ])
+
         self.compras_vacio = ttk.Label(self.tarjeta_compras.cuerpo,
                                        style="Tarjeta.Suave.TLabel",
                                        justify="center", text="")
@@ -104,6 +116,8 @@ class VistaInversiones:
                    command=self.anadir_activo).pack(side="right")
         ttk.Button(self.tarjeta_activos.derecha, text="Importar de Trade Republic",
                    command=self.importar_extracto).pack(side="right", padx=(0, 8))
+        ttk.Button(self.tarjeta_activos.derecha, text="Actualizar precios",
+                   command=self.actualizar_precios).pack(side="right", padx=(0, 8))
 
         self.tabla_activos = widgets.Tabla(self.tarjeta_activos.cuerpo, [
             widgets.Columna("nombre", "Activo", 150, estira=True),
@@ -132,11 +146,12 @@ class VistaInversiones:
 
         ttk.Button(self.acciones_activos, text="Editar",
                    command=self.editar_activo).pack(side="left")
+        ttk.Button(self.acciones_activos, text="Cotización…",
+                   command=self.elegir_cotizacion).pack(side="left", padx=(8, 0))
         ttk.Button(self.acciones_activos, text="Quitar", style="Peligro.TButton",
                    command=self.quitar_activo).pack(side="left", padx=(8, 0))
-        ttk.Label(self.acciones_activos, style="Tarjeta.Suave.TLabel",
-                  text="Las columnas 2 y 3 se calculan solas: tú escribes la aportación "
-                       "inicial y lo que vale hoy.").pack(side="right")
+        self.pie_activos = ttk.Label(self.acciones_activos, style="Tarjeta.Suave.TLabel")
+        self.pie_activos.pack(side="right")
 
     def _historico(self, padre) -> None:
         self.tarjeta_historico = widgets.Tarjeta(padre, "Histórico de la cartera")
@@ -221,6 +236,96 @@ class VistaInversiones:
                        categoria=resultado["categoria"])
         self.app.cambiar(lambda libro: libro.activos.append(nuevo),
                          f"Activo «{nuevo.nombre}» creado.")
+
+    # --- cotizaciones -------------------------------------------------------
+
+    def elegir_cotizacion(self) -> None:
+        """Enlaza un activo con su cotización de bolsa, y a partir de ahí el
+        precio se actualiza solo.
+
+        Se busca por nombre y no por ISIN a propósito: por el ISIN, el
+        buscador solo devuelve la cotización de Londres, que va en dólares.
+        Por el nombre salen todas, y entre ellas la de euros.
+        """
+        activo = self._activo_seleccionado()
+        if activo is None:
+            return
+        if self.app.sincronia is None:
+            dialogos.avisar(self.app, "Hace falta una cuenta",
+                            "Los precios los sirve tu servidor, así que hay que "
+                            "haber entrado con una cuenta para poder buscarlos.")
+            return
+
+        buscado = dialogos.Formulario(self.app, f"Cotización de «{activo.nombre}»", [
+            dialogos.Nota("Busca el fondo por su nombre. Del mismo fondo hay "
+                          "varias cotizaciones, una por bolsa, y cada una en su "
+                          "moneda: hay que elegir aquella en la que compraste."),
+            dialogos.Texto("texto", "Buscar", activo.nombre, obligatorio=True),
+        ], aceptar="Buscar").mostrar()
+        if buscado is None:
+            return
+
+        self.app.estado("Buscando cotizaciones…")
+        self.app.update_idletasks()
+        try:
+            encontrados = self.app.sincronia.buscar_cotizacion(buscado["texto"])
+        except sincronia.SinPrecios as error:
+            dialogos.error(self.app, "No se ha podido buscar", str(error))
+            return
+        self.app.estado("")
+
+        if not encontrados:
+            dialogos.avisar(self.app, "No he encontrado nada",
+                            f"Ninguna cotización encaja con «{buscado['texto']}». "
+                            "Prueba con el nombre del fondo tal cual lo llama tu "
+                            "banco, sin el «UCITS ETF» ni las siglas del final.")
+            return
+
+        self._guardar_cotizacion(activo, encontrados)
+
+    def _guardar_cotizacion(self, activo, encontrados: list) -> None:
+        etiquetas = {_etiqueta_cotizacion(e): e["simbolo"] for e in encontrados}
+        elegido = dialogos.Formulario(
+            self.app, f"Cotización de «{activo.nombre}»", [
+                dialogos.Nota("Elige la que esté en la moneda en la que compraste. "
+                              "El precio de hoy que sale al lado ayuda: tiene que "
+                              "parecerse a lo que pagaste por cada participación."),
+                dialogos.Opcion("cual", "Cotización", list(etiquetas),
+                                next(iter(etiquetas)), vacio=SIN_COTIZACION),
+            ], aceptar="Usar esta").mostrar()
+        if elegido is None:
+            return
+
+        simbolo = etiquetas.get(elegido["cual"], "")
+        nombre = activo.nombre
+
+        def aplicar(libro):
+            objetivo = libro.activo(nombre)
+            if objetivo is None:
+                raise ValueError("Ese activo ya no existe.")
+            objetivo.simbolo = simbolo
+
+        if not self.app.cambiar(aplicar):
+            return
+        if simbolo:
+            self.app.estado(f"«{nombre}» sigue ahora a {simbolo}. Buscando precios…")
+            self.app.pedir_precios(forzando=True)
+        else:
+            self.app.estado(f"«{nombre}» ya no sigue ninguna cotización.")
+
+    def actualizar_precios(self) -> None:
+        """El botón. Pide los precios aunque ya se hayan mirado hoy."""
+        if self.app.sincronia is None:
+            dialogos.avisar(self.app, "Hace falta una cuenta",
+                            "Los precios los sirve tu servidor.")
+            return
+        if not self.app.pedir_precios(forzando=True):
+            dialogos.avisar(
+                self.app, "Ningún activo sigue una cotización",
+                "Elige uno de la lista y pulsa «Cotización…» para enlazarlo con "
+                "su fondo en bolsa. A partir de ahí el precio se actualiza solo.")
+            return
+        self.app.estado("Pidiendo los precios…")
 
     # --- importar del banco ------------------------------------------------
 
@@ -699,6 +804,7 @@ class VistaInversiones:
         self.tabla_compras.poner(filas)
         self.tabla_compras.ajustar_alto(len(filas), minimo=3, maximo=14)
         self._pie_de_compras(compras)
+        self._pintar_grafico_precio(elegido, compras)
 
         hay = bool(filas)
         if hay:
@@ -713,6 +819,30 @@ class VistaInversiones:
                 "viene en el extracto del banco:\nusa «Importar de Trade Republic»."))
             if not self.compras_vacio.winfo_ismapped():
                 self.compras_vacio.pack(pady=30)
+
+    def _pintar_grafico_precio(self, nombre: str, compras) -> None:
+        """La cotizacion del fondo con tu precio medio cruzado encima.
+
+        Solo sale si hay cotizacion: sin ella no hay serie que pintar, y una
+        raya recta no dice nada.
+        """
+        activo = self.app.libro.activo(nombre or "")
+        cierres = (calculos.cotizaciones_de(self.app.libro, activo.simbolo)
+                   if activo else [])
+        if len(cierres) < 2 or not compras:
+            self.grafico_precio.pack_forget()
+            self.leyenda_precio.pack_forget()
+            return
+
+        titulos = sum(c.titulos for c in compras)
+        medio = sum(c.importe for c in compras) / titulos if titulos else 0.0
+        self.grafico_precio.dibujar([(_dia(c.fecha), medio, c.precio)
+                                     for c in cierres])
+        if not self.grafico_precio.winfo_ismapped():
+            self.grafico_precio.pack(fill="x", pady=(0, 4),
+                                     before=self.tabla_compras)
+            self.leyenda_precio.pack(anchor="w", pady=(0, 10),
+                                     before=self.tabla_compras)
 
     def _pie_de_compras(self, compras) -> None:
         if not compras:
@@ -788,7 +918,8 @@ class VistaInversiones:
                 "—" if activo.sin_valorar or activo.total_aportado <= 0
                 else formato.porcentaje(activo.rentabilidad),
                 "sin valorar" if activo.sin_valorar
-                else formato.fecha_corta(activo.ultima_valoracion),
+                else (formato.fecha_corta(activo.ultima_valoracion)
+                      + (" ·" if activo.cotizado else "")),
             ), ("aviso" if activo.sin_valorar else "",)))
 
         if filas:
@@ -807,8 +938,25 @@ class VistaInversiones:
 
         self.tabla_activos.poner(filas)
         self.tabla_activos.ajustar_alto(len(filas), minimo=3, maximo=12)
+        self._pintar_pie(cartera)
         _alternar(self.tabla_activos, self.vacio_activos, bool(cartera.activos),
                   self.acciones_activos)
+
+    def _pintar_pie(self, cartera) -> None:
+        """El pie de la tabla: de dónde salen los valores."""
+        cotizados = [a for a in cartera.activos if a.cotizado]
+        if not cotizados:
+            self.pie_activos.configure(
+                text="Las columnas 2 y 3 se calculan solas: tú escribes la "
+                     "aportación inicial y lo que vale hoy.")
+            return
+
+        cuando = self.app.libro.ajustes.precios_al_dia
+        dia = ("hoy" if cuando == hoy()
+               else f"el {formato.fecha_corta(cuando)}" if cuando else "nunca")
+        self.pie_activos.configure(
+            text=f"{_cuantas(len(cotizados), 'activo')} con cotización (·). "
+                 f"Precios mirados {dia}.")
 
     def _pintar_historico(self, cartera) -> None:
         puntos = cartera.historico
@@ -858,6 +1006,20 @@ class VistaInversiones:
 
     def al_entrar(self) -> None:
         self.desplazable.arriba()
+
+
+def _etiqueta_cotizacion(encontrado: dict) -> str:
+    """«SWDA.MI · 127,49 EUR · Milan». El precio es lo que deja elegir bien:
+    tiene que parecerse a lo que pagaste por cada participacion."""
+    piezas = [encontrado["simbolo"]]
+    if encontrado.get("precio"):
+        piezas.append(f"{formato.numero(encontrado['precio'])} "
+                      f"{encontrado.get('moneda') or '?'}")
+    elif encontrado.get("moneda"):
+        piezas.append(encontrado["moneda"])
+    if encontrado.get("bolsa"):
+        piezas.append(encontrado["bolsa"])
+    return "   ·   ".join(piezas)
 
 
 def _cuantas(cuantas: int, singular: str) -> str:

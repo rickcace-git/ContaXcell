@@ -108,7 +108,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      254 pruebas, ~8 s (test_dialogos abre
+python -m unittest discover -s pruebas      274 pruebas, ~8 s (test_dialogos abre
                                             ventanas: en Mac/Linux, mejor correr
                                             los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
@@ -119,7 +119,7 @@ cd server
 docker compose up -d                        levantar el servidor (solo en local)
 docker compose --profile https up -d        producción: Caddy con certificado delante
 docker compose logs -f api                  ver las peticiones llegar
-python -m unittest discover -s pruebas      46 pruebas (SQLite, sin Docker)
+python -m unittest discover -s pruebas      75 pruebas (SQLite, sin red)
 ```
 
 `pruebas/ver.py` usa una carpeta de datos aparte: nunca toca la contabilidad

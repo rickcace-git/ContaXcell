@@ -6,8 +6,6 @@ Este archivo es para ir apuntando cosas
 
 - [ ] **Desplegar en EC2** — el servidor en una máquina de Amazon, siempre
       encendida, para poder entrar desde cualquier sitio. Ponerle HTTPS.
-- [ ] **Conectar con una API de índices** — seguir la cotización de los
-      índices indexados para que el valor de mercado se actualice solo.
 
 ## Hecho
 
@@ -27,3 +25,7 @@ Este archivo es para ir apuntando cosas
       el fondo está barato. El precio de hoy sale del valor de mercado.
 - [x] **Categorías de inversión** — cada activo lleva la suya («Indexados»,
       «Cripto») y la cartera se agrupa por ellas.
+- [x] **Seguir la cotización de los fondos** — cada activo se enlaza con su
+      cotización de bolsa y el valor de mercado se actualiza solo, una vez al
+      día. Los precios los sirve el servidor, que guarda el histórico para
+      todo el grupo. Con gráfico del precio frente a lo que pagaste de media.

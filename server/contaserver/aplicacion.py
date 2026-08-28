@@ -1,6 +1,6 @@
 """La API del servidor de sincronización.
 
-Seis rutas y ninguna más:
+Ocho rutas y ninguna más:
 
 - ``GET  /api/salud``              ¿está vivo el servidor?
 - ``POST /api/cuentas/registro``   crear cuenta y recibir una ficha
@@ -8,6 +8,13 @@ Seis rutas y ninguna más:
 - ``POST /api/cuentas/contrasena`` cambiar la contraseña (con ficha)
 - ``GET  /api/libro``              bajar el libro guardado (con ficha)
 - ``PUT  /api/libro``              subir el libro (con ficha)
+- ``GET  /api/precios/buscar``     buscar la cotización de un fondo (con ficha)
+- ``GET  /api/precios``            los cierres diarios de un fondo (con ficha)
+
+Los precios están aquí y no en cada aplicación porque la fuente no es
+oficial y puede romperse: aquí se arregla en una máquina y no repartiendo
+un `.exe` nuevo. Además así se pregunta una vez al día por fondo para todo
+el grupo en vez de una vez por cada uno.
 
 El libro viaja como el mismo JSON que la aplicación guarda en disco; el
 servidor no lo mira por dentro. Cada libro lleva un número de *revisión* que
@@ -34,6 +41,7 @@ from fastapi.responses import JSONResponse
 
 from . import almacen as modulo_almacen
 from . import limites
+from . import precios
 from . import seguridad
 
 registro_log = logging.getLogger("contaserver")
@@ -60,22 +68,33 @@ REGISTRO_VENTANA = 60 * 60
 AVISO_DEMASIADOS = "Demasiados intentos. Espera un rato y prueba de nuevo."
 
 
+# Marca para distinguir «no me han dicho nada» de «me han dicho que sin
+# cliente de precios». Con None no se podrían separar las dos cosas, y las
+# pruebas que no van de precios acabarían avisando por nada.
+_SIN_DECIR = object()
+
+
 def crear_aplicacion(
     almacen=None,
     secreto: bytes | None = None,
     codigo_registro: str | None = None,
     limite_entrar: tuple[int, float] | None = None,
     limite_registro: tuple[int, float] | None = None,
+    cliente_precios=_SIN_DECIR,
 ) -> FastAPI:
     """Monta la aplicación con el almacén que le den.
 
     Las pruebas pasan un ``AlmacenSQLite`` en memoria, un secreto fijo y, si
-    les interesa, límites de intentos más bajos para no tener que fallar diez
-    veces. En producción no se pasa nada: se lee CONTAXCELL_BASE_DATOS,
-    CONTAXCELL_SECRETO y CONTAXCELL_CODIGO_REGISTRO del entorno.
+    les interesa, límites de intentos más bajos o un cliente de precios de
+    mentira, y así corren sin red. En producción no se pasa nada: se lee
+    CONTAXCELL_BASE_DATOS, CONTAXCELL_SECRETO y CONTAXCELL_CODIGO_REGISTRO
+    del entorno.
     """
     if almacen is None:
         almacen = _almacen_desde_entorno()
+    if cliente_precios is _SIN_DECIR:
+        cliente_precios = _cliente_precios_desde_entorno()
+    servicio_precios = precios.ServicioPrecios(almacen, cliente_precios)
     if secreto is None:
         secreto, generado = seguridad.secreto_del_servidor()
         if generado:
@@ -264,6 +283,48 @@ def crear_aplicacion(
             )
         return {"revision": revision_nueva}
 
+    # --- precios ---------------------------------------------------------
+    #
+    # Piden ficha como todo lo demás: el servidor es de un grupo cerrado y no
+    # tiene por qué servir de puente a cualquiera que pase por delante.
+
+    @app.get("/api/precios/buscar")
+    def buscar_cotizacion(q: str = "", _id: int = Depends(usuario_actual)):
+        """Las cotizaciones que encajan con lo buscado.
+
+        Hace falta porque el mismo fondo cotiza en varias bolsas y monedas:
+        el de Londres va en dólares y el de Milán en euros. La buena es
+        aquella en la que compraste, y eso solo lo sabe el usuario.
+        """
+        texto = q.strip()
+        if len(texto) < 2:
+            raise HTTPException(422, "Escribe al menos dos letras para buscar.")
+        try:
+            return {"encontrados": servicio_precios.buscar(texto)}
+        except precios.SinClave:
+            raise HTTPException(503, "El servidor no tiene configurada la clave "
+                                     "de precios. Ponla en el archivo .env.")
+        except precios.ErrorDelProveedor as error:
+            raise HTTPException(502, f"El proveedor de precios no ha contestado: {error}")
+
+    @app.get("/api/precios")
+    def cotizaciones(simbolo: str = "", desde: str = "",
+                     _id: int = Depends(usuario_actual)):
+        """Los cierres diarios de un fondo, desde la fecha que se pida.
+
+        No falla si el proveedor está caído: devuelve lo que haya guardado,
+        que para una cartera es más útil que un error.
+        """
+        if not simbolo.strip():
+            raise HTTPException(422, "Falta el símbolo del fondo.")
+        if not _es_fecha(desde):
+            raise HTTPException(422, "Falta «desde», con el formato AAAA-MM-DD.")
+        encontradas = servicio_precios.cotizaciones(simbolo, desde)
+        return {
+            "simbolo": simbolo.strip().upper(),
+            "cotizaciones": [c.a_json() for c in encontradas],
+        }
+
     return app
 
 
@@ -379,6 +440,22 @@ def _almacen_desde_entorno():
             registro_log.info("Esperando a la base de datos… (%s)", error)
             time.sleep(2)
     raise RuntimeError(f"No se pudo conectar con la base de datos: {ultimo_error}")
+
+def _es_fecha(texto: str) -> bool:
+    """'AAAA-MM-DD' y nada más. Las fechas viajan como texto en todo el
+    proyecto, y aquí solo hace falta comprobar que lo son."""
+    from datetime import date
+    try:
+        date.fromisoformat(str(texto or "").strip())
+    except ValueError:
+        return False
+    return True
+
+
+def _cliente_precios_desde_entorno():
+    """El cliente de precios. El de ahora no pide clave, así que siempre hay
+    uno; se deja la función para que cambiar de proveedor sea tocar aquí."""
+    return precios.ClienteYahoo()
 
 
 # uvicorn arranca esto: `uvicorn contaserver.aplicacion:app`

@@ -224,6 +224,11 @@ class Activo:
     # sirve para reconocer el activo al importar un extracto y no crear uno
     # nuevo cada vez que el nombre venga escrito de otra manera.
     isin: str = ""
+    # La cotización de la que se saca el precio, como «SWDA:XMIL». Lleva el
+    # mercado porque el mismo fondo cotiza en varias bolsas y en varias
+    # monedas: el MSCI World va en libras en Londres, en euros en Milán y en
+    # dólares en Dublín. La buena es aquella en la que compraste.
+    simbolo: str = ""
 
     @classmethod
     def desde_json(cls, d: dict) -> "Activo":
@@ -235,6 +240,7 @@ class Activo:
             ultima_valoracion=fecha if es_fecha(fecha) else "",
             categoria=_texto(d.get("categoria")),
             isin=_texto(d.get("isin")).upper(),
+            simbolo=_texto(d.get("simbolo")).upper(),
         )
 
 
@@ -292,6 +298,31 @@ class AportacionGratis:
             concepto=_texto(d.get("concepto")),
             importe=redondea(d.get("importe")),
             titulos=redondea_titulos(d.get("titulos")),
+        )
+
+
+@dataclass
+class Cotizacion:
+    """Lo que valía una participación al cerrar un día.
+
+    Vienen del servidor, que es quien tiene la clave del proveedor. Se
+    guardan aquí para que la cartera siga saliendo bien sin conexión: sin
+    esto, abrir la aplicación en el tren dejaría la pantalla a medias.
+    """
+
+    simbolo: str
+    fecha: str
+    precio: float = 0.0
+    moneda: str = "EUR"
+
+    @classmethod
+    def desde_json(cls, d: dict) -> "Cotizacion":
+        fecha = d.get("fecha", "")
+        return cls(
+            simbolo=_texto(d.get("simbolo")).upper(),
+            fecha=fecha if es_fecha(fecha) else "",
+            precio=redondea(d.get("precio")),
+            moneda=_texto(d.get("moneda")) or "EUR",
         )
 
 
@@ -374,6 +405,10 @@ class Ajustes:
     objetivo_inversion: float = 0.0
     ocultar_importes: bool = False
     tema: str = "auto"
+    # El dia en que se miraron los precios por ultima vez. Va en el libro y
+    # no en la sesion para que se sincronice: si ya los trajo el portatil, el
+    # ordenador de casa no tiene que volver a pedirlos.
+    precios_al_dia: str = ""
 
     @classmethod
     def desde_json(cls, d: dict) -> "Ajustes":
@@ -382,6 +417,8 @@ class Ajustes:
             objetivo_inversion=redondea(d.get("objetivo_inversion")),
             ocultar_importes=bool(d.get("ocultar_importes")),
             tema=d.get("tema") if d.get("tema") in TEMAS else "auto",
+            precios_al_dia=(d.get("precios_al_dia", "")
+                            if es_fecha(d.get("precios_al_dia", "")) else ""),
         )
 
 
@@ -397,6 +434,7 @@ class Libro:
     aportaciones_gratis: list[AportacionGratis] = field(default_factory=list)
     historico: list[Valoracion] = field(default_factory=list)
     periodicos: list[Periodico] = field(default_factory=list)
+    cotizaciones: list[Cotizacion] = field(default_factory=list)
 
     # --- construcción ---
 
@@ -445,6 +483,11 @@ class Libro:
             v for v in (Valoracion.desde_json(x) for x in _lista(crudo.get("historico")))
             if es_fecha(v.fecha)
         ]
+        libro.cotizaciones = [
+            c for c in (Cotizacion.desde_json(x)
+                        for x in _lista(crudo.get("cotizaciones")))
+            if c.simbolo and c.fecha and c.precio > 0
+        ]
         # Sin nombre o sin fecha de primer pago no se puede fabricar nada,
         # así que esos se descartan igual que los movimientos sin fecha.
         libro.periodicos = [
@@ -463,6 +506,7 @@ class Libro:
             "aportaciones_gratis": [vars(a).copy() for a in self.aportaciones_gratis],
             "historico": [vars(v).copy() for v in self.historico],
             "periodicos": [vars(p).copy() for p in self.periodicos],
+            "cotizaciones": [vars(c).copy() for c in self.cotizaciones],
         }
 
     # --- consultas de conveniencia ---

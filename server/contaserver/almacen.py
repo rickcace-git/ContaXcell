@@ -14,6 +14,10 @@ vez que cambia su contraseña. Las fichas de sesión llevan dentro la generació
 con la que se emitieron, así que subirla invalida de golpe todas las fichas
 antiguas de ese usuario.
 
+Los precios van aparte y no cuelgan de ningún usuario: no son de nadie, son
+del grupo. Lo que vale un fondo es lo mismo para todos, así que se pregunta
+una vez y se guarda una vez.
+
 La pieza delicada es ``guardar_libro``: es un *compara-y-cambia*. Solo graba
 si la revisión que trae el cliente es exactamente la que hay en el servidor,
 y lo comprueba y graba en una única sentencia, de forma que dos subidas a la
@@ -65,6 +69,19 @@ class AlmacenSQLite:
                     revision    INTEGER NOT NULL,
                     datos       TEXT NOT NULL,
                     actualizado TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                -- Los precios no son de nadie: son del grupo. Por eso no
+                -- cuelgan de un usuario y se preguntan una sola vez.
+                CREATE TABLE IF NOT EXISTS precios (
+                    simbolo TEXT NOT NULL,
+                    fecha   TEXT NOT NULL,
+                    precio  REAL NOT NULL,
+                    moneda  TEXT NOT NULL DEFAULT 'EUR',
+                    PRIMARY KEY (simbolo, fecha)
+                );
+                CREATE TABLE IF NOT EXISTS consultas_precios (
+                    simbolo TEXT PRIMARY KEY,
+                    dia     TEXT NOT NULL
                 );
             """)
             # Para una base que ya existía de antes: el CREATE de arriba no la
@@ -180,6 +197,50 @@ class AlmacenSQLite:
                 return None
             return revision_base + 1
 
+    # --- precios ---
+
+    def leer_precios(self, simbolo: str, desde: str) -> list:
+        from .precios import Cotizacion
+        with self._candado:
+            filas = self._conexion.execute(
+                "SELECT fecha, precio, moneda FROM precios"
+                " WHERE simbolo = ? AND fecha >= ? ORDER BY fecha",
+                (simbolo, desde),
+            ).fetchall()
+        return [Cotizacion(f[0], float(f[1]), f[2]) for f in filas]
+
+    def ultimo_precio(self, simbolo: str) -> str:
+        """La fecha del último cierre guardado, o cadena vacía."""
+        with self._candado:
+            fila = self._conexion.execute(
+                "SELECT MAX(fecha) FROM precios WHERE simbolo = ?", (simbolo,),
+            ).fetchone()
+        return fila[0] or "" if fila else ""
+
+    def guardar_precios(self, simbolo: str, cotizaciones: list) -> None:
+        """Guarda o pisa. Un cierre puede corregirse el mismo día."""
+        with self._candado:
+            self._conexion.executemany(
+                "INSERT OR REPLACE INTO precios (simbolo, fecha, precio, moneda)"
+                " VALUES (?, ?, ?, ?)",
+                [(simbolo, c.fecha, c.precio, c.moneda) for c in cotizaciones],
+            )
+            self._conexion.commit()
+
+    def ultima_consulta(self, simbolo: str) -> str:
+        with self._candado:
+            fila = self._conexion.execute(
+                "SELECT dia FROM consultas_precios WHERE simbolo = ?", (simbolo,),
+            ).fetchone()
+        return fila[0] if fila else ""
+
+    def apuntar_consulta(self, simbolo: str, dia: str) -> None:
+        with self._candado:
+            self._conexion.execute(
+                "INSERT OR REPLACE INTO consultas_precios (simbolo, dia)"
+                " VALUES (?, ?)", (simbolo, dia))
+            self._conexion.commit()
+
 
 # --- Postgres: producción -----------------------------------------------------
 
@@ -233,6 +294,23 @@ class AlmacenPostgres:
                 revision    INTEGER NOT NULL,
                 datos       JSONB NOT NULL,
                 actualizado TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        # Los precios no son de nadie: son del grupo. Por eso no cuelgan de
+        # un usuario y se preguntan una sola vez para todos.
+        self._ejecutar("""
+            CREATE TABLE IF NOT EXISTS precios (
+                simbolo TEXT NOT NULL,
+                fecha   DATE NOT NULL,
+                precio  DOUBLE PRECISION NOT NULL,
+                moneda  TEXT NOT NULL DEFAULT 'EUR',
+                PRIMARY KEY (simbolo, fecha)
+            )
+        """)
+        self._ejecutar("""
+            CREATE TABLE IF NOT EXISTS consultas_precios (
+                simbolo TEXT PRIMARY KEY,
+                dia     DATE NOT NULL
             )
         """)
 
@@ -321,3 +399,43 @@ class AlmacenPostgres:
             )
         fila = cursor.fetchone()
         return int(fila[0]) if fila else None
+
+    # --- precios ---
+
+    def leer_precios(self, simbolo: str, desde: str) -> list:
+        from .precios import Cotizacion
+        cursor = self._ejecutar(
+            "SELECT fecha, precio, moneda FROM precios"
+            " WHERE simbolo = %s AND fecha >= %s ORDER BY fecha",
+            (simbolo, desde))
+        return [Cotizacion(f[0].isoformat(), float(f[1]), f[2])
+                for f in cursor.fetchall()]
+
+    def ultimo_precio(self, simbolo: str) -> str:
+        """La fecha del ultimo cierre guardado, o cadena vacia."""
+        cursor = self._ejecutar(
+            "SELECT MAX(fecha) FROM precios WHERE simbolo = %s", (simbolo,))
+        fila = cursor.fetchone()
+        return fila[0].isoformat() if fila and fila[0] else ""
+
+    def guardar_precios(self, simbolo: str, cotizaciones: list) -> None:
+        """Guarda o pisa. Un cierre puede corregirse el mismo dia."""
+        for c in cotizaciones:
+            self._ejecutar(
+                "INSERT INTO precios (simbolo, fecha, precio, moneda)"
+                " VALUES (%s, %s, %s, %s)"
+                " ON CONFLICT (simbolo, fecha) DO UPDATE"
+                " SET precio = EXCLUDED.precio, moneda = EXCLUDED.moneda",
+                (simbolo, c.fecha, c.precio, c.moneda))
+
+    def ultima_consulta(self, simbolo: str) -> str:
+        cursor = self._ejecutar(
+            "SELECT dia FROM consultas_precios WHERE simbolo = %s", (simbolo,))
+        fila = cursor.fetchone()
+        return fila[0].isoformat() if fila and fila[0] else ""
+
+    def apuntar_consulta(self, simbolo: str, dia: str) -> None:
+        self._ejecutar(
+            "INSERT INTO consultas_precios (simbolo, dia) VALUES (%s, %s)"
+            " ON CONFLICT (simbolo) DO UPDATE SET dia = EXCLUDED.dia",
+            (simbolo, dia))

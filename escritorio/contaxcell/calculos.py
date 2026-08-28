@@ -19,6 +19,7 @@ from datetime import date
 from .modelo import (
     GASTO, INGRESO, INVERSION, MESES, MESES_CORTOS, PASO, VECES_AL_ANIO,
     Libro, Movimiento, Periodico,
+    Cotizacion,
     anio_de, clave_mes, es_fecha, hoy, mes_de, redondea, redondea_titulos,
     suma_dias, suma_meses,
 )
@@ -336,6 +337,10 @@ class FilaActivo:
     # lo que metiste. Mientras no se diga otra cosa se da por hecho que vale
     # lo aportado, y así lo generado es cero en vez de ser una alarma falsa.
     sin_valorar: bool = False
+    # La cotizacion de la que sale el precio, si la hay.
+    simbolo: str = ""
+    # Si el valor de arriba viene de una cotizacion y no de lo que escribiste.
+    cotizado: bool = False
 
     @property
     def precio_hoy(self) -> float:
@@ -463,16 +468,34 @@ def cartera(libro: Libro) -> Cartera:
         # vale, no que valga cero. Poner un cero y una fecha sí es decir que
         # se ha ido a cero, y eso se respeta.
         sin_valorar = not activo.ultima_valoracion and not activo.valor_mercado
+
+        # Si el activo tiene cotizacion y sabemos lo que valia el ultimo dia,
+        # manda el precio: se apunta solo y es mas de fiar que un numero
+        # escrito a mano hace tres meses. Sin cotizacion, todo sigue igual.
+        cierre = ultima_cotizacion(libro, activo.simbolo)
+        valor = activo.valor_mercado
+        valorado = activo.ultima_valoracion
+        # Hacen falta las dos cosas: el precio de una participacion y cuantas
+        # tienes. Sin titulos no hay nada que multiplicar, y ese activo se
+        # sigue valorando a mano aunque tenga cotizacion puesta.
+        cotizado = cierre is not None and titulos > 0
+        if cotizado:
+            valor = redondea(titulos * cierre.precio)
+            valorado = cierre.fecha
+            sin_valorar = False
+
         fila = FilaActivo(
             nombre=activo.nombre,
             aportacion_inicial=activo.aportacion_inicial,
             aportado_banco=del_banco,
             aportado_gratis=gratis,
-            valor_mercado=activo.valor_mercado,
-            ultima_valoracion=activo.ultima_valoracion,
+            valor_mercado=valor,
+            ultima_valoracion=valorado,
             categoria=activo.categoria,
             titulos=titulos,
             sin_valorar=sin_valorar,
+            simbolo=activo.simbolo,
+            cotizado=cotizado,
         )
         if sin_valorar:
             fila.valor_mercado = fila.total_aportado
@@ -869,3 +892,76 @@ def por_categoria(cartera_actual: Cartera) -> list[GrupoCartera]:
     for grupo in resultado:
         grupo.peso = grupo.valor_mercado / total if total > 0 else 0.0
     return sorted(resultado, key=lambda g: -g.valor_mercado)
+
+
+# --- cotizaciones ----------------------------------------------------------
+
+def cotizaciones_de(libro: Libro, simbolo: str) -> list[Cotizacion]:
+    """Los cierres guardados de esa cotización, del más antiguo al más nuevo."""
+    codigo = (simbolo or "").strip().upper()
+    if not codigo:
+        return []
+    return sorted((c for c in libro.cotizaciones if c.simbolo == codigo),
+                  key=lambda c: c.fecha)
+
+
+def ultima_cotizacion(libro: Libro, simbolo: str, hasta: str = "") -> Cotizacion | None:
+    """El último cierre conocido, o el último hasta una fecha.
+
+    Se busca «hasta» y no «en» a propósito: los fines de semana y los
+    festivos no tienen cierre, y preguntar por un sábado tiene que devolver
+    el viernes, no nada.
+    """
+    encontradas = cotizaciones_de(libro, simbolo)
+    if hasta:
+        encontradas = [c for c in encontradas if c.fecha <= hasta]
+    return encontradas[-1] if encontradas else None
+
+
+def guardar_cotizaciones(libro: Libro, simbolo: str, nuevas: list) -> int:
+    """Mete los cierres que traiga el servidor, pisando los repetidos.
+
+    Devuelve cuántos son nuevos. Un cierre puede corregirse el mismo día, así
+    que el que llega manda sobre el que hubiera.
+    """
+    codigo = (simbolo or "").strip().upper()
+    if not codigo:
+        return 0
+
+    por_fecha = {c.fecha: c for c in libro.cotizaciones if c.simbolo == codigo}
+    antes = len(por_fecha)
+    for cotizacion in nuevas:
+        if cotizacion.fecha and cotizacion.precio > 0:
+            por_fecha[cotizacion.fecha] = cotizacion
+
+    libro.cotizaciones = [c for c in libro.cotizaciones if c.simbolo != codigo]
+    libro.cotizaciones.extend(por_fecha[f] for f in sorted(por_fecha))
+    return len(por_fecha) - antes
+
+
+def simbolos_del_libro(libro: Libro) -> list[str]:
+    """Las cotizaciones que hay que mantener al día: las de los activos que
+    tienen una puesta. Sin repetir, que dos activos pueden compartirla."""
+    vistos = []
+    for activo in libro.activos:
+        codigo = (activo.simbolo or "").strip().upper()
+        if codigo and codigo not in vistos:
+            vistos.append(codigo)
+    return vistos
+
+
+def desde_cuando_hacen_falta(libro: Libro, simbolo: str) -> str:
+    """Desde qué fecha interesa el histórico de esa cotización.
+
+    Desde la primera aportación al activo: antes de comprar, lo que valiera
+    no cambia nada de lo tuyo. Así la primera petición no se trae veinte años
+    de cierres para nada.
+    """
+    codigo = (simbolo or "").strip().upper()
+    nombres = {a.nombre for a in libro.activos
+               if (a.simbolo or "").strip().upper() == codigo}
+    fechas = [m.fecha for m in libro.movimientos
+              if m.activo in nombres and es_fecha(m.fecha)]
+    fechas += [g.fecha for g in libro.aportaciones_gratis
+               if g.activo in nombres and es_fecha(g.fecha)]
+    return min(fechas) if fechas else hoy()
