@@ -86,7 +86,7 @@ class VistaResumen:
     def _tabla_reparto(self, tarjeta) -> widgets.Tabla:
         tabla = widgets.Tabla(tarjeta.cuerpo, [
             widgets.Columna("categoria", "Categoría", 160, estira=True),
-            widgets.Columna("importe", "Año", 110, anclaje="e"),
+            widgets.Columna("importe", "Importe", 110, anclaje="e"),
             widgets.Columna("porcentaje", "%", 70, anclaje="e"),
             # Las barras se dibujan con caracteres: en un Treeview no se pueden
             # meter widgets dentro de una celda.
