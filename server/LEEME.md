@@ -38,25 +38,29 @@ Todas menos `salud` y las dos de cuentas piden la cabecera
 
 ### Por qué los precios están aquí
 
-Porque el proveedor pide una clave y la aplicación se reparte como un `.exe`:
-una clave metida ahí dentro sería pública, y en cuanto alguien la quemara se
-la revocarían a todos. Aquí vive en `.env` y no sale de la máquina.
+**No hace falta ninguna clave.** Los precios se sacan de Yahoo, que no la
+pide. Aun así están aquí y no en cada aplicación, por tres razones:
 
-De paso sale gratis lo que si no costaría: el servidor pregunta el precio
-**una vez al día por fondo** y se lo sirve a todo el grupo, en vez de que
-cada uno gaste su cupo por su cuenta.
+1. **Yahoo no es una API oficial y puede romperse cualquier día.** Estando
+   aquí se arregla en una máquina; estando dentro del `.exe` habría que
+   repartir un ejecutable nuevo a todo el mundo.
+2. **Se pregunta una vez al día por fondo, para todo el grupo.** Ocho amigos
+   abriendo la ventana cinco veces al día son 120 peticiones al servidor y
+   tres viajes a internet, uno por fondo.
+3. **El histórico se acumula en un sitio.** Quien entre mañana se encuentra
+   los precios de todo el año ya guardados.
 
-La clave se saca gratis en [twelvedata.com](https://twelvedata.com) (800
-consultas al día en el plan gratuito) y se pone en `.env`:
+Se probó antes con [Twelve Data](https://twelvedata.com), que sí es oficial
+y con contrato, pero su plan gratuito **solo cubre bolsas de Estados
+Unidos**: cualquier fondo europeo contesta «available starting with the Grow
+plan», y eso son 29 dólares al mes. El cliente está aislado en una clase con
+dos métodos (`buscar` e `historico`), así que volver a un proveedor con clave
+sería reescribir esa clase y poner la clave en `.env`, no dentro del
+ejecutable.
 
-```
-CONTAXCELL_PRECIOS_CLAVE=lo-que-te-den
-```
-
-**Puede faltar.** Sin ella el servidor arranca igual y todo lo demás
-funciona; los precios simplemente no se actualizan. Si el proveedor se cae,
-se sirve el último precio guardado en vez de dar un error: para una cartera,
-el precio de ayer vale mucho más que una pantalla en blanco.
+Si el proveedor se cae no falla nada: se sirve el último precio guardado en
+vez de dar un error. Para una cartera, el precio de ayer vale mucho más que
+una pantalla en blanco.
 
 Un aviso: el mismo fondo cotiza en varias bolsas y monedas. El iShares Core
 MSCI World sale en libras en Londres, en euros en Milán y en dólares en
