@@ -385,13 +385,19 @@ class Aplicacion(tk.Tk):
         tocar la ventana, así que el de fondo los deja en una cola y este
         método la vacía cada medio segundo."""
         try:
-            while True:
-                self._atender_aviso(self.sincronia.avisos.get_nowait())
+            while self._atender_aviso(self.sincronia.avisos.get_nowait()):
+                pass
         except queue.Empty:
             pass
         self.after(500, self._atender_sincronia)
 
-    def _atender_aviso(self, aviso: tuple) -> None:
+    def _atender_aviso(self, aviso: tuple) -> bool:
+        """Atiende un aviso y dice si se puede seguir con el siguiente.
+
+        Devuelve False cuando ha dejado el aviso otra vez en la cola para más
+        tarde: si se siguiera vaciando, se volvería a coger ese mismo una y
+        otra vez sin fin.
+        """
         tipo = aviso[0]
         if tipo == "estado":
             self.estado(aviso[1], aviso[2])
@@ -399,17 +405,58 @@ class Aplicacion(tk.Tk):
             self.estado(aviso[1], "malo")
         elif tipo == "precios":
             self._guardar_precios(aviso[1])
+        elif tipo == "conflicto":
+            # Dos ordenadores han escrito a la vez y uno se ha quedado atrás.
+            # Pasa poquísimo y puede llevarse trabajo por delante, así que no
+            # vale un mensaje en la barra de abajo, que se va solo en seis
+            # segundos y nadie lo lee.
+            self.estado("Había cambios de otro ordenador; mira el aviso.", "malo")
+            dialogos.avisar(self, "Dos ordenadores han cambiado lo mismo", aviso[1])
         elif tipo == "descargar":
-            # El servidor va por delante y aquí no hay nada a medio subir:
-            # se trae su libro, dejando copia del de ahora por si acaso.
-            _crudo, revision = aviso[1], aviso[2]
-            self.almacen.reemplazar(Libro.desde_json(_crudo), "antes-de-sincronizar")
-            self.libro = self.almacen.libro
-            formato.ocultar_importes(self.libro.ajustes.ocultar_importes)
-            self.sincronia.confirmar_descarga(revision)
-            self.ensuciar()
-            self.refrescar()
-            self.estado("Contabilidad descargada de tu cuenta.", "bien")
+            if self._hay_dialogo_abierto():
+                # Con una ventanita encima, cambiar la contabilidad por debajo
+                # es una sorpresa fea (y lo que se esté escribiendo iría a un
+                # libro que ya no existe). Se deja para el siguiente repaso.
+                self.sincronia.avisos.put(aviso)
+                return False
+            self._aplicar_descarga(aviso)
+        return True
+
+    def _hay_dialogo_abierto(self) -> bool:
+        """Si hay un diálogo modal cogido a la ventana ahora mismo."""
+        try:
+            return bool(self.grab_current())
+        except tk.TclError:
+            return False
+
+    def _aplicar_descarga(self, aviso: tuple) -> None:
+        """El servidor va por delante y aquí no hay nada a medio subir: se
+        trae su libro, dejando copia del de ahora por si acaso."""
+        crudo, revision = aviso[1], aviso[2]
+        # Cuando lo que había aquí no se sabe de dónde venía, la copia deja de
+        # ser un por si acaso: es lo único que queda de esos apuntes.
+        local_sin_vinculo = bool(aviso[3]) if len(aviso) > 3 else False
+
+        self.almacen.reemplazar(Libro.desde_json(crudo), "antes-de-sincronizar")
+        self.libro = self.almacen.libro
+        formato.ocultar_importes(self.libro.ajustes.ocultar_importes)
+        self.sincronia.confirmar_descarga(revision)
+        self.ensuciar()
+        self.refrescar()
+        self.estado("Contabilidad descargada de tu cuenta.", "bien")
+
+        if local_sin_vinculo:
+            copias = self.almacen.listar_copias()
+            donde = (f"{copias[0].parent.name}/{copias[0].name}" if copias
+                     else "la carpeta de copias")
+            dialogos.avisar(
+                self, "La contabilidad de este ordenador no era la de tu cuenta",
+                "En este ordenador había apuntes distintos de los que hay en tu "
+                "cuenta, y no había forma de saber cuáles eran los buenos, así "
+                "que se han puesto los del servidor.\n\n"
+                f"Los de antes no se han perdido: están guardados en {donde}. "
+                "Si eran los que querías, se vuelven a poner desde Ajustes, "
+                "con «Restaurar copia…».")
 
     # --- ojo y tema -------------------------------------------------------
 

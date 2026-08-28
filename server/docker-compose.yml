@@ -25,14 +25,46 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      # Solo por la puerta de atrás: el 8000 se abre en 127.0.0.1 y no se ve
+      # desde fuera de la máquina. Quien tiene que llegar de Internet lo hace
+      # por el Caddy de abajo, con HTTPS. Y hay una razón de peso para no
+      # tocar esto: la API se fía de las cabeceras de proxy que le llegan
+      # (para saber la IP de verdad de quien llama), así que publicar el 8000
+      # dejaría que cualquiera se inventara la IP que quisiera.
+      - "127.0.0.1:8000:8000"
     environment:
       CONTAXCELL_BASE_DATOS: postgresql://contaxcell:${CONTAXCELL_CLAVE_DB}@db:5432/contaxcell
       CONTAXCELL_SECRETO: ${CONTAXCELL_SECRETO:?falta CONTAXCELL_SECRETO en el archivo .env}
+      # Opcional: si se pone, para crear una cuenta hay que traer el código.
+      CONTAXCELL_CODIGO_REGISTRO: ${CONTAXCELL_CODIGO_REGISTRO:-}
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
 
+  # El portero con HTTPS. No arranca con un `docker compose up` normal: hay
+  # que pedirlo con `docker compose --profile https up -d`. Caddy saca el
+  # certificado de Let's Encrypt él solo y lo renueva sin que nadie mire.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - datos_caddy:/data
+      - config_caddy:/config
+    environment:
+      # El dominio va en el .env. Aquí no se pone `:?` a propósito: compose
+      # lee este archivo entero aunque el perfil esté apagado, y con `:?`
+      # un `docker compose up` normal se negaría a arrancar sin dominio.
+      CONTAXCELL_DOMINIO: ${CONTAXCELL_DOMINIO:-}
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   datos_postgres:
+  datos_caddy:
+  config_caddy:

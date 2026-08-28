@@ -5,18 +5,20 @@ disco, como siempre, y este módulo se encarga después de subirlo cuando haya
 conexión. Si no la hay, se apunta que queda algo pendiente (y se apunta en un
 archivo, para que sobreviva a cerrar la aplicación) y se reintenta solo.
 
-Aquí no hay nada de tkinter a propósito: el hilo de fondo no puede tocar la
-ventana, así que lo que tenga que ver el usuario se deja en una cola de avisos
-que la ventana vacía desde el hilo principal. Por eso mismo se puede probar
-entero sin abrir una pantalla.
+Aquí no hay nada de interfaz gráfica a propósito: el hilo de fondo no puede
+tocar la ventana, así que lo que tenga que ver el usuario se deja en una cola
+de avisos que la ventana vacía desde el hilo principal. Por eso mismo se puede
+probar entero sin abrir una pantalla.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import queue
 import shutil
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -29,6 +31,9 @@ ARCHIVO_SESION = "sesion.json"
 SERVIDOR_POR_DEFECTO = "http://localhost:8000"
 SEGUNDOS_DE_ESPERA = 10
 SEGUNDOS_ENTRE_REINTENTOS = 30
+# Cada cuánto se vuelve a mirar qué hay en el servidor. Sin esto, el segundo
+# ordenador no se enteraría de nada hasta la próxima vez que se abriera.
+SEGUNDOS_ENTRE_DESCARGAS = 120
 # Si el servidor cambia mientras subimos, se reintenta con su revisión nueva.
 # Con un tope, por si dos aparatos se empeñan en escribir a la vez sin parar.
 INTENTOS_POR_CONFLICTO = 3
@@ -36,6 +41,18 @@ INTENTOS_POR_CONFLICTO = 3
 MENSAJE_SIN_CONEXION = "Sin conexión: se subirá cuando vuelva internet."
 MENSAJE_CADUCADA = ("La sesión ha caducado. Entra de nuevo desde Ajustes; "
                     "mientras tanto todo sigue funcionando sin conexión.")
+MENSAJE_DEMASIADOS_INTENTOS = ("Demasiados intentos seguidos. El servidor ha "
+                               "pedido esperar un rato antes de volver a probar.")
+MENSAJE_FALTA_CODIGO = ("Este servidor solo deja crear cuentas con un código de "
+                        "invitación. Pídeselo a quien lo administra y escríbelo "
+                        "abajo.")
+# Lo del conflicto se le cuenta al usuario con el nombre del archivo dentro,
+# porque es lo único que le sirve para rescatar la versión del otro ordenador.
+MENSAJE_CONFLICTO = ("Otro ordenador había subido cambios a tu cuenta antes que "
+                     "este. Su versión se ha guardado en {donde} y encima se ha "
+                     "subido la de aquí, que es la que tienes delante. Si echas "
+                     "algo en falta, esa copia se puede volver a poner desde "
+                     "Ajustes → Restaurar copia.")
 
 
 class ErrorDeSincronia(Exception):
@@ -46,6 +63,12 @@ class ErrorDeSincronia(Exception):
 class SinPrecios(ErrorDeSincronia):
     """El servidor no ha podido dar precios. No es grave: se siguen usando
     los que ya hubiera guardados."""
+
+
+class FaltaCodigo(ErrorDeSincronia):
+    """El servidor pide un código de invitación para crear la cuenta y aquí
+    no se ha puesto (o no era el bueno). Es un error como los demás, pero la
+    ventana de acceso lo distingue para enseñar el campo del código."""
 
 
 class _SinConexion(Exception):
@@ -83,6 +106,10 @@ class Sincronia:
         self._parar = threading.Event()
         self._hilo: threading.Thread | None = None
         self._sin_conexion_avisado = False
+        # Cuándo se intentó bajar el libro por última vez, en el reloj de
+        # `time.monotonic()` (que no se mueve si el usuario cambia la hora).
+        # A None significa «todavía nunca», o sea, que toca ya.
+        self._ultima_descarga: float | None = None
 
         self._cargar_sesion()
 
@@ -119,6 +146,13 @@ class Sincronia:
                 encoding="utf-8")
         except OSError:
             pass  # Sin sesión grabada se pedirá entrar otra vez; no se pierde nada.
+        try:
+            # Dentro va el token, que es la llave de la cuenta: que solo lo
+            # pueda leer su dueño. En Windows esto no hace gran cosa, pero
+            # tampoco molesta, y en ningún caso debe impedir guardar.
+            os.chmod(self.ruta_sesion, 0o600)
+        except OSError:
+            pass
 
     def hay_sesion(self) -> bool:
         """Si alguna vez se entró en este ordenador. El token puede estar
@@ -127,13 +161,18 @@ class Sincronia:
 
     # --- entrar y salir -------------------------------------------------------
 
-    def registrar(self, usuario: str, contrasena: str, servidor: str = "") -> None:
-        self._acreditar("/api/cuentas/registro", usuario, contrasena, servidor)
+    def registrar(self, usuario: str, contrasena: str, servidor: str = "",
+                  codigo: str = "") -> None:
+        """Crea la cuenta. Algunos servidores piden un código de invitación;
+        si aquí no se pone, el propio servidor lo reclamará."""
+        self._acreditar("/api/cuentas/registro", usuario, contrasena, servidor,
+                        codigo=codigo)
 
     def entrar(self, usuario: str, contrasena: str, servidor: str = "") -> None:
         self._acreditar("/api/cuentas/entrar", usuario, contrasena, servidor)
 
-    def _acreditar(self, ruta: str, usuario: str, contrasena: str, servidor: str) -> None:
+    def _acreditar(self, ruta: str, usuario: str, contrasena: str, servidor: str,
+                   codigo: str = "") -> None:
         """Pide el token y deja la sesión lista. Si se entra con un usuario
         distinto al de la sesión anterior, los datos locales se apartan a una
         copia y se empieza de cero, para no mezclar contabilidades."""
@@ -142,36 +181,106 @@ class Sincronia:
         if not usuario or not contrasena:
             raise ErrorDeSincronia("Hace falta el usuario y la contraseña.")
 
+        cuerpo = {"usuario": usuario, "contrasena": contrasena}
+        # El código solo se manda si hay algo que mandar: los servidores que
+        # no piden invitación no tienen por qué recibir un campo vacío.
+        if codigo.strip():
+            cuerpo["codigo"] = codigo.strip()
+
         try:
-            codigo, datos = self._pedir("POST", ruta, servidor=servidor, con_token=False,
-                                        cuerpo={"usuario": usuario, "contrasena": contrasena})
+            # Aquí «estado» es el código HTTP; «codigo», el de invitación.
+            estado, datos = self._pedir("POST", ruta, servidor=servidor,
+                                        con_token=False, cuerpo=cuerpo)
         except _SinConexion:
             raise ErrorDeSincronia(
                 "No se ha podido hablar con el servidor. Comprueba la conexión "
                 f"y que la dirección sea la buena: {servidor}") from None
 
-        if codigo == 409:
+        if estado == 409:
             raise ErrorDeSincronia("Ese nombre de usuario ya está cogido.")
-        if codigo == 401:
+        if estado == 401:
             raise ErrorDeSincronia("El usuario o la contraseña no son correctos.")
-        if codigo == 422:
+        if estado == 403:
+            # Al crear la cuenta esto es siempre el código de invitación, y la
+            # ventana de acceso necesita distinguirlo para enseñar su campo.
+            mensaje = _detalle(datos) or MENSAJE_FALTA_CODIGO
+            if ruta.endswith("/registro"):
+                raise FaltaCodigo(mensaje)
+            raise ErrorDeSincronia(mensaje)
+        if estado == 422:
             raise ErrorDeSincronia(_detalle(datos) or
                                    "El usuario o la contraseña no valen.")
-        if codigo not in (200, 201) or not isinstance(datos, dict) or not datos.get("token"):
-            raise ErrorDeSincronia(f"El servidor ha respondido algo inesperado ({codigo}).")
+        if estado == 429:
+            raise ErrorDeSincronia(MENSAJE_DEMASIADOS_INTENTOS)
+        if (estado not in (200, 201) or not isinstance(datos, dict)
+                or not datos.get("token")):
+            raise ErrorDeSincronia(
+                f"El servidor ha respondido algo inesperado ({estado}).")
 
+        # Quién somos lo dice el servidor, no lo que se haya escrito en el
+        # campo: él puede dejar el nombre en minúsculas y sin espacios. Si se
+        # comparara lo tecleado, entrar como «Pablo» teniendo la sesión de
+        # «pablo» parecería otra cuenta y apartaría la contabilidad por nada.
+        de_verdad = str(datos.get("usuario") or usuario)
         anterior = self.sesion["usuario"]
         with self._candado:
-            if anterior and anterior != usuario:
+            if anterior and anterior != de_verdad:
                 self._apartar_datos_de_otro_usuario()
                 self.sesion["ultima_revision"] = 0
                 self.sesion["pendiente"] = False
             self.sesion["servidor"] = servidor
-            self.sesion["usuario"] = str(datos.get("usuario") or usuario)
+            self.sesion["usuario"] = de_verdad
             self.sesion["token"] = str(datos["token"])
             self._guardar_sesion()
         self.caducada = False
         self._despertador.set()
+
+    def cambiar_contrasena(self, actual: str, nueva: str) -> None:
+        """Cambia la contraseña de la cuenta y se queda con el token nuevo.
+
+        El servidor devuelve un token recién hecho y tira los demás, así que
+        este ordenador sigue dentro y los otros verán la sesión caducada y
+        tendrán que entrar otra vez. Es lo que se quiere: si la contraseña se
+        cambia porque alguien la sabía, no vale dejarle la sesión abierta.
+
+        Esto sí necesita servidor: no hay manera de cambiar una contraseña
+        sin conexión, así que sin ella se dice y se queda como estaba.
+        """
+        if not self.hay_sesion():
+            raise ErrorDeSincronia("En este ordenador todavía no hay ninguna cuenta.")
+        if not actual or not nueva:
+            raise ErrorDeSincronia("Hacen falta la contraseña de ahora y la nueva.")
+
+        try:
+            estado, datos = self._pedir(
+                "POST", "/api/cuentas/contrasena",
+                cuerpo={"contrasena_actual": actual, "contrasena_nueva": nueva})
+        except _SinConexion:
+            raise ErrorDeSincronia(
+                "No se ha podido hablar con el servidor, y la contraseña solo "
+                "se puede cambiar estando conectado. Prueba más tarde.") from None
+
+        if estado == 403:
+            raise ErrorDeSincronia("La contraseña actual no es correcta.")
+        if estado == 422:
+            raise ErrorDeSincronia(_detalle(datos) or
+                                   "La contraseña nueva no vale: tiene que "
+                                   "tener al menos 8 letras o números.")
+        if estado == 429:
+            raise ErrorDeSincronia(MENSAJE_DEMASIADOS_INTENTOS)
+        if estado == 401:
+            self._caducar()
+            raise ErrorDeSincronia(
+                "La sesión ha caducado antes de poder cambiarla. Entra de "
+                "nuevo y vuelve a intentarlo.")
+        if estado != 200 or not isinstance(datos, dict) or not datos.get("token"):
+            raise ErrorDeSincronia(
+                f"El servidor ha respondido algo inesperado ({estado}).")
+
+        with self._candado:
+            self.sesion["token"] = str(datos["token"])
+            self._guardar_sesion()
+        self.caducada = False
 
     def salir(self) -> None:
         """Olvida la cuenta en este ordenador. Los datos locales se quedan."""
@@ -243,15 +352,32 @@ class Sincronia:
     # --- el hilo de fondo -------------------------------------------------------
 
     def _bucle(self) -> None:
-        self.descargar()
         while not self._parar.is_set():
             if self.sesion["pendiente"] and self.hay_sesion() and not self.caducada:
                 self.empujar()
+            elif self.toca_descargar(time.monotonic()):
+                # Subir es lo urgente; bajar, de vez en cuando. Si no se
+                # mirara cada tanto, el otro ordenador podría estar horas
+                # trabajando sin que aquí se enterara nadie.
+                self.descargar()
             self._despertador.wait(timeout=SEGUNDOS_ENTRE_REINTENTOS)
             self._despertador.clear()
 
+    def toca_descargar(self, ahora: float) -> bool:
+        """Si ya va tocando mirar qué hay en el servidor.
+
+        `ahora` es el reloj de `time.monotonic()`. Se pasa desde fuera para
+        poder probar la decisión sin esperar dos minutos de verdad.
+        """
+        if not self.hay_sesion() or self.caducada or self.sesion["pendiente"]:
+            return False
+        if self._ultima_descarga is None:
+            return True  # Recién arrancada: todavía no se ha mirado nada.
+        return ahora - self._ultima_descarga >= SEGUNDOS_ENTRE_DESCARGAS
+
     def descargar(self) -> None:
-        """Al arrancar (o al volver a entrar): traer lo que tenga el servidor.
+        """Traer lo que tenga el servidor: al arrancar, al volver a entrar y
+        cada `SEGUNDOS_ENTRE_DESCARGAS` mientras la aplicación esté abierta.
 
         Solo se sustituye lo local si aquí no hay nada a medio subir y el
         servidor va por otra revisión. Y si el servidor está vacío pero aquí
@@ -259,6 +385,9 @@ class Sincronia:
         """
         if not self.hay_sesion():
             return
+        # Se apunta el intento, no el acierto: si el servidor no contesta,
+        # tampoco hay que insistir cada treinta segundos.
+        self._ultima_descarga = time.monotonic()
         try:
             codigo, datos = self._pedir("GET", "/api/libro")
         except _SinConexion:
@@ -290,8 +419,26 @@ class Sincronia:
             # Lo de aquí todavía no está subido: primero se sube (y el propio
             # servidor avisará del conflicto si lo hay).
             return
-        if revision != self.sesion["ultima_revision"]:
-            self.avisos.put(("descargar", libro, revision))
+        if revision == self.sesion["ultima_revision"]:
+            return
+
+        local = self._libro_local()
+        if local is not None and local == libro:
+            # El servidor va por otra revisión, pero su libro es exactamente
+            # el archivo que hay aquí: no hay nada que traer. Pasa siempre al
+            # volver a entrar sin haber cambiado nada, y avisar de una
+            # descarga que no cambia ni una coma solo asusta.
+            with self._candado:
+                self.sesion["ultima_revision"] = revision
+                self._guardar_sesion()
+            return
+
+        # Sin revisión apuntada no se sabe de dónde viene lo de aquí: puede
+        # ser trabajo hecho sin conexión después de cerrar sesión, y está a
+        # punto de ser reemplazado. Eso la ventana lo cuenta en voz alta.
+        local_sin_vinculo = (self.sesion["ultima_revision"] == 0
+                             and self.ruta_datos.exists())
+        self.avisos.put(("descargar", libro, revision, local_sin_vinculo))
 
     def empujar(self) -> bool:
         """Sube el `datos.json` tal cual está en el disco. Devuelve si ha
@@ -300,12 +447,12 @@ class Sincronia:
             return True
         with self._candado:
             generacion_leida = self._generacion
-        try:
-            crudo = json.loads(self.ruta_datos.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        crudo = self._libro_local()
+        if crudo is None:
             return False  # Sin archivo legible no hay nada que subir todavía.
 
         revision_base = self.sesion["ultima_revision"]
+        conflicto_avisado = False
         for _ in range(1 + INTENTOS_POR_CONFLICTO):
             try:
                 codigo, datos = self._pedir(
@@ -330,8 +477,15 @@ class Sincronia:
             if codigo == 409 and isinstance(datos, dict):
                 # Alguien subió antes que nosotros. Gana lo de aquí, que es lo
                 # que el usuario tiene delante, pero lo del servidor se guarda
-                # en una copia fechada por si hiciera falta rescatarlo.
-                self._guardar_copia_del_conflicto(datos.get("libro"))
+                # en una copia fechada por si hiciera falta rescatarlo. Y se
+                # dice: esto puede ser trabajo de otro que se queda atrás.
+                copia = self._guardar_copia_del_conflicto(datos.get("libro"))
+                if not conflicto_avisado:
+                    # Un aviso por conflicto resuelto, no uno por reintento.
+                    conflicto_avisado = True
+                    donde = (f"{CARPETA_COPIAS}/{copia.name}" if copia is not None
+                             else f"la carpeta «{CARPETA_COPIAS}»")
+                    self.avisos.put(("conflicto", MENSAJE_CONFLICTO.format(donde=donde)))
                 revision_base = int(datos.get("revision") or 0)
                 continue
 
@@ -358,17 +512,31 @@ class Sincronia:
             self.caducada = True
             self.avisos.put(("caducada", MENSAJE_CADUCADA))
 
-    def _guardar_copia_del_conflicto(self, libro) -> None:
+    def _guardar_copia_del_conflicto(self, libro) -> Path | None:
+        """Deja la versión del servidor en copias y devuelve dónde, que es lo
+        que hay que decirle al usuario para que pueda rescatarla."""
         if not isinstance(libro, dict):
-            return
+            return None
         try:
             self.ruta_copias.mkdir(parents=True, exist_ok=True)
             sello = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             destino = self.ruta_copias / f"{sello}-conflicto-sincronia.json"
             destino.write_text(json.dumps(libro, indent=2, ensure_ascii=False),
                                encoding="utf-8")
+            return destino
         except OSError:
-            pass  # La copia es un salvavidas de más; la subida sigue igual.
+            return None  # La copia es un salvavidas de más; la subida sigue igual.
+
+    # --- el archivo de datos --------------------------------------------------------
+
+    def _libro_local(self):
+        """Lo que hay ahora mismo en `datos.json`, tal cual, o None si no hay
+        archivo o no se entiende. El disco manda: es esto lo que se sube y con
+        esto se compara lo que baja."""
+        try:
+            return json.loads(self.ruta_datos.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
 
     # --- la petición en sí ----------------------------------------------------------
 

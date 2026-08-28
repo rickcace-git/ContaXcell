@@ -140,8 +140,11 @@ class PruebasCuantasPeticiones(unittest.TestCase):
 
     def montar(self):
         proveedor = ProveedorDeMentira(unas_cotizaciones())
+        # El limite de registros normal son cinco por hora, y aqui hacen
+        # falta ocho amigos. Se sube solo para esta prueba.
         app = crear_aplicacion(almacen=AlmacenSQLite(), secreto=SECRETO_DE_PRUEBA,
-                               cliente_precios=proveedor)
+                               cliente_precios=proveedor,
+                               limite_registro=(50, 3600))
         cliente = TestClient(app)
         return cliente, proveedor
 

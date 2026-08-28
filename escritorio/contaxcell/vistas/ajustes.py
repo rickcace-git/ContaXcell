@@ -10,6 +10,7 @@ from tkinter import filedialog, ttk
 
 from .. import calculos, dialogos, excel, formato, widgets
 from ..modelo import GASTO, INGRESO, INVERSION, Categoria
+from ..sincronia import ErrorDeSincronia
 
 
 class VistaAjustes:
@@ -291,8 +292,11 @@ class VistaAjustes:
         botones.pack(fill="x", pady=(10, 0))
         self.boton_reentrar = ttk.Button(botones, text="Entrar de nuevo",
                                          command=self.entrar_de_nuevo)
+        self.boton_contrasena = ttk.Button(botones, text="Cambiar la contraseña…",
+                                           command=self.cambiar_contrasena)
+        self.boton_contrasena.pack(side="left")
         ttk.Button(botones, text="Cerrar sesión", style="Peligro.TButton",
-                   command=self.cerrar_sesion).pack(side="left")
+                   command=self.cerrar_sesion).pack(side="left", padx=(8, 0))
 
         ttk.Label(tarjeta.cuerpo, style="Tarjeta.Suave.TLabel", justify="left",
                   wraplength=820,
@@ -312,6 +316,10 @@ class VistaAjustes:
         else:
             self.etiqueta_cuenta.configure(text="Sin cuenta en este ordenador.")
         self.etiqueta_sincronia.configure(text=sincronia.estado_actual())
+        # Cambiar la contraseña necesita cuenta y servidor: sin sesión no hay
+        # a quién pedírselo, así que el botón se queda apagado.
+        self.boton_contrasena.configure(
+            state="normal" if sincronia.hay_sesion() else "disabled")
         if sincronia.caducada:
             if not self.boton_reentrar.winfo_ismapped():
                 self.boton_reentrar.pack(side="left", padx=(8, 0))
@@ -325,6 +333,19 @@ class VistaAjustes:
         resultado = acceso.pedir_cuenta(self.app.sincronia, padre=self.app)
         if resultado == acceso.DENTRO:
             self.app.estado("Ya estás dentro. Lo pendiente se sube ahora.", "bien")
+        self._refrescar_cuenta()
+
+    def cambiar_contrasena(self) -> None:
+        """Abre el diálogo de la contraseña. El aviso de que los demás
+        ordenadores tendrán que entrar de nuevo se da al terminar, porque es
+        justo lo que sorprendería después."""
+        sincronia = self.app.sincronia
+        if sincronia is None or not sincronia.hay_sesion():
+            self.app.estado("Antes hay que entrar con una cuenta.", "malo")
+            return
+        if VentanaContrasena(self.app, sincronia).mostrar():
+            self.app.estado("Contraseña cambiada. Los demás ordenadores tendrán "
+                            "que entrar de nuevo.", "bien")
         self._refrescar_cuenta()
 
     def cerrar_sesion(self) -> None:
@@ -462,3 +483,126 @@ class VistaAjustes:
 
     def al_entrar(self) -> None:
         self.desplazable.arriba()
+
+
+# --- cambiar la contraseña ------------------------------------------------------
+
+LETRAS_MINIMAS = 8
+
+
+class VentanaContrasena(tk.Toplevel):
+    """Un formulario pequeño para cambiar la contraseña de la cuenta.
+
+    Igual que la puerta de entrada: se habla con el servidor desde el hilo
+    principal, que es cosa de un momento, y lo que salga mal se cuenta aquí
+    dentro sin cerrar nada, para no obligar a escribirlo todo otra vez.
+
+    `mostrar()` devuelve si la contraseña se llegó a cambiar.
+    """
+
+    def __init__(self, padre, sincronia):
+        super().__init__(padre)
+        self.sincronia = sincronia
+        self.cambiada = False
+
+        self.title("ContaXcell — Cambiar la contraseña")
+        self.resizable(False, False)
+        self.configure(background=widgets.PALETA.tarjeta)
+        self.transient(padre)
+
+        cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=18)
+        cuerpo.pack(fill="both", expand=True)
+        ttk.Label(cuerpo, text="Cambiar la contraseña",
+                  style="Tarjeta.Negrita.TLabel").pack(anchor="w")
+        ttk.Label(cuerpo, style="Tarjeta.Suave.TLabel", wraplength=340, justify="left",
+                  text="Este ordenador se queda dentro. En los demás habrá que "
+                       "entrar de nuevo con la contraseña nueva.").pack(anchor="w",
+                                                                        pady=(4, 6))
+
+        zona = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
+        zona.pack(fill="x")
+
+        widgets.etiqueta_campo(zona, "Contraseña de ahora")
+        self.var_actual = tk.StringVar()
+        self.campo_actual = ttk.Entry(zona, textvariable=self.var_actual, width=34,
+                                      show="•")
+        self.campo_actual.pack(fill="x")
+
+        widgets.etiqueta_campo(zona, "Contraseña nueva")
+        self.var_nueva = tk.StringVar()
+        ttk.Entry(zona, textvariable=self.var_nueva, width=34, show="•").pack(fill="x")
+
+        widgets.etiqueta_campo(zona, "Repite la nueva")
+        self.var_repetida = tk.StringVar()
+        ttk.Entry(zona, textvariable=self.var_repetida, width=34,
+                  show="•").pack(fill="x")
+
+        ttk.Label(zona, style="Tarjeta.Suave.TLabel", wraplength=340, justify="left",
+                  text=f"Al menos {LETRAS_MINIMAS} letras o números. Una frase "
+                       "corta que recuerdes vale más que un revoltijo que "
+                       "acabes apuntando en un papel.").pack(anchor="w", pady=(8, 0))
+
+        self.error = ttk.Label(cuerpo, text="", style="Tarjeta.Gasto.TLabel",
+                               wraplength=340, justify="left")
+        self.error.pack(anchor="w", pady=(8, 0))
+
+        pie = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
+        pie.pack(fill="x", pady=(14, 0))
+        ttk.Button(pie, text="Cancelar", command=self._cerrar).pack(side="right")
+        ttk.Button(pie, text="Cambiar la contraseña", style="Principal.TButton",
+                   command=self._enviar).pack(side="right", padx=(0, 8))
+
+        self.bind("<Return>", lambda _e: self._enviar())
+        self.bind("<Escape>", lambda _e: self._cerrar())
+        self.protocol("WM_DELETE_WINDOW", self._cerrar)
+
+    def _enviar(self) -> None:
+        actual = self.var_actual.get()
+        nueva = self.var_nueva.get()
+        # Lo que se puede comprobar aquí se comprueba aquí: es más rápido y no
+        # gasta un intento de los que el servidor cuenta.
+        if not actual or not nueva:
+            self._fallo("Escribe la contraseña de ahora y la nueva.")
+            return
+        if len(nueva) < LETRAS_MINIMAS:
+            self._fallo(f"La contraseña nueva necesita al menos "
+                        f"{LETRAS_MINIMAS} letras o números.")
+            return
+        if nueva != self.var_repetida.get():
+            self._fallo("Las dos veces que has escrito la nueva no coinciden.")
+            return
+
+        self.error.configure(text="Hablando con el servidor…")
+        self.update_idletasks()
+        try:
+            self.sincronia.cambiar_contrasena(actual, nueva)
+        except ErrorDeSincronia as error:
+            self._fallo(str(error))
+            return
+        self.cambiada = True
+        self.destroy()
+
+    def _fallo(self, mensaje: str) -> None:
+        self.error.configure(text=mensaje)
+        self.bell()
+
+    def _cerrar(self) -> None:
+        self.destroy()
+
+    def mostrar(self) -> bool:
+        self.update_idletasks()
+        self._centrar()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.campo_actual.focus_set()
+        self.wait_window()
+        return self.cambiada
+
+    def _centrar(self) -> None:
+        padre = self.master
+        ancho, alto = self.winfo_width(), self.winfo_height()
+        x = padre.winfo_rootx() + (padre.winfo_width() - ancho) // 2
+        y = padre.winfo_rooty() + (padre.winfo_height() - alto) // 3
+        self.geometry(f"+{max(0, x)}+{max(0, y)}")

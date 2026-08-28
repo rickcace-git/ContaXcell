@@ -1,0 +1,7 @@
+# El portero de Internet. Caddy escucha en el dominio que diga
+# CONTAXCELL_DOMINIO (del archivo .env), saca y renueva el certificado él solo
+# y pasa todo a la API, que vive en la red interna de compose y no se asoma a
+# la calle. Lo que llega de fuera va cifrado; lo de aquí dentro no sale.
+{$CONTAXCELL_DOMINIO} {
+	reverse_proxy api:8000
+}
