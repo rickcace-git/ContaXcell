@@ -26,7 +26,9 @@ SECRETO_DE_PRUEBA = b"secreto-solo-para-las-pruebas"
 
 def cliente_nuevo() -> TestClient:
     """Un servidor recién levantado, con la base vacía."""
-    app = crear_aplicacion(almacen=AlmacenSQLite(), secreto=SECRETO_DE_PRUEBA)
+    # Sin cliente de precios: estas pruebas no van de eso.
+    app = crear_aplicacion(almacen=AlmacenSQLite(), secreto=SECRETO_DE_PRUEBA,
+                           cliente_precios=None)
     return TestClient(app)
 
 

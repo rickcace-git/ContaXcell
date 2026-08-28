@@ -30,8 +30,38 @@ subidas a la vez no pueden ganar las dos.
 | `POST /api/cuentas/entrar` | Entra con usuario y contraseña. Devuelve `{"token", "usuario"}`. |
 | `GET /api/libro` | El libro guardado: `{"revision", "libro"}`. Revisión 0 y libro nulo si nunca se subió nada. |
 | `PUT /api/libro` | Sube el libro. Cuerpo: `{"revision_base", "libro"}`. Devuelve `{"revision"}`, o 409 con el estado del servidor. |
+| `GET /api/precios/buscar?q=` | Busca la cotización de un fondo. Devuelve `{"encontrados": [{"simbolo", "nombre", "bolsa", "moneda", "pais"}]}`. |
+| `GET /api/precios?simbolo=&desde=` | Los cierres diarios: `{"simbolo", "cotizaciones": [{"fecha", "precio", "moneda"}]}`. |
 
-Las dos rutas del libro piden la cabecera `Authorization: Bearer <token>`.
+Todas menos `salud` y las dos de cuentas piden la cabecera
+`Authorization: Bearer <token>`.
+
+### Por qué los precios están aquí
+
+Porque el proveedor pide una clave y la aplicación se reparte como un `.exe`:
+una clave metida ahí dentro sería pública, y en cuanto alguien la quemara se
+la revocarían a todos. Aquí vive en `.env` y no sale de la máquina.
+
+De paso sale gratis lo que si no costaría: el servidor pregunta el precio
+**una vez al día por fondo** y se lo sirve a todo el grupo, en vez de que
+cada uno gaste su cupo por su cuenta.
+
+La clave se saca gratis en [twelvedata.com](https://twelvedata.com) (800
+consultas al día en el plan gratuito) y se pone en `.env`:
+
+```
+CONTAXCELL_PRECIOS_CLAVE=lo-que-te-den
+```
+
+**Puede faltar.** Sin ella el servidor arranca igual y todo lo demás
+funciona; los precios simplemente no se actualizan. Si el proveedor se cae,
+se sirve el último precio guardado en vez de dar un error: para una cartera,
+el precio de ayer vale mucho más que una pantalla en blanco.
+
+Un aviso: el mismo fondo cotiza en varias bolsas y monedas. El iShares Core
+MSCI World sale en libras en Londres, en euros en Milán y en dólares en
+Dublín. Por eso hay que elegir la cotización buena una vez por fondo, y la
+buena es aquella en la que compraste.
 El token dura treinta días; después hay que volver a entrar. Las contraseñas
 se guardan pasadas por scrypt con sal por usuario: en la base de datos nunca
 hay una contraseña.
@@ -141,7 +171,8 @@ disco que el original solo protege a medias.
 ```
 server/
 ├── contaserver/
-│   ├── aplicacion.py     las cinco rutas de la API
+│   ├── aplicacion.py     las siete rutas de la API
+│   ├── precios.py        cotizaciones: proveedor y caché
 │   ├── almacen.py        guardar y leer: SQLite (pruebas) y Postgres (producción)
 │   └── seguridad.py      contraseñas (scrypt) y fichas de sesión (HMAC)
 ├── pruebas/              sin red y sin Docker, con SQLite en memoria
