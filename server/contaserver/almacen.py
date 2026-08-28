@@ -7,8 +7,12 @@ Hay dos implementaciones con la misma cara:
 - ``AlmacenPostgres``: la de producción, contra el Postgres del docker-compose.
 
 La aplicación no sabe cuál de las dos tiene delante: llama a los mismos
-cuatro métodos. Cualquier otra base de datos que implemente estos cuatro
-métodos serviría igual.
+métodos. Cualquier otra base de datos que los implemente serviría igual.
+
+Cada usuario guarda además una *generación*: un contador que sube en uno cada
+vez que cambia su contraseña. Las fichas de sesión llevan dentro la generación
+con la que se emitieron, así que subirla invalida de golpe todas las fichas
+antiguas de ese usuario.
 
 La pieza delicada es ``guardar_libro``: es un *compara-y-cambia*. Solo graba
 si la revisión que trae el cliente es exactamente la que hay en el servidor,
@@ -49,11 +53,12 @@ class AlmacenSQLite:
         with self._candado:
             self._conexion.executescript("""
                 CREATE TABLE IF NOT EXISTS usuarios (
-                    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                    usuario TEXT NOT NULL UNIQUE,
-                    hash    TEXT NOT NULL,
-                    sal     TEXT NOT NULL,
-                    creado  TEXT NOT NULL DEFAULT (datetime('now'))
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    usuario    TEXT NOT NULL UNIQUE,
+                    hash       TEXT NOT NULL,
+                    sal        TEXT NOT NULL,
+                    generacion INTEGER NOT NULL DEFAULT 0,
+                    creado     TEXT NOT NULL DEFAULT (datetime('now'))
                 );
                 CREATE TABLE IF NOT EXISTS libros (
                     usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
@@ -62,6 +67,16 @@ class AlmacenSQLite:
                     actualizado TEXT NOT NULL DEFAULT (datetime('now'))
                 );
             """)
+            # Para una base que ya existía de antes: el CREATE de arriba no la
+            # toca, así que la columna nueva hay que añadirla aparte. Si ya
+            # está, SQLite protesta y no pasa nada.
+            try:
+                self._conexion.execute(
+                    "ALTER TABLE usuarios ADD COLUMN generacion"
+                    " INTEGER NOT NULL DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass
             self._conexion.commit()
 
     def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str) -> int:
@@ -76,14 +91,54 @@ class AlmacenSQLite:
                 raise UsuarioYaExiste(usuario)
             return int(cursor.lastrowid)
 
-    def buscar_usuario(self, usuario: str) -> tuple[int, str, str] | None:
-        """(id, hash, sal) del usuario, o None si no existe."""
+    def buscar_usuario(self, usuario: str) -> tuple[int, str, str, int] | None:
+        """(id, hash, sal, generacion) del usuario, o None si no existe."""
         with self._candado:
             fila = self._conexion.execute(
-                "SELECT id, hash, sal FROM usuarios WHERE usuario = ?",
+                "SELECT id, hash, sal, generacion FROM usuarios WHERE usuario = ?",
                 (usuario,),
             ).fetchone()
-        return (int(fila[0]), fila[1], fila[2]) if fila else None
+        return (int(fila[0]), fila[1], fila[2], int(fila[3])) if fila else None
+
+    def generacion_de(self, usuario_id: int) -> int | None:
+        """La generación actual del usuario, o None si ya no existe."""
+        with self._candado:
+            fila = self._conexion.execute(
+                "SELECT generacion FROM usuarios WHERE id = ?",
+                (usuario_id,),
+            ).fetchone()
+        return int(fila[0]) if fila else None
+
+    def credenciales_por_id(self, usuario_id: int) -> tuple[str, str] | None:
+        """(hash, sal) del usuario, o None si no existe."""
+        with self._candado:
+            fila = self._conexion.execute(
+                "SELECT hash, sal FROM usuarios WHERE id = ?",
+                (usuario_id,),
+            ).fetchone()
+        return (fila[0], fila[1]) if fila else None
+
+    def cambiar_contrasena(self, usuario_id: int, hash_contrasena: str, sal: str) -> int | None:
+        """Cambia la contraseña y sube la generación. Devuelve la nueva.
+
+        Subir la generación es lo que tira por tierra las fichas viejas: la
+        que llevaba la generación de antes deja de valer. Devuelve None si el
+        usuario no existe.
+        """
+        with self._candado:
+            cursor = self._conexion.execute(
+                "UPDATE usuarios SET hash = ?, sal = ?, generacion = generacion + 1"
+                " WHERE id = ?",
+                (hash_contrasena, sal, usuario_id),
+            )
+            self._conexion.commit()
+            if cursor.rowcount != 1:
+                return None
+            fila = self._conexion.execute(
+                "SELECT generacion FROM usuarios WHERE id = ?",
+                (usuario_id,),
+            ).fetchone()
+        return int(fila[0]) if fila else None
 
     def leer_libro(self, usuario_id: int) -> tuple[int, dict | None]:
         """(revision, libro). Si nunca subió nada: (0, None)."""
@@ -158,12 +213,19 @@ class AlmacenPostgres:
     def _crear_esquema(self) -> None:
         self._ejecutar("""
             CREATE TABLE IF NOT EXISTS usuarios (
-                id      SERIAL PRIMARY KEY,
-                usuario TEXT NOT NULL UNIQUE,
-                hash    TEXT NOT NULL,
-                sal     TEXT NOT NULL,
-                creado  TIMESTAMPTZ NOT NULL DEFAULT now()
+                id         SERIAL PRIMARY KEY,
+                usuario    TEXT NOT NULL UNIQUE,
+                hash       TEXT NOT NULL,
+                sal        TEXT NOT NULL,
+                generacion INTEGER NOT NULL DEFAULT 0,
+                creado     TIMESTAMPTZ NOT NULL DEFAULT now()
             )
+        """)
+        # Para una base que ya venía de una versión anterior: el CREATE de
+        # arriba no la toca y la columna nueva hay que añadirla aparte.
+        self._ejecutar("""
+            ALTER TABLE usuarios
+            ADD COLUMN IF NOT EXISTS generacion INTEGER NOT NULL DEFAULT 0
         """)
         self._ejecutar("""
             CREATE TABLE IF NOT EXISTS libros (
@@ -185,13 +247,39 @@ class AlmacenPostgres:
             raise UsuarioYaExiste(usuario)
         return int(cursor.fetchone()[0])
 
-    def buscar_usuario(self, usuario: str) -> tuple[int, str, str] | None:
+    def buscar_usuario(self, usuario: str) -> tuple[int, str, str, int] | None:
         cursor = self._ejecutar(
-            "SELECT id, hash, sal FROM usuarios WHERE usuario = %s",
+            "SELECT id, hash, sal, generacion FROM usuarios WHERE usuario = %s",
             (usuario,),
         )
         fila = cursor.fetchone()
-        return (int(fila[0]), fila[1], fila[2]) if fila else None
+        return (int(fila[0]), fila[1], fila[2], int(fila[3])) if fila else None
+
+    def generacion_de(self, usuario_id: int) -> int | None:
+        cursor = self._ejecutar(
+            "SELECT generacion FROM usuarios WHERE id = %s",
+            (usuario_id,),
+        )
+        fila = cursor.fetchone()
+        return int(fila[0]) if fila else None
+
+    def credenciales_por_id(self, usuario_id: int) -> tuple[str, str] | None:
+        cursor = self._ejecutar(
+            "SELECT hash, sal FROM usuarios WHERE id = %s",
+            (usuario_id,),
+        )
+        fila = cursor.fetchone()
+        return (fila[0], fila[1]) if fila else None
+
+    def cambiar_contrasena(self, usuario_id: int, hash_contrasena: str, sal: str) -> int | None:
+        """Cambia la contraseña y sube la generación. Devuelve la nueva."""
+        cursor = self._ejecutar(
+            "UPDATE usuarios SET hash = %s, sal = %s, generacion = generacion + 1"
+            " WHERE id = %s RETURNING generacion",
+            (hash_contrasena, sal, usuario_id),
+        )
+        fila = cursor.fetchone()
+        return int(fila[0]) if fila else None
 
     def leer_libro(self, usuario_id: int) -> tuple[int, dict | None]:
         cursor = self._ejecutar(
