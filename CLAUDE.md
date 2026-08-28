@@ -43,7 +43,8 @@ escritorio/          la aplicación (Python + tkinter, solo openpyxl de extra)
     ventana.py       ventana principal y estado compartido
     vistas/          una pestaña por archivo
 server/              FastAPI + Postgres en Docker (lo escribió un amigo)
-  contaserver/       aplicacion.py (5 rutas), seguridad.py, almacen.py
+  contaserver/       aplicacion.py (7 rutas), seguridad.py, almacen.py,
+                     precios.py (cotizaciones, con caché de un día)
 app/                 versión anterior para móvil (Apps Script). Retirada
 To_Do_List.md        lo que queda por hacer
 ```
@@ -79,6 +80,20 @@ To_Do_List.md        lo que queda por hacer
   las que **no traen participaciones**, en los mismos meses y al mismo activo)
   y la importación pregunta si sustituirlas. Los duplicados exactos se
   detectan aparte, por fecha, importe y participaciones.
+- **Los precios vienen del servidor, no de cada aplicación.** El proveedor
+  (Yahoo) no es oficial y puede romperse: teniéndolo en el servidor se
+  arregla en una máquina y no repartiendo un `.exe` nuevo. Además se pregunta
+  una vez al día por fondo para todo el grupo. Twelve Data se descartó: su
+  plan gratuito solo cubre bolsas de Estados Unidos.
+- **La cotización lleva el mercado**: `SWDA.MI`, no `SWDA`. El mismo fondo
+  cotiza en libras en Londres, en euros en Milán y en dólares en Dublín, y la
+  buena es aquella en la que compraste. Se busca por nombre, no por ISIN: por
+  el ISIN solo sale la de Londres.
+- **Con cotización, el valor de mercado deja de escribirse a mano**: sale de
+  `títulos × último cierre`. Sin títulos no hay nada que multiplicar y ese
+  activo se sigue valorando a mano. Al preguntar por un sábado se devuelve el
+  cierre del viernes: si no, la cartera se quedaría en blanco los fines de
+  semana.
 - **Sin valorar no es valer cero.** Un activo sin `ultima_valoracion` y sin
   `valor_mercado` es que nadie ha dicho todavía lo que vale: se da por hecho
   que vale lo aportado, y así lo generado sale cero en vez de anunciar que has
@@ -107,7 +122,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      230 pruebas, ~8 s
+python -m unittest discover -s pruebas      250 pruebas, ~8 s
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
 python pruebas/ver.py --pestana resumen --captura foto.png
 python empaquetar.py                        genera el .exe y el .zip
@@ -115,7 +130,7 @@ python empaquetar.py                        genera el .exe y el .zip
 cd server
 docker compose up -d                        levantar el servidor
 docker compose logs -f api                  ver las peticiones llegar
-python -m unittest discover -s pruebas      19 pruebas (SQLite, sin Docker)
+python -m unittest discover -s pruebas      45 pruebas (SQLite, sin red)
 ```
 
 `pruebas/ver.py` usa una carpeta de datos aparte: nunca toca la contabilidad
