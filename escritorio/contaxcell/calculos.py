@@ -20,8 +20,8 @@ from .modelo import (
     GASTO, INGRESO, INVERSION, ME_DEBEN, MESES, MESES_CORTOS, PASO, VECES_AL_ANIO,
     Deuda, Libro, Movimiento, Periodico,
     Cotizacion,
-    anio_de, clave_mes, es_fecha, hoy, mes_de, redondea, redondea_titulos,
-    suma_dias, suma_meses,
+    anio_de, clave_mes, dia_de_la_semana, dias_del_mes, es_fecha, hoy, mes_de,
+    redondea, redondea_titulos, suma_dias, suma_meses,
 )
 
 
@@ -158,10 +158,17 @@ def totales_del_anio(libro: Libro, anio: int) -> Totales:
     return totales(libro, lambda m: anio_de(m.fecha) == anio)
 
 
-# --- resumen anual ---------------------------------------------------------
+# --- resumen de un periodo -------------------------------------------------
 
 @dataclass
-class MesDelAnio:
+class Tramo:
+    """Un trozo del periodo que se está mirando: un mes o un año entero.
+
+    Es lo que se pinta como una barra del gráfico y una fila de la tabla. Que
+    sea mes o año lo decide quien pide el resumen: doce meses para un año, y
+    un tramo por año cuando se miran varios.
+    """
+
     clave: str
     nombre: str
     corto: str
@@ -186,39 +193,147 @@ class Reparto:
     filas: list[FilaReparto]
 
 
+# En qué se parte el periodo para pintarlo. Un año se mira mes a mes, varios
+# años año a año, y un mes suelto día a día: siempre unas pocas decenas de
+# barras, se mire lo que se mire.
+POR_DIAS = "días"
+POR_MESES = "meses"
+POR_ANIOS = "años"
+
+
 @dataclass
-class ResumenAnual:
-    anio: int
-    meses: list[MesDelAnio]
+class ResumenPeriodo:
+    """Lo que hace falta para pintar la pestaña Resumen de cualquier periodo.
+
+    El periodo va en claves de mes ('2026-01' a '2026-12'), las dos incluidas.
+    Un mes suelto es el que empieza y acaba en la misma.
+    """
+
+    desde: str
+    hasta: str
+    tramos: list[Tramo]
     total: Totales
+    # Cuántos meses del periodo tienen algo apuntado. Es el divisor de las
+    # medias, y va por meses aunque los tramos sean días o años: «gasto medio
+    # al mes» tiene que significar lo mismo se mire lo que se mire.
     meses_con_datos: int
     gasto: Reparto
     ingreso: Reparto
+    particion: str = POR_MESES
 
 
-def resumen_anual(libro: Libro, anio: int) -> ResumenAnual:
-    meses = []
-    for indice in range(12):
-        clave = clave_mes(anio, indice)
-        # '-31' aunque el mes tenga 28 días: las fechas se comparan como
-        # texto, así que basta con que sea mayor que cualquier día real.
-        meses.append(MesDelAnio(
+def meses_entre(desde: str, hasta: str) -> list[str]:
+    """Las claves de mes de un periodo, las dos puntas incluidas."""
+    if not desde or not hasta or hasta < desde:
+        return []
+    claves = []
+    anio, mes = int(desde[:4]), int(desde[5:7])
+    while f"{anio:04d}-{mes:02d}" <= hasta and len(claves) < 1200:
+        claves.append(f"{anio:04d}-{mes:02d}")
+        mes += 1
+        if mes > 12:
+            anio, mes = anio + 1, 1
+    return claves
+
+
+def totales_entre(libro: Libro, desde: str, hasta: str) -> Totales:
+    """Los totales de todo lo apuntado entre dos meses, los dos incluidos."""
+    return totales(libro, lambda m: bool(mes_de(m.fecha)) and desde <= mes_de(m.fecha) <= hasta)
+
+
+def cuantos_meses_con_datos(libro: Libro, desde: str, hasta: str) -> int:
+    """Meses del periodo en los que se apuntó algo, de una sola pasada.
+
+    Se cuenta aparte y no sumando tramos porque los tramos pueden ser años, y
+    dividir entre años daría medias mensuales disparatadas.
+    """
+    meses = set()
+    for movimiento in libro.movimientos:
+        clave = mes_de(movimiento.fecha)
+        if clave and desde <= clave <= hasta and movimiento.importe:
+            meses.add(clave)
+    return len(meses)
+
+
+def _tramos_por_dias(libro: Libro, desde: str, hasta: str) -> list[Tramo]:
+    """Un tramo por día. Es lo que se enseña dentro de un mes suelto."""
+    tramos = []
+    for mes in meses_entre(desde, hasta):
+        for fecha in dias_del_mes(mes):
+            dia = str(int(fecha[8:10]))
+            tramos.append(Tramo(
+                clave=fecha,
+                # El día de la semana importa más de lo que parece: enseña de
+                # un vistazo que lo que se va se va en fin de semana.
+                nombre=f"{dia_de_la_semana(fecha)} {dia}".strip(),
+                corto=dia,
+                totales=totales(libro, lambda m, f=fecha: m.fecha == f),
+                saldo_final=saldo_hasta(libro, fecha),
+            ))
+    return tramos
+
+
+def _tramos_por_meses(libro: Libro, desde: str, hasta: str) -> list[Tramo]:
+    # '-31' aunque el mes tenga 28 días: las fechas se comparan como texto,
+    # así que basta con que sea mayor que cualquier día real.
+    varios_anios = desde[:4] != hasta[:4]
+    tramos = []
+    for clave in meses_entre(desde, hasta):
+        indice = int(clave[5:7]) - 1
+        tramos.append(Tramo(
             clave=clave,
-            nombre=MESES[indice],
-            corto=MESES_CORTOS[indice],
+            # Con varios años por medio, «enero» a secas no dice cuál.
+            nombre=f"{MESES[indice]} {clave[:4]}" if varios_anios else MESES[indice],
+            corto=f"{MESES_CORTOS[indice]} {clave[2:4]}" if varios_anios
+                  else MESES_CORTOS[indice],
             totales=totales_del_mes(libro, clave),
             saldo_final=saldo_hasta(libro, clave + "-31"),
         ))
+    return tramos
 
-    total = totales_del_anio(libro, anio)
-    return ResumenAnual(
-        anio=anio,
-        meses=meses,
+
+def _tramos_por_anios(libro: Libro, desde: str, hasta: str) -> list[Tramo]:
+    tramos = []
+    for anio in range(int(desde[:4]), int(hasta[:4]) + 1):
+        primero = max(desde, f"{anio:04d}-01")
+        ultimo = min(hasta, f"{anio:04d}-12")
+        tramos.append(Tramo(
+            clave=str(anio),
+            nombre=str(anio),
+            corto=str(anio),
+            totales=totales_entre(libro, primero, ultimo),
+            saldo_final=saldo_hasta(libro, ultimo + "-31"),
+        ))
+    return tramos
+
+
+def resumen_periodo(libro: Libro, desde: str, hasta: str,
+                    particion: str = POR_MESES) -> ResumenPeriodo:
+    """El resumen de un periodo cualquiera, partido en días, meses o años."""
+    if particion == POR_DIAS:
+        tramos = _tramos_por_dias(libro, desde, hasta)
+    elif particion == POR_ANIOS:
+        tramos = _tramos_por_anios(libro, desde, hasta)
+    else:
+        particion = POR_MESES
+        tramos = _tramos_por_meses(libro, desde, hasta)
+
+    total = totales_entre(libro, desde, hasta)
+    return ResumenPeriodo(
+        desde=desde,
+        hasta=hasta,
+        tramos=tramos,
         total=total,
-        meses_con_datos=sum(1 for m in meses if m.hay_datos),
+        meses_con_datos=cuantos_meses_con_datos(libro, desde, hasta),
         gasto=reparto_por_tipo(libro, total.por_categoria, GASTO),
         ingreso=reparto_por_tipo(libro, total.por_categoria, INGRESO),
+        particion=particion,
     )
+
+
+def resumen_anual(libro: Libro, anio: int) -> ResumenPeriodo:
+    """Los doce meses de un año. Es el caso de siempre del resumen."""
+    return resumen_periodo(libro, clave_mes(anio, 0), clave_mes(anio, 11), POR_MESES)
 
 
 def reparto_por_tipo(libro: Libro, por_categoria: dict[str, float], tipo: str) -> Reparto:
@@ -539,47 +654,71 @@ def _historico(libro: Libro, aportaciones: list[Movimiento]) -> list[PuntoHistor
 
 @dataclass
 class Indicadores:
-    anio: int
+    desde: str
+    hasta: str
     saldo_banco: float
     meses_con_datos: int
     ahorro_medio: float
     gasto_medio: float
     tasa_ahorro: float
-    mes_mayor_gasto: str
+    # El nombre del tramo en el que más se gastó: un día, un mes o un año,
+    # según en qué se haya partido el periodo.
+    tramo_mayor_gasto: str
+    # El gasto más grande de todo el periodo, ese movimiento concreto. Es lo
+    # que interesa cuando se mira un mes suelto, donde «el mes de mayor gasto»
+    # no dice nada.
+    mayor_gasto: Movimiento | None
     meses_de_colchon: float
-    inversion_anual: float
+    inversion: float
     total_aportado: float
     valor_cartera: float
     generado_mercado: float
     patrimonio: float
 
 
-def indicadores(libro: Libro, anio: int) -> Indicadores:
-    resumen = resumen_anual(libro, anio)
+def mayor_gasto_entre(libro: Libro, desde: str, hasta: str) -> Movimiento | None:
+    """El gasto más grande del periodo. La inversión no cuenta: sale del
+    banco, pero el dinero sigue siendo tuyo."""
+    candidatos = [m for m in libro.movimientos
+                  if mes_de(m.fecha) and desde <= mes_de(m.fecha) <= hasta
+                  and libro.tipo_de(m.categoria) == GASTO and m.importe > 0]
+    return max(candidatos, key=lambda m: (m.importe, m.fecha), default=None)
+
+
+def indicadores_de(libro: Libro, desde: str, hasta: str,
+                   particion: str = POR_MESES) -> Indicadores:
+    resumen = resumen_periodo(libro, desde, hasta, particion)
     inversiones = cartera(libro)
     saldo = saldo_banco(libro)
     meses = resumen.meses_con_datos
 
     gasto_medio = redondea(resumen.total.gastos / meses) if meses else 0.0
-    mes_mayor = max(resumen.meses, key=lambda m: m.totales.gastos, default=None)
+    mayor = max(resumen.tramos, key=lambda t: t.totales.gastos, default=None)
 
     return Indicadores(
-        anio=anio,
+        desde=desde,
+        hasta=hasta,
         saldo_banco=saldo,
         meses_con_datos=meses,
         ahorro_medio=redondea(resumen.total.ahorro / meses) if meses else 0.0,
         gasto_medio=gasto_medio,
         tasa_ahorro=resumen.total.tasa_ahorro,
-        mes_mayor_gasto=mes_mayor.nombre if mes_mayor and mes_mayor.totales.gastos > 0 else "",
+        tramo_mayor_gasto=mayor.nombre if mayor and mayor.totales.gastos > 0 else "",
+        mayor_gasto=mayor_gasto_entre(libro, desde, hasta),
         # Cuántos meses aguantarías con lo que hay en el banco si dejaras de
         # ingresar y siguieras gastando tu media.
         meses_de_colchon=saldo / gasto_medio if gasto_medio > 0 else 0.0,
-        inversion_anual=resumen.total.inversion,
+        inversion=resumen.total.inversion,
         total_aportado=inversiones.total_aportado,
         valor_cartera=inversiones.valor_mercado,
         generado_mercado=inversiones.generado,
         patrimonio=redondea(saldo + inversiones.valor_mercado),
     )
+
+
+def indicadores(libro: Libro, anio: int) -> Indicadores:
+    """Los indicadores de un año entero."""
+    return indicadores_de(libro, clave_mes(anio, 0), clave_mes(anio, 11), POR_MESES)
 
 
 # --- listas para los selectores --------------------------------------------

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import tkinter as tk
+from tkinter import ttk
 import unittest
 from datetime import date
 from pathlib import Path
@@ -401,6 +402,28 @@ class PruebasWidgets(ConVentana):
         panel.poner("a", "Uno", "2,00 €", "Gasto")
         self.assertEqual(len(panel._cifras), 1)
         self.assertEqual(panel._cifras["a"].etiqueta_valor.cget("text"), "2,00 €")
+
+    def test_la_casilla_tambien_se_cambia_de_rotulo(self):
+        # La misma casilla dice «gastos del año» o «gastos del mes» según lo
+        # que se esté mirando en el resumen.
+        panel = widgets.PanelCifras(self.raiz, columnas=2)
+        self.addCleanup(panel.destroy)
+        panel.poner("a", "Gastos del año", "1,00 €")
+        panel.poner("a", "Gastos del mes", "2,00 €")
+        self.assertEqual(panel._cifras["a"].etiqueta_rotulo.cget("text"),
+                         "GASTOS DEL MES")
+
+    def test_quitar_una_tarjeta_no_deja_el_marco_puesto(self):
+        # Quitando solo la tarjeta se quedaba el marco del borde, vacío y con
+        # el alto que tenía: un hueco gris en medio de la pantalla.
+        padre = ttk.Frame(self.raiz)
+        self.addCleanup(padre.destroy)
+        tarjeta = widgets.Tarjeta(padre, "Prueba")
+        tarjeta.pack(fill="x")
+        self.raiz.update_idletasks()
+
+        tarjeta.pack_forget()
+        self.assertEqual(padre.pack_slaves(), [])
 
 
 if __name__ == "__main__":

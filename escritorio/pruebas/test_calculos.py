@@ -127,11 +127,11 @@ class PruebasResumenAnual(unittest.TestCase):
         self.resumen = calculos.resumen_anual(libro_de_prueba(), 2026)
 
     def test_siempre_doce_meses(self):
-        self.assertEqual(len(self.resumen.meses), 12)
+        self.assertEqual(len(self.resumen.tramos), 12)
         self.assertEqual(self.resumen.meses_con_datos, 2)
 
     def test_saldo_a_fin_de_mes(self):
-        por_clave = {m.clave: m for m in self.resumen.meses}
+        por_clave = {m.clave: m for m in self.resumen.tramos}
         self.assertEqual(por_clave["2026-02"].saldo_final, 1000.0)
         self.assertEqual(por_clave["2026-03"].saldo_final, 1880.0)
         self.assertEqual(por_clave["2026-04"].saldo_final, 1834.5)
@@ -139,7 +139,7 @@ class PruebasResumenAnual(unittest.TestCase):
     def test_febrero_cierra_bien_pese_a_tener_28_dias(self):
         # El tope de mes se construye con «-31» a propósito; conviene que
         # alguien avise si eso deja de funcionar.
-        febrero = next(m for m in self.resumen.meses if m.clave == "2026-02")
+        febrero = next(m for m in self.resumen.tramos if m.clave == "2026-02")
         self.assertEqual(febrero.saldo_final, 1000.0)
 
     def test_reparto_de_gastos_ordenado_y_al_cien_por_cien(self):
@@ -158,6 +158,151 @@ class PruebasResumenAnual(unittest.TestCase):
         resumen = calculos.resumen_anual(libro, 2026)
         huerfana = next(f for f in resumen.gasto.filas if f.nombre == "Comer fuera")
         self.assertEqual(huerfana.importe, 45.5)
+
+
+class PruebasResumenPeriodo(unittest.TestCase):
+    """El resumen mirando un mes, un año o varios.
+
+    Lo que hay que vigilar es que las medias sigan siendo por mes aunque los
+    tramos sean años: dividir 30.000 € entre tres años daría 10.000 «al mes».
+    """
+
+    def varios_anios(self) -> Libro:
+        libro = libro_de_prueba()
+        libro.movimientos.append(
+            Movimiento(fecha="2025-06-01", descripcion="Nómina vieja",
+                       categoria="Sueldo", importe=1500.0, id="m0"))
+        libro.movimientos.append(
+            Movimiento(fecha="2025-06-15", descripcion="Alquiler viejo",
+                       categoria="Vivienda y Suministros", importe=600.0, id="m0b"))
+        return libro
+
+    def test_meses_entre(self):
+        self.assertEqual(calculos.meses_entre("2026-11", "2027-02"),
+                         ["2026-11", "2026-12", "2027-01", "2027-02"])
+
+    def test_meses_entre_al_reves_no_da_nada(self):
+        self.assertEqual(calculos.meses_entre("2026-05", "2026-01"), [])
+
+    def test_un_mes_suelto_es_un_solo_tramo(self):
+        resumen = calculos.resumen_periodo(libro_de_prueba(), "2026-03", "2026-03")
+
+        self.assertEqual(len(resumen.tramos), 1)
+        self.assertEqual(resumen.total.ingresos, 2000.0)
+        self.assertEqual(resumen.total.gastos, 820.0)
+        self.assertEqual(resumen.total.inversion, 300.0)
+
+    def test_el_mes_de_al_lado_no_se_cuela(self):
+        resumen = calculos.resumen_periodo(libro_de_prueba(), "2026-03", "2026-03")
+        self.assertNotIn("Comer fuera", [f.nombre for f in resumen.gasto.filas
+                                         if f.importe])
+
+    def test_varios_anios_van_por_anios(self):
+        resumen = calculos.resumen_periodo(self.varios_anios(), "2025-01", "2026-12",
+                                           particion=calculos.POR_ANIOS)
+
+        self.assertEqual([t.nombre for t in resumen.tramos], ["2025", "2026"])
+        self.assertEqual(resumen.tramos[0].totales.ingresos, 1500.0)
+        self.assertEqual(resumen.tramos[1].totales.ingresos, 2000.0)
+        self.assertEqual(resumen.total.ingresos, 3500.0)
+
+    def test_las_medias_siguen_siendo_por_mes(self):
+        # Tres meses con datos entre los dos años, no dos años.
+        indicadores = calculos.indicadores_de(self.varios_anios(), "2025-01", "2026-12",
+                                              particion=calculos.POR_ANIOS)
+        self.assertEqual(indicadores.meses_con_datos, 3)
+        self.assertEqual(indicadores.gasto_medio,
+                         calculos.redondea((820.0 + 45.5 + 600.0) / 3))
+
+    def test_el_anio_de_mayor_gasto(self):
+        indicadores = calculos.indicadores_de(self.varios_anios(), "2025-01", "2026-12",
+                                              particion=calculos.POR_ANIOS)
+        self.assertEqual(indicadores.tramo_mayor_gasto, "2026")
+
+    def test_con_varios_anios_el_mes_lleva_el_anio_puesto(self):
+        # «enero» a secas no diría de cuál de los dos.
+        resumen = calculos.resumen_periodo(self.varios_anios(), "2025-01", "2026-12")
+        self.assertEqual(resumen.tramos[0].nombre, "enero 2025")
+        self.assertEqual(resumen.tramos[0].corto, "ene 25")
+
+    def test_el_saldo_de_cada_anio_es_el_de_fin_de_anio(self):
+        resumen = calculos.resumen_periodo(self.varios_anios(), "2025-01", "2026-12",
+                                           particion=calculos.POR_ANIOS)
+        self.assertEqual(resumen.tramos[0].saldo_final,
+                         calculos.saldo_hasta(self.varios_anios(), "2025-12-31"))
+
+    def test_mayor_gasto_del_periodo(self):
+        mayor = calculos.mayor_gasto_entre(libro_de_prueba(), "2026-01", "2026-12")
+        self.assertEqual(mayor.descripcion, "Alquiler")
+
+    def test_el_mayor_gasto_no_es_la_inversion(self):
+        # La aportación de 300 € sale del banco, pero no es un gasto.
+        libro = libro_de_prueba()
+        libro.movimientos = [m for m in libro.movimientos if m.categoria != "Sueldo"]
+        libro.movimientos.append(Movimiento(fecha="2026-03-25", descripcion="Fondo gordo",
+                                            categoria="Inversión", importe=5000.0,
+                                            id="mx"))
+        mayor = calculos.mayor_gasto_entre(libro, "2026-01", "2026-12")
+        self.assertEqual(mayor.descripcion, "Alquiler")
+
+    def test_sin_gastos_no_hay_mayor(self):
+        self.assertIsNone(calculos.mayor_gasto_entre(libro_de_prueba(), "2020-01",
+                                                     "2020-12"))
+
+    def test_un_mes_partido_en_dias(self):
+        resumen = calculos.resumen_periodo(libro_de_prueba(), "2026-03", "2026-03",
+                                           calculos.POR_DIAS)
+
+        self.assertEqual(len(resumen.tramos), 31)
+        con_datos = [t for t in resumen.tramos if t.hay_datos]
+        self.assertEqual([t.clave for t in con_datos],
+                         ["2026-03-01", "2026-03-05", "2026-03-10", "2026-03-20"])
+
+    def test_febrero_tiene_los_dias_que_tiene(self):
+        corto = calculos.resumen_periodo(libro_de_prueba(), "2026-02", "2026-02",
+                                         calculos.POR_DIAS)
+        bisiesto = calculos.resumen_periodo(libro_de_prueba(), "2028-02", "2028-02",
+                                            calculos.POR_DIAS)
+        self.assertEqual(len(corto.tramos), 28)
+        self.assertEqual(len(bisiesto.tramos), 29)
+
+    def test_el_dia_lleva_el_dia_de_la_semana(self):
+        resumen = calculos.resumen_periodo(libro_de_prueba(), "2026-03", "2026-03",
+                                           calculos.POR_DIAS)
+        # El 1 de marzo de 2026 cae en domingo.
+        self.assertEqual(resumen.tramos[0].nombre, "dom 1")
+        self.assertEqual(resumen.tramos[0].corto, "1")
+
+    def test_el_saldo_de_cada_dia(self):
+        resumen = calculos.resumen_periodo(libro_de_prueba(), "2026-03", "2026-03",
+                                           calculos.POR_DIAS)
+        por_clave = {t.clave: t for t in resumen.tramos}
+        self.assertEqual(por_clave["2026-03-01"].saldo_final, 3000.0)
+        self.assertEqual(por_clave["2026-03-31"].saldo_final, 1880.0)
+
+    def test_los_dias_suman_lo_mismo_que_el_mes(self):
+        libro = libro_de_prueba()
+        por_dias = calculos.resumen_periodo(libro, "2026-03", "2026-03",
+                                            calculos.POR_DIAS)
+        self.assertEqual(calculos.redondea(sum(t.totales.gastos
+                                               for t in por_dias.tramos)),
+                         calculos.totales_del_mes(libro, "2026-03").gastos)
+
+    def test_las_medias_de_un_mes_no_se_dividen_entre_dias(self):
+        # Treinta y un tramos, pero un solo mes: la media al mes es el total.
+        indicadores = calculos.indicadores_de(libro_de_prueba(), "2026-03", "2026-03",
+                                              calculos.POR_DIAS)
+        self.assertEqual(indicadores.meses_con_datos, 1)
+        self.assertEqual(indicadores.gasto_medio, 820.0)
+
+    def test_el_anio_entero_da_lo_mismo_que_antes(self):
+        libro = libro_de_prueba()
+        por_periodo = calculos.resumen_periodo(libro, "2026-01", "2026-12")
+        anual = calculos.resumen_anual(libro, 2026)
+
+        self.assertEqual(len(por_periodo.tramos), len(anual.tramos))
+        self.assertEqual(por_periodo.total.gastos, anual.total.gastos)
+        self.assertEqual(por_periodo.meses_con_datos, anual.meses_con_datos)
 
 
 class PruebasPresupuesto(unittest.TestCase):
@@ -253,14 +398,14 @@ class PruebasIndicadores(unittest.TestCase):
         self.assertEqual(self.indicadores.patrimonio, 1834.5 + 900.0)
 
     def test_mes_de_mayor_gasto(self):
-        self.assertEqual(self.indicadores.mes_mayor_gasto, "marzo")
+        self.assertEqual(self.indicadores.tramo_mayor_gasto, "marzo")
 
     def test_ano_sin_datos_no_revienta(self):
         indicadores = calculos.indicadores(libro_de_prueba(), 2020)
         self.assertEqual(indicadores.meses_con_datos, 0)
         self.assertEqual(indicadores.gasto_medio, 0.0)
         self.assertEqual(indicadores.meses_de_colchon, 0.0)
-        self.assertEqual(indicadores.mes_mayor_gasto, "")
+        self.assertEqual(indicadores.tramo_mayor_gasto, "")
 
 
 class PruebasModelo(unittest.TestCase):

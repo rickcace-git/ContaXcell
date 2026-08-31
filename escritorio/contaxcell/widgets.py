@@ -67,6 +67,14 @@ class Tarjeta(ttk.Frame):
         self.marco.grid(**kw)
         return self
 
+    # Y el que hay que quitar, también: quitando solo la tarjeta se queda el
+    # marco puesto, vacío y con el alto que tenía, como un hueco gris.
+    def pack_forget(self) -> None:
+        self.marco.pack_forget()
+
+    def grid_forget(self) -> None:
+        self.marco.grid_forget()
+
     def destruir(self) -> None:
         self.marco.destroy()
 
@@ -177,8 +185,9 @@ class Cifra(ttk.Frame):
 
         cabecera = ttk.Frame(self, style="Hundido.TFrame")
         cabecera.pack(fill="x")
-        ttk.Label(cabecera, text=rotulo.upper(),
-                  style="Hundido.Titulo.TLabel").pack(side="left")
+        self.etiqueta_rotulo = ttk.Label(cabecera, text=rotulo.upper(),
+                                         style="Hundido.Titulo.TLabel")
+        self.etiqueta_rotulo.pack(side="left")
 
         self.boton_ayuda = None
         if ayuda is not None:
@@ -194,7 +203,11 @@ class Cifra(ttk.Frame):
             self.etiqueta_nota.pack(anchor="w")
 
     def actualizar(self, valor: str, color: str = "", nota: str | None = None,
-                   ayuda=None) -> None:
+                   ayuda=None, rotulo: str | None = None) -> None:
+        # El rótulo también cambia: la misma casilla dice «gastos del año» o
+        # «gastos del mes» según lo que se esté mirando.
+        if rotulo is not None:
+            self.etiqueta_rotulo.configure(text=rotulo.upper())
         self.etiqueta_valor.configure(text=valor, style=f"Hundido.Grande{color}.TLabel")
         # La explicación se rehace en cada refresco porque lleva dentro las
         # cifras del momento; hay que cambiarle el gatillo al botón.
@@ -223,7 +236,7 @@ class PanelCifras(ttk.Frame):
         """Crea la casilla la primera vez y la actualiza las siguientes, para
         no destruir y rehacer widgets en cada refresco."""
         if clave in self._cifras:
-            self._cifras[clave].actualizar(valor, color, nota, ayuda)
+            self._cifras[clave].actualizar(valor, color, nota, ayuda, rotulo)
             return
         posicion = len(self._cifras)
         cifra = Cifra(self, rotulo, valor, color, nota, ayuda)
@@ -535,6 +548,18 @@ class Tabla(ttk.Frame):
             if numero % 2:
                 marcas += ("franja",)
             self.arbol.insert("", "end", iid=str(clave), values=valores, tags=marcas)
+
+    def titulo_columna(self, clave: str, texto: str) -> None:
+        """Cambia la cabecera de una columna sin rehacer la tabla.
+
+        La misma tabla enseña meses o años según lo que se esté mirando, y la
+        cabecera tiene que decir cuál de los dos.
+        """
+        columna = next((c for c in self.columnas if c.clave == clave), None)
+        if columna is None:
+            return
+        self.arbol.heading(clave, text=texto,
+                           anchor="e" if columna.anclaje == "e" else "w")
 
     def seleccion(self) -> str | None:
         elegido = self.arbol.selection()

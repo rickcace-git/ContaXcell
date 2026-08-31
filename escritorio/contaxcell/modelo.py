@@ -71,6 +71,9 @@ MESES_CORTOS = (
     "ene", "feb", "mar", "abr", "may", "jun",
     "jul", "ago", "sep", "oct", "nov", "dic",
 )
+# Empieza en lunes, como `date.weekday()`. Sirve para que en el detalle de un
+# mes se vea de un vistazo qué cae en fin de semana.
+DIAS_CORTOS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
 # Categorías de activo que se ofrecen al crear uno. No son obligatorias ni
 # cerradas: se puede escribir cualquier otra.
@@ -173,6 +176,25 @@ def suma_meses(fecha: str, meses: int) -> str:
         return ""
     ultimo_dia = calendar.monthrange(anio_nuevo, mes_nuevo)[1]
     return f"{anio_nuevo:04d}-{mes_nuevo:02d}-{min(dia, ultimo_dia):02d}"
+
+
+def dias_del_mes(clave: str) -> list[str]:
+    """Las fechas de todos los días de un mes ('2026-02' da 28 o 29)."""
+    partes = str(clave or "").split("-")
+    if len(partes) != 2 or not (partes[0].isdigit() and partes[1].isdigit()):
+        return []
+    anio, mes = int(partes[0]), int(partes[1])
+    if not (1 <= mes <= 12 and 1 <= anio <= 9999):
+        return []
+    ultimo = calendar.monthrange(anio, mes)[1]
+    return [f"{anio:04d}-{mes:02d}-{dia:02d}" for dia in range(1, ultimo + 1)]
+
+
+def dia_de_la_semana(fecha: str) -> str:
+    """«vie» para el 3 de agosto de 2026. Vacío si no es una fecha."""
+    if not es_fecha(fecha):
+        return ""
+    return DIAS_CORTOS[date.fromisoformat(fecha).weekday()]
 
 
 def clave_mes(anio: int, indice_mes: int) -> str:

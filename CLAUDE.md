@@ -105,6 +105,13 @@ To_Do_List.md        lo que queda por hacer
   `calculos.periodico_de`: ese movimiento **es** el primer pago, así que la
   marca nace ya en su fecha y no se rellena lo anterior. Sin eso, el gasto que
   acabas de escribir saldría dos veces.
+- **El resumen se mira por tramos.** `calculos.resumen_periodo` parte el
+  periodo en días (un mes suelto), meses (un año) o años (varios), y de ahí
+  salen el gráfico y la tabla. Las medias van **siempre por mes** sean los
+  tramos lo que sean: repartir tres años de gastos entre tres tramos daría un
+  «gasto medio al mes» de diez mil euros, y entre treinta y un días, treinta
+  euros. Por eso `meses_con_datos` se cuenta aparte, de una pasada por los
+  movimientos, y no sumando tramos.
 - **Una deuda no es dinero.** Que Fulanito te deba veinte euros no es tenerlos,
   así que las deudas no tocan el saldo ni el ahorro: son una libreta aparte.
   Lo que mueve el banco son los movimientos, y por eso cobrar o pagar una
@@ -120,7 +127,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      314 pruebas, ~9 s (test_dialogos abre
+python -m unittest discover -s pruebas      335 pruebas, ~9 s (test_dialogos abre
                                             ventanas: en Mac/Linux, mejor correr
                                             los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
