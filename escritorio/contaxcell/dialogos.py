@@ -227,6 +227,10 @@ class Formulario(tk.Toplevel):
                 inicial = campo.valor
             variable = tk.StringVar(value=inicial)
             control = ttk.Entry(bloque, textvariable=variable, width=34)
+            if isinstance(campo, Importe):
+                # En un importe no entran letras: se rechazan al teclearlas en
+                # vez de explicarlo después con un error.
+                widgets.solo_numeros(control, negativos=campo.permitir_negativo)
             if isinstance(campo, Texto) and campo.pista:
                 _pista(control, variable, campo.pista)
             control.pack(fill="x")

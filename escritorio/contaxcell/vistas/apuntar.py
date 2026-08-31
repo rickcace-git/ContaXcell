@@ -61,6 +61,7 @@ class VistaApuntar:
         self.campo_importe = ttk.Entry(cuerpo, textvariable=self.var_importe,
                                        font=self.app.fuentes.importe, justify="center",
                                        style="Importe.TEntry")
+        widgets.solo_numeros(self.campo_importe)
         self.campo_importe.pack(fill="x")
 
         widgets.etiqueta_campo(cuerpo, "Descripción")

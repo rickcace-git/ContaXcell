@@ -21,27 +21,38 @@ from contaxcell import dialogos, tema, widgets  # noqa: E402
 
 
 class ConVentana(unittest.TestCase):
-    """Base para las pruebas que necesitan una ventana de tkinter."""
+    """Base para las pruebas que necesitan una ventana de tkinter.
+
+    La ventana es una sola para todo el módulo y se cierra al final. Abriendo
+    y cerrando una por cada clase, tkinter deja avisos por la salida de error
+    al repintar los estilos de una ventana que ya no existe.
+    """
+
+    raiz: tk.Tk | None = None
 
     @classmethod
     def setUpClass(cls):
+        if ConVentana.raiz is not None:
+            return
         try:
-            cls.raiz = tk.Tk()
+            ConVentana.raiz = tk.Tk()
         except tk.TclError as error:
             raise unittest.SkipTest(f"no hay pantalla disponible: {error}") from error
-        cls.raiz.withdraw()
+        ConVentana.raiz.withdraw()
         fuentes = tema.Fuentes()
-        tema.aplicar(cls.raiz, tema.CLARA, fuentes)
+        tema.aplicar(ConVentana.raiz, tema.CLARA, fuentes)
         widgets.usar(tema.CLARA, fuentes)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.raiz.destroy()
 
     def formulario(self, campos, **kw) -> dialogos.Formulario:
         ventana = dialogos.Formulario(self.raiz, "Prueba", campos, **kw)
         self.addCleanup(ventana.destroy)
         return ventana
+
+
+def tearDownModule():
+    if ConVentana.raiz is not None:
+        ConVentana.raiz.destroy()
+        ConVentana.raiz = None
 
 
 class PruebasValidacion(ConVentana):
@@ -385,6 +396,70 @@ class PruebasCampoFecha(ConVentana):
         casilla.abrir_calendario()
         self.addCleanup(casilla.calendario.cerrar)
         self.assertEqual(casilla.calendario.mes, date.today().replace(day=1))
+
+
+class PruebasSoloNumeros(ConVentana):
+    """El filtro de las casillas de importe.
+
+    Cada caso estrena casilla: si Tk rechaza una escritura del programa deja
+    de validar, y compartiéndola las pruebas siguientes no comprobarían nada.
+    """
+
+    def escribir(self, texto: str, negativos: bool = False) -> str:
+        entrada = ttk.Entry(self.raiz)
+        self.addCleanup(entrada.destroy)
+        widgets.solo_numeros(entrada, negativos=negativos)
+        entrada.insert(0, texto)
+        return entrada.get()
+
+    def test_un_importe_normal_entra(self):
+        self.assertEqual(self.escribir("12,50"), "12,50")
+
+    def test_con_punto_decimal_tambien(self):
+        self.assertEqual(self.escribir("12.50"), "12.50")
+
+    def test_con_miles_y_euro_pegado_del_portapapeles(self):
+        self.assertEqual(self.escribir("1.234,56 €"), "1.234,56 €")
+
+    def test_las_letras_no_entran(self):
+        self.assertEqual(self.escribir("dos euros"), "")
+
+    def test_ni_una_letra_suelta_en_medio(self):
+        self.assertEqual(self.escribir("12a"), "")
+
+    def test_los_caracteres_raros_tampoco(self):
+        for raro in ("12$", "12%", "1;2", "<script>", "12\n34"):
+            self.assertEqual(self.escribir(raro), "", raro)
+
+    def test_dos_comas_no_son_un_numero(self):
+        self.assertEqual(self.escribir("1,2,3"), "")
+
+    def test_los_puntos_de_los_miles_pueden_ser_varios(self):
+        self.assertEqual(self.escribir("1.234.567"), "1.234.567")
+
+    def test_el_signo_solo_donde_se_permite(self):
+        # En el modelo los importes son positivos: el signo lo pone la
+        # categoría. Solo el saldo inicial puede ir en rojo.
+        self.assertEqual(self.escribir("-100"), "")
+        self.assertEqual(self.escribir("-100", negativos=True), "-100")
+
+    def test_el_signo_va_delante_y_una_sola_vez(self):
+        self.assertEqual(self.escribir("1-2", negativos=True), "")
+        self.assertEqual(self.escribir("--5", negativos=True), "")
+
+    def test_no_cabe_una_parrafada(self):
+        self.assertEqual(self.escribir("1" * 40), "")
+
+    def test_el_campo_de_importe_de_los_formularios_lo_lleva_puesto(self):
+        ventana = self.formulario([dialogos.Importe("importe", "Importe")])
+        ventana._controles["importe"].insert(0, "abc")
+        self.assertEqual(ventana.valor("importe"), "")
+
+    def test_y_el_de_un_importe_que_admite_negativos(self):
+        ventana = self.formulario([
+            dialogos.Importe("importe", "Importe", permitir_negativo=True)])
+        ventana._controles["importe"].insert(0, "-30")
+        self.assertEqual(ventana.valor("importe"), "-30")
 
 
 class PruebasWidgets(ConVentana):

@@ -78,6 +78,7 @@ class VistaPresupuesto:
                   style="Tarjeta.Suave.TLabel").pack(anchor="w")
         self.var_objetivo = tk.StringVar()
         self.campo_objetivo = ttk.Entry(bloque, textvariable=self.var_objetivo, width=14)
+        widgets.solo_numeros(self.campo_objetivo)
         self.campo_objetivo.pack(anchor="w", pady=(3, 0))
         self.campo_objetivo.bind("<FocusOut>", lambda _e: self._guardar_objetivo())
         self.campo_objetivo.bind("<Return>", lambda _e: self._guardar_objetivo())
@@ -105,6 +106,7 @@ class VistaPresupuesto:
             variable = tk.StringVar()
             casilla = ttk.Entry(self.rejilla, textvariable=variable, width=12,
                                 justify="right")
+            widgets.solo_numeros(casilla)
             casilla.grid(row=indice, column=1, sticky="e", padx=(0, 14), pady=2)
             casilla.bind("<FocusOut>", lambda _e, n=nombre: self._guardar_tope(n))
             casilla.bind("<Return>", lambda _e, n=nombre: self._guardar_tope(n))

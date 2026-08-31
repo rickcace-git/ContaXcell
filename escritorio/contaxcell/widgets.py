@@ -806,6 +806,53 @@ def _al_pasar(widget: tk.Widget, encima: str, normal: str) -> None:
     widget.bind("<Leave>", lambda _e: widget.configure(background=normal), add="+")
 
 
+# Con «1.234.567,89 €» sobran catorce. El tope está para que pegar media
+# página en la casilla no la llene, no para limitar la cifra.
+LARGO_NUMERO = 20
+
+
+def solo_numeros(entrada: ttk.Entry, negativos: bool = False) -> ttk.Entry:
+    """Deja la casilla sin poder escribir nada que no sea un número.
+
+    Igual que en las fechas: una letra en un importe no es un error que haya
+    que explicar después, es una tecla que no tiene por qué entrar. Se admite
+    lo que `formato.texto_a_numero` sabe leer —coma o punto, los puntos de los
+    miles, el símbolo del euro— para que pegar «1.234,56 €» siga funcionando.
+
+    El signo solo se permite donde tiene sentido: en el modelo los importes
+    son siempre positivos y el signo lo decide la categoría, así que casi
+    ningún campo lo necesita. El saldo inicial sí, que se puede empezar en
+    números rojos.
+
+    Ojo al escribir desde el programa: Tk apaga la validación en cuanto una
+    escritura incumple la regla. Todo lo que se pone a mano en la aplicación
+    ya viene formateado y pasa el filtro, pero si algún día se mete otra cosa
+    hay que volver a encenderla con `configure(validate="key")`.
+    """
+    permitidos = set("0123456789.,€ ")
+    if negativos:
+        permitidos.add("-")
+
+    def admite(propuesto: str) -> bool:
+        if len(propuesto) > LARGO_NUMERO:
+            return False
+        if not set(propuesto) <= permitidos:
+            return False
+        # Una coma sola: es el separador decimal. Los puntos pueden ser varios
+        # porque son los de los miles.
+        if propuesto.count(",") > 1:
+            return False
+        # El menos, solo delante y una vez: «1-2» no es ningún número.
+        if propuesto.count("-") > 1 or (propuesto[1:].find("-") >= 0):
+            return False
+        return True
+
+    entrada.configure(validate="key",
+                      validatecommand=(entrada.register(admite), "%P"))
+    return entrada
+
+
+
 def etiqueta_campo(padre, texto: str, fondo: str = "Tarjeta") -> ttk.Label:
     etiqueta = ttk.Label(padre, text=texto, style=f"{fondo}.Suave.TLabel")
     etiqueta.pack(anchor="w", pady=(8, 3))

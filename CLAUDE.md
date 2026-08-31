@@ -54,6 +54,9 @@ To_Do_List.md        lo que queda por hacer
 - **Fechas**: cadenas `'AAAA-MM-DD'`. Se ordenan y comparan como texto. Nunca
   `datetime` para comparar, para que ninguna zona horaria reste un día.
 - **Importes**: siempre positivos en el modelo. El signo lo decide la categoría.
+  En la ventana no se pueden teclear letras ni signos raros: las casillas de
+  número pasan por `widgets.solo_numeros`, igual que las de fecha. Solo el
+  saldo inicial admite el menos, que se puede empezar en números rojos.
 - **Redondeo**: `modelo.redondea()`, con `ROUND_HALF_UP`. El `round` de Python
   redondea al par y da 2,67 para 2,675.
 - **`calculos.py` no importa tkinter ni toca disco.** Es lo que permite probarlo
@@ -127,7 +130,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      335 pruebas, ~9 s (test_dialogos abre
+python -m unittest discover -s pruebas      348 pruebas, ~9 s (test_dialogos abre
                                             ventanas: en Mac/Linux, mejor correr
                                             los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
