@@ -732,6 +732,35 @@ def apuntar_pendientes(libro: Libro, hasta: str) -> list[Movimiento]:
     return creados
 
 
+def periodico_de(movimiento: Movimiento, periodo: str, fecha: str = "") -> Periodico:
+    """La regla que repetirá un movimiento recién apuntado.
+
+    Es lo que hace la casilla «se repite» de la pestaña Apuntar: en vez de
+    escribir lo mismo dos veces, el propio apunte describe lo que se repite.
+
+    Lo que hay que cuidar es no contar dos veces el pago de hoy. El movimiento
+    que se acaba de escribir **es** el primer pago, así que la marca de
+    apuntado arranca ya en su fecha: el primero que se fabrique solo será el
+    siguiente. Y si la fecha es vieja, tampoco se rellena lo de en medio: se
+    apuntó un gasto de un día concreto, no se pidió un histórico.
+
+    Al movimiento se le deja escrito qué regla lo trajo, para que borrarla
+    avise de que ese apunte se queda.
+    """
+    periodico = Periodico(
+        nombre=movimiento.descripcion.strip() or movimiento.categoria,
+        categoria=movimiento.categoria,
+        importe=movimiento.importe,
+        periodo=periodo,
+        desde=movimiento.fecha,
+        activo=movimiento.activo,
+        apuntado_hasta=movimiento.fecha,
+    )
+    saltar_lo_pasado(periodico, fecha if es_fecha(fecha) else hoy())
+    movimiento.origen = periodico.id
+    return periodico
+
+
 @dataclass
 class ResumenPeriodicos:
     """Lo que suman los pagos periódicos, todo puesto en meses."""

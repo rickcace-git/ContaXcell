@@ -43,7 +43,7 @@ escritorio/          la aplicación (Python + tkinter, solo openpyxl de extra)
     ventana.py       ventana principal y estado compartido
     vistas/          una pestaña por archivo
 server/              FastAPI + Postgres en Docker (lo escribió un amigo)
-  contaserver/       aplicacion.py (6 rutas), seguridad.py, almacen.py,
+  contaserver/       aplicacion.py (8 rutas), seguridad.py, almacen.py,
                      limites.py (frena los intentos a lo bruto)
 app/                 versión anterior para móvil (Apps Script). Retirada
 To_Do_List.md        lo que queda por hacer
@@ -101,6 +101,10 @@ To_Do_List.md        lo que queda por hacer
   `hasta` puesta se acaba solo al llegar: eso es **terminado**, que no es lo
   mismo que **apagado** (el apagado puede volver). `calculos.esta_vigente`
   distingue los tres estados y es lo que decide qué suma en el total del mes.
+  La casilla «se repite» de Apuntar crea la regla a partir del apunte con
+  `calculos.periodico_de`: ese movimiento **es** el primer pago, así que la
+  marca nace ya en su fecha y no se rellena lo anterior. Sin eso, el gasto que
+  acabas de escribir saldría dos veces.
 
 ## Comandos
 
@@ -108,7 +112,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      274 pruebas, ~8 s (test_dialogos abre
+python -m unittest discover -s pruebas      280 pruebas, ~9 s (test_dialogos abre
                                             ventanas: en Mac/Linux, mejor correr
                                             los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
