@@ -185,6 +185,56 @@ class PruebasValidacion(ConVentana):
         self.assertIn("Ya existe", ventana.error.cget("text"))
 
 
+class PruebasParrafoYCasilla(ConVentana):
+    """Los dos campos que no llevan una variable de texto detrás.
+
+    El párrafo se lee del propio control, y por eso es el que se rompe en
+    silencio si alguien toca `valor()`.
+    """
+
+    def test_el_parrafo_se_recoge_entero(self):
+        ventana = self.formulario([dialogos.Parrafo("nota", "Nota", "Primera")])
+        ventana._controles["nota"].insert("end", "\nSegunda")
+
+        self.assertEqual(ventana._recoger()["nota"], "Primera\nSegunda")
+
+    def test_un_parrafo_vacio_es_cadena_vacia(self):
+        ventana = self.formulario([dialogos.Parrafo("nota", "Nota")])
+        self.assertEqual(ventana._recoger()["nota"], "")
+
+    def test_un_parrafo_obligatorio_avisa(self):
+        ventana = self.formulario([dialogos.Parrafo("nota", "Nota", obligatorio=True)])
+        self.assertIsNone(ventana._recoger())
+        self.assertIn("vacío", ventana.error.cget("text"))
+
+    def test_enter_dentro_del_parrafo_no_guarda_el_formulario(self):
+        # Si la ventana siguiera oyendo el Enter, escribir una segunda línea
+        # cerraría el formulario a media nota.
+        ventana = self.formulario([dialogos.Parrafo("nota", "Nota")])
+        self.assertNotIn(str(ventana), ventana._controles["nota"].bindtags())
+
+    def test_la_casilla_devuelve_si_o_no(self):
+        ventana = self.formulario([dialogos.Casilla("apuntar", "Apuntar", False)])
+        self.assertIs(ventana._recoger()["apuntar"], False)
+
+        ventana._variables["apuntar"].set(True)
+        self.assertIs(ventana._recoger()["apuntar"], True)
+
+    def test_la_casilla_puede_enseñar_otro_campo(self):
+        def al_cambiar(formulario, _evento):
+            formulario.mostrar_campo("categoria", bool(formulario.valor("apuntar")))
+
+        ventana = self.formulario([
+            dialogos.Casilla("apuntar", "Apuntar", False),
+            dialogos.Opcion("categoria", "Categoría", ["Ocio"], "Ocio"),
+        ], al_cambiar=al_cambiar)
+
+        self.assertFalse(ventana.campo_visible("categoria"))
+        ventana._variables["apuntar"].set(True)
+        ventana._cambio()
+        self.assertTrue(ventana.campo_visible("categoria"))
+
+
 class PruebasCamposCondicionales(ConVentana):
     def test_ocultar_y_volver_a_enseñar_respeta_el_orden(self):
         campos = [

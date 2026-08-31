@@ -17,8 +17,8 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from .modelo import (
-    GASTO, INGRESO, INVERSION, MESES, MESES_CORTOS, PASO, VECES_AL_ANIO,
-    Libro, Movimiento, Periodico,
+    GASTO, INGRESO, INVERSION, ME_DEBEN, MESES, MESES_CORTOS, PASO, VECES_AL_ANIO,
+    Deuda, Libro, Movimiento, Periodico,
     Cotizacion,
     anio_de, clave_mes, es_fecha, hoy, mes_de, redondea, redondea_titulos,
     suma_dias, suma_meses,
@@ -807,6 +807,104 @@ def resumen_periodicos(libro: Libro, fecha: str = "") -> ResumenPeriodicos:
 def apuntados_por(libro: Libro, periodico: Periodico) -> int:
     """Cuántos movimientos del libro los apuntó este periódico."""
     return sum(1 for m in libro.movimientos if m.origen == periodico.id)
+
+
+# --- deudas ----------------------------------------------------------------
+
+def pendiente_de(deuda: Deuda) -> float:
+    """Lo que queda por cobrar o por pagar de esa deuda.
+
+    Nunca baja de cero: si alguien devolvió de más, lo que sobra no es una
+    deuda al revés, es un lío que se arregla escribiendo otra.
+    """
+    return max(redondea(deuda.importe - deuda.devuelto), 0.0)
+
+
+def esta_saldada(deuda: Deuda) -> bool:
+    return pendiente_de(deuda) <= 0
+
+
+def anotar_pago(deuda: Deuda, importe: float, hasta_el_final: bool = False) -> float:
+    """Apunta que se ha devuelto una parte. Devuelve lo que se apuntó.
+
+    Nunca se pasa de lo que quedaba: apuntar veinte de una deuda de diez
+    dejaría un pendiente negativo, y eso se leería como que ahora te deben a
+    ti. Con `hasta_el_final` se salda entera de un golpe.
+    """
+    queda = pendiente_de(deuda)
+    cuanto = queda if hasta_el_final else min(redondea(abs(importe)), queda)
+    deuda.devuelto = redondea(deuda.devuelto + cuanto)
+    return cuanto
+
+
+@dataclass
+class ResumenDeudas:
+    """Lo que hay abierto con la gente, mirando solo lo que falta por saldar."""
+
+    te_deben: float = 0.0
+    debes: float = 0.0
+    abiertas: int = 0
+    saldadas: int = 0
+    personas: int = 0
+
+    @property
+    def neto(self) -> float:
+        """A favor si te deben más de lo que debes. Es la única cifra que
+        contesta a «con todo esto cerrado, ¿me entra o me sale dinero?»."""
+        return redondea(self.te_deben - self.debes)
+
+
+def resumen_deudas(libro: Libro) -> ResumenDeudas:
+    resumen = ResumenDeudas()
+    gente = set()
+    for deuda in libro.deudas:
+        if esta_saldada(deuda):
+            resumen.saldadas += 1
+            continue
+        resumen.abiertas += 1
+        gente.add(deuda.quien.lower())
+        if deuda.sentido == ME_DEBEN:
+            resumen.te_deben = redondea(resumen.te_deben + pendiente_de(deuda))
+        else:
+            resumen.debes = redondea(resumen.debes + pendiente_de(deuda))
+    resumen.personas = len(gente)
+    return resumen
+
+
+@dataclass
+class SaldoConPersona:
+    """La cuenta con una sola persona, sumadas todas sus deudas abiertas."""
+
+    quien: str
+    te_deben: float = 0.0
+    debes: float = 0.0
+    cuantas: int = 0
+
+    @property
+    def neto(self) -> float:
+        return redondea(self.te_deben - self.debes)
+
+
+def deudas_por_persona(libro: Libro) -> list[SaldoConPersona]:
+    """Una línea por persona, de la que más te debe a la que más le debes.
+
+    Es lo que hace falta para saldar cuentas de verdad: si le debes veinte a
+    Fulanito y él te debe cincuenta, no hay dos pagos, hay uno de treinta.
+    El nombre se agrupa sin mirar mayúsculas, que «fulanito» y «Fulanito» son
+    el mismo, y se enseña como se escribió la primera vez.
+    """
+    saldos: dict[str, SaldoConPersona] = {}
+    for deuda in libro.deudas:
+        if esta_saldada(deuda) or not deuda.quien:
+            continue
+        clave = deuda.quien.lower()
+        saldo = saldos.setdefault(clave, SaldoConPersona(quien=deuda.quien))
+        saldo.cuantas += 1
+        if deuda.sentido == ME_DEBEN:
+            saldo.te_deben = redondea(saldo.te_deben + pendiente_de(deuda))
+        else:
+            saldo.debes = redondea(saldo.debes + pendiente_de(deuda))
+    return sorted(saldos.values(), key=lambda s: (-s.neto, s.quien.lower()))
 
 
 # --- las compras, una a una ------------------------------------------------

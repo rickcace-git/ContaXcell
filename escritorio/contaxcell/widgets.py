@@ -465,7 +465,7 @@ class Tabla(ttk.Frame):
     """
 
     def __init__(self, padre, columnas: list[Columna], alto: int = 12,
-                 al_activar=None, seleccion: str = "browse", **kw):
+                 al_activar=None, seleccion: str = "browse", al_elegir=None, **kw):
         super().__init__(padre, style="Tarjeta.TFrame", **kw)
         self.columnas = columnas
         self._al_activar = al_activar
@@ -503,6 +503,9 @@ class Tabla(ttk.Frame):
         if al_activar:
             self.arbol.bind("<Double-1>", self._activar)
             self.arbol.bind("<Return>", self._activar)
+        if al_elegir:
+            # Para los botones que cambian de nombre según la fila elegida.
+            self.arbol.bind("<<TreeviewSelect>>", lambda _e: al_elegir())
 
     def _mover_vertical(self, primero, ultimo):
         self._ajustar(self.vertical, primero, ultimo)

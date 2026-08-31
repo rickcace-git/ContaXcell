@@ -66,6 +66,28 @@ class Opcion:
 
 
 @dataclass
+class Casilla:
+    """Un sí o no. La etiqueta va al lado de la marca, no encima."""
+
+    clave: str
+    etiqueta: str
+    valor: bool = False
+    ayuda: str = ""
+
+
+@dataclass
+class Parrafo:
+    """Un texto de varias líneas, para lo que no cabe en una casilla."""
+
+    clave: str
+    etiqueta: str
+    valor: str = ""
+    ayuda: str = ""
+    obligatorio: bool = False
+    lineas: int = 5
+
+
+@dataclass
 class Nota:
     """No pide nada: es una explicación dentro del formulario."""
 
@@ -140,6 +162,21 @@ class Formulario(tk.Toplevel):
                 self._visible[campo.clave] = True
             return
 
+        if isinstance(campo, Casilla):
+            variable = tk.BooleanVar(value=campo.valor)
+            control = ttk.Checkbutton(bloque, text=campo.etiqueta, variable=variable,
+                                      command=self._cambio)
+            control.pack(anchor="w", pady=(10, 0))
+            if campo.ayuda:
+                ttk.Label(bloque, text=campo.ayuda, style="Tarjeta.Suave.TLabel",
+                          wraplength=340, justify="left").pack(anchor="w", pady=(3, 0))
+            self._variables[campo.clave] = variable
+            self._controles[campo.clave] = control
+            self._bloques[campo.clave] = bloque
+            self._orden.append(campo.clave)
+            self._visible[campo.clave] = True
+            return
+
         widgets.etiqueta_campo(bloque, campo.etiqueta)
 
         if isinstance(campo, Opcion):
@@ -157,6 +194,31 @@ class Formulario(tk.Toplevel):
             control = widgets.CampoFecha(bloque, campo.valor)
             control.pack(anchor="w")
             variable = control.variable
+        elif isinstance(campo, Parrafo):
+            # `tk.Text` no es un widget con estilo: si no se le dicen la
+            # fuente y los colores, sale con la letra de máquina de escribir y
+            # un borde negro que no se parece en nada a las demás casillas. El
+            # borde se hace con el «highlight» porque es el único que se puede
+            # pintar del color de la paleta, y de paso se marca al escribir.
+            control = tk.Text(bloque, height=campo.lineas, width=34, wrap="word",
+                              font=widgets.FUENTES.normal,
+                              relief="flat", borderwidth=0, padx=6, pady=5,
+                              background=widgets.PALETA.campo,
+                              foreground=widgets.PALETA.texto,
+                              insertbackground=widgets.PALETA.texto,
+                              highlightthickness=1,
+                              highlightbackground=widgets.PALETA.borde,
+                              highlightcolor=widgets.PALETA.acento)
+            control.insert("1.0", campo.valor)
+            control.pack(fill="x")
+            # Dentro de un texto de varias líneas, Enter tiene que hacer una
+            # línea nueva y no guardar el formulario. Se le quita la etiqueta
+            # de la ventana en vez de atrapar la tecla, que eso impediría
+            # también escribir el salto. Escape se vuelve a poner a mano.
+            control.bindtags(tuple(t for t in control.bindtags() if t != str(self)))
+            control.bind("<Escape>", lambda _e: self._cancelar())
+            control.bind("<Tab>", _saltar_al_siguiente)
+            variable = None
         else:
             inicial = ""
             if isinstance(campo, Importe) and campo.valor is not None:
@@ -186,6 +248,11 @@ class Formulario(tk.Toplevel):
     # --- interfaz para quien lo usa ---
 
     def valor(self, clave: str) -> str:
+        control = self._controles.get(clave)
+        if isinstance(control, tk.Text):
+            # Un texto de varias líneas no tiene variable detrás: se lee del
+            # propio control, desde el principio hasta el último carácter.
+            return control.get("1.0", "end-1c")
         variable = self._variables.get(clave)
         if variable is None:
             return ""
@@ -266,6 +333,9 @@ class Formulario(tk.Toplevel):
                                        "Escríbela como 24/08/2026.")
                 recogido[campo.clave] = iso
 
+            elif isinstance(campo, Casilla):
+                recogido[campo.clave] = bool(crudo)
+
             elif isinstance(campo, Opcion):
                 recogido[campo.clave] = "" if crudo == campo.vacio else crudo
 
@@ -307,6 +377,16 @@ class Formulario(tk.Toplevel):
             primero.focus_set()
         self.wait_window()
         return self.resultado
+
+
+def _saltar_al_siguiente(evento):
+    """El tabulador sale del texto en vez de meter una tabulación dentro.
+
+    Un `tk.Text` se queda con el tabulador, y en un formulario eso rompe la
+    costumbre de ir de casilla en casilla sin tocar el ratón.
+    """
+    evento.widget.tk_focusNext().focus_set()
+    return "break"
 
 
 def _pista(control: ttk.Entry, variable: tk.StringVar, texto: str) -> None:

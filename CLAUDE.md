@@ -105,6 +105,14 @@ To_Do_List.md        lo que queda por hacer
   `calculos.periodico_de`: ese movimiento **es** el primer pago, así que la
   marca nace ya en su fecha y no se rellena lo anterior. Sin eso, el gasto que
   acabas de escribir saldría dos veces.
+- **Una deuda no es dinero.** Que Fulanito te deba veinte euros no es tenerlos,
+  así que las deudas no tocan el saldo ni el ahorro: son una libreta aparte.
+  Lo que mueve el banco son los movimientos, y por eso cobrar o pagar una
+  deuda **ofrece** apuntar uno en vez de fabricarlo solo: si pagaste tú la
+  cena entera, ese gasto ya salió de tu cuenta y lo que te devuelven solo lo
+  compensa; apuntarlo también lo contaría dos veces. Se devuelve a trozos
+  (`devuelto`), y `calculos.pendiente_de` nunca baja de cero, que un pendiente
+  negativo se leería como que ahora te deben a ti.
 
 ## Comandos
 
@@ -112,7 +120,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      280 pruebas, ~9 s (test_dialogos abre
+python -m unittest discover -s pruebas      314 pruebas, ~9 s (test_dialogos abre
                                             ventanas: en Mac/Linux, mejor correr
                                             los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
