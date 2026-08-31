@@ -11,7 +11,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from .. import calculos, formato, widgets
-from ..modelo import Movimiento, hoy, mes_de, nombre_mes
+from ..modelo import (MENSUAL, PERIODOS, Movimiento, hoy, mes_de, nombre_mes,
+                      suma_dias)
 from . import comun
 
 
@@ -60,6 +61,7 @@ class VistaApuntar:
         self.campo_importe = ttk.Entry(cuerpo, textvariable=self.var_importe,
                                        font=self.app.fuentes.importe, justify="center",
                                        style="Importe.TEntry")
+        widgets.solo_numeros(self.campo_importe)
         self.campo_importe.pack(fill="x")
 
         widgets.etiqueta_campo(cuerpo, "Descripción")
@@ -90,6 +92,8 @@ class VistaApuntar:
         self.campo_fecha = widgets.CampoFecha(cuerpo, hoy())
         self.campo_fecha.pack(anchor="w")
 
+        self._repeticion(cuerpo)
+
         ttk.Button(cuerpo, text="Guardar", style="Principal.TButton",
                    command=self.guardar).pack(fill="x", pady=(16, 0))
 
@@ -98,6 +102,42 @@ class VistaApuntar:
         self.campo_fecha.bind("<Return>", lambda _e: self.guardar())
 
         self._poner_tipo("gasto")
+
+    def _repeticion(self, cuerpo) -> None:
+        """La casilla «se repite», debajo de la fecha.
+
+        El alquiler y la nómina se apuntan igual que todo lo demás la primera
+        vez. Marcarlo aquí evita ir a la otra pestaña a escribir lo mismo otra
+        vez: este apunte es el primer pago y la regla sale de él.
+        """
+        # Todo dentro de un bloque suyo: la pista aparece y desaparece, y si
+        # colgara del cuerpo se colocaría debajo del botón de guardar.
+        bloque = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
+        bloque.pack(fill="x", pady=(12, 0))
+        fila = ttk.Frame(bloque, style="Tarjeta.TFrame")
+        fila.pack(fill="x")
+
+        self.var_repetir = tk.BooleanVar(value=False)
+        ttk.Checkbutton(fila, text="Se repite", variable=self.var_repetir,
+                        command=self._revisar_repeticion).pack(side="left")
+
+        self.var_periodo = tk.StringVar(value=MENSUAL)
+        self.campo_periodo = ttk.Combobox(fila, textvariable=self.var_periodo,
+                                          state="readonly", width=12,
+                                          values=list(PERIODOS))
+
+        self.pista_repetir = ttk.Label(
+            bloque, style="Tarjeta.Suave.TLabel", wraplength=310, justify="left",
+            text="Se apuntará solo cuando toque, contando desde esta fecha. "
+                 "Para cambiarlo o apagarlo, en la pestaña Periódicos.")
+
+    def _revisar_repeticion(self) -> None:
+        if self.var_repetir.get():
+            self.campo_periodo.pack(side="left", padx=(10, 0))
+            self.pista_repetir.pack(anchor="w", pady=(4, 0))
+        else:
+            self.campo_periodo.pack_forget()
+            self.pista_repetir.pack_forget()
 
     def _poner_tipo(self, valor: str) -> None:
         self.tipo = valor
@@ -170,16 +210,38 @@ class VistaApuntar:
             activo=activo,
         )
 
-        guardado = self.app.cambiar(
-            lambda libro: libro.movimientos.append(nuevo),
-            f"Apuntado: {formato.euros(nuevo.importe, siempre_visible=True)} · {categoria}")
-        if not guardado:
+        aviso = f"Apuntado: {formato.euros(nuevo.importe, siempre_visible=True)} · {categoria}"
+
+        # Con la casilla marcada se crea además la regla que lo repetirá. El
+        # movimiento de arriba es su primer pago, así que no se apunta dos
+        # veces: de eso se encarga `calculos.periodico_de`.
+        periodico = None
+        if self.var_repetir.get():
+            periodico = calculos.periodico_de(nuevo, self.var_periodo.get())
+            # A partir del día siguiente al ya apuntado: el pago de hoy es
+            # el que se acaba de escribir, no el siguiente.
+            proximo = calculos.proximo_vencimiento(
+                periodico, suma_dias(periodico.apuntado_hasta, 1))
+            aviso += (f" · se repite {periodico.periodo.lower()}"
+                      + (f", el próximo el {formato.fecha_corta(proximo)}"
+                         if proximo else ""))
+
+        def aplicar(libro):
+            libro.movimientos.append(nuevo)
+            if periodico is not None:
+                libro.periodicos.append(periodico)
+
+        if not self.app.cambiar(aplicar, aviso):
             return
 
         # Se conservan la categoría y la fecha: al apuntar varias cosas
-        # seguidas suelen repetirse. El importe y el concepto, no.
+        # seguidas suelen repetirse. El importe y el concepto, no. La casilla
+        # tampoco: es una decisión de este apunte, y dejarla puesta llenaría
+        # de reglas repetidas el resto de la tarde.
         self.var_importe.set("")
         self.var_descripcion.set("")
+        self.var_repetir.set(False)
+        self._revisar_repeticion()
         self.campo_importe.focus_set()
 
     # --- lateral ----------------------------------------------------------

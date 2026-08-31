@@ -55,6 +55,12 @@ VECES_AL_ANIO = {
     TRIMESTRAL: 4, SEMESTRAL: 2, ANUAL: 1,
 }
 
+# --- de qué lado está una deuda ---
+# Escritos desde tu punto de vista, que es el único que hay en la aplicación.
+ME_DEBEN = "Me deben"
+DEBO = "Debo"
+SENTIDOS = (ME_DEBEN, DEBO)
+
 TEMAS = ("auto", "claro", "oscuro")
 
 MESES = (
@@ -65,6 +71,9 @@ MESES_CORTOS = (
     "ene", "feb", "mar", "abr", "may", "jun",
     "jul", "ago", "sep", "oct", "nov", "dic",
 )
+# Empieza en lunes, como `date.weekday()`. Sirve para que en el detalle de un
+# mes se vea de un vistazo qué cae en fin de semana.
+DIAS_CORTOS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
 # Categorías de activo que se ofrecen al crear uno. No son obligatorias ni
 # cerradas: se puede escribir cualquier otra.
@@ -167,6 +176,25 @@ def suma_meses(fecha: str, meses: int) -> str:
         return ""
     ultimo_dia = calendar.monthrange(anio_nuevo, mes_nuevo)[1]
     return f"{anio_nuevo:04d}-{mes_nuevo:02d}-{min(dia, ultimo_dia):02d}"
+
+
+def dias_del_mes(clave: str) -> list[str]:
+    """Las fechas de todos los días de un mes ('2026-02' da 28 o 29)."""
+    partes = str(clave or "").split("-")
+    if len(partes) != 2 or not (partes[0].isdigit() and partes[1].isdigit()):
+        return []
+    anio, mes = int(partes[0]), int(partes[1])
+    if not (1 <= mes <= 12 and 1 <= anio <= 9999):
+        return []
+    ultimo = calendar.monthrange(anio, mes)[1]
+    return [f"{anio:04d}-{mes:02d}-{dia:02d}" for dia in range(1, ultimo + 1)]
+
+
+def dia_de_la_semana(fecha: str) -> str:
+    """«vie» para el 3 de agosto de 2026. Vacío si no es una fecha."""
+    if not es_fecha(fecha):
+        return ""
+    return DIAS_CORTOS[date.fromisoformat(fecha).weekday()]
 
 
 def clave_mes(anio: int, indice_mes: int) -> str:
@@ -400,6 +428,51 @@ class Periodico:
 
 
 @dataclass
+class Deuda:
+    """Lo que te deben o lo que debes: la libreta de las cuentas con la gente.
+
+    No es un movimiento y no toca el saldo del banco. Que Fulanito te deba
+    veinte euros no es dinero que tengas: es dinero que te tiene que llegar.
+    El movimiento se apunta cuando el dinero cambia de manos de verdad, y por
+    eso saldar una deuda ofrece apuntarlo, en vez de hacerlo por su cuenta.
+
+    `devuelto` guarda lo que ya se ha ido pagando, porque la gente devuelve a
+    trozos: de los cien de la cena, cuarenta el jueves y sesenta el mes que
+    viene. Cuando cubre el importe entero, la deuda queda saldada.
+    """
+
+    quien: str
+    sentido: str = ME_DEBEN
+    importe: float = 0.0
+    fecha: str = ""
+    concepto: str = ""
+    # Texto libre para lo que no cabe en las casillas: de qué era, quién más
+    # estaba, qué se acordó. Es lo que convierte la lista en algo consultable
+    # dentro de seis meses.
+    nota: str = ""
+    devuelto: float = 0.0
+    id: str = field(default_factory=nuevo_id)
+
+    @classmethod
+    def desde_json(cls, d: dict) -> "Deuda":
+        importe = abs(redondea(d.get("importe")))
+        # Devuelto por encima del importe no describe nada y dejaría un
+        # pendiente negativo, que se leería como que te deben a ti.
+        devuelto = min(abs(redondea(d.get("devuelto"))), importe)
+        fecha = _texto(d.get("fecha"))
+        return cls(
+            id=_texto(d.get("id")) or nuevo_id(),
+            quien=_texto(d.get("quien")),
+            sentido=d.get("sentido") if d.get("sentido") in SENTIDOS else ME_DEBEN,
+            importe=importe,
+            fecha=fecha if es_fecha(fecha) else "",
+            concepto=_texto(d.get("concepto")),
+            nota=_texto(d.get("nota")),
+            devuelto=devuelto,
+        )
+
+
+@dataclass
 class Ajustes:
     saldo_inicial: float = 0.0
     objetivo_inversion: float = 0.0
@@ -435,6 +508,7 @@ class Libro:
     historico: list[Valoracion] = field(default_factory=list)
     periodicos: list[Periodico] = field(default_factory=list)
     cotizaciones: list[Cotizacion] = field(default_factory=list)
+    deudas: list[Deuda] = field(default_factory=list)
 
     # --- construcción ---
 
@@ -494,6 +568,12 @@ class Libro:
             p for p in (Periodico.desde_json(x) for x in _lista(crudo.get("periodicos")))
             if p.nombre and es_fecha(p.desde)
         ]
+        # Sin nombre no se sabe de quién es la deuda, y eso es lo único que
+        # no se puede rellenar después.
+        libro.deudas = [
+            d for d in (Deuda.desde_json(x) for x in _lista(crudo.get("deudas")))
+            if d.quien and es_fecha(d.fecha)
+        ]
         return libro
 
     def a_json(self) -> dict:
@@ -507,6 +587,7 @@ class Libro:
             "historico": [vars(v).copy() for v in self.historico],
             "periodicos": [vars(p).copy() for p in self.periodicos],
             "cotizaciones": [vars(c).copy() for c in self.cotizaciones],
+            "deudas": [vars(d).copy() for d in self.deudas],
         }
 
     # --- consultas de conveniencia ---
@@ -556,6 +637,12 @@ class Libro:
         for p in self.periodicos:
             if p.id == ident:
                 return p
+        return None
+
+    def deuda(self, ident: str) -> Deuda | None:
+        for d in self.deudas:
+            if d.id == ident:
+                return d
         return None
 
 

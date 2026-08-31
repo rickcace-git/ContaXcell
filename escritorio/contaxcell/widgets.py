@@ -67,6 +67,14 @@ class Tarjeta(ttk.Frame):
         self.marco.grid(**kw)
         return self
 
+    # Y el que hay que quitar, también: quitando solo la tarjeta se queda el
+    # marco puesto, vacío y con el alto que tenía, como un hueco gris.
+    def pack_forget(self) -> None:
+        self.marco.pack_forget()
+
+    def grid_forget(self) -> None:
+        self.marco.grid_forget()
+
     def destruir(self) -> None:
         self.marco.destroy()
 
@@ -177,8 +185,9 @@ class Cifra(ttk.Frame):
 
         cabecera = ttk.Frame(self, style="Hundido.TFrame")
         cabecera.pack(fill="x")
-        ttk.Label(cabecera, text=rotulo.upper(),
-                  style="Hundido.Titulo.TLabel").pack(side="left")
+        self.etiqueta_rotulo = ttk.Label(cabecera, text=rotulo.upper(),
+                                         style="Hundido.Titulo.TLabel")
+        self.etiqueta_rotulo.pack(side="left")
 
         self.boton_ayuda = None
         if ayuda is not None:
@@ -194,7 +203,11 @@ class Cifra(ttk.Frame):
             self.etiqueta_nota.pack(anchor="w")
 
     def actualizar(self, valor: str, color: str = "", nota: str | None = None,
-                   ayuda=None) -> None:
+                   ayuda=None, rotulo: str | None = None) -> None:
+        # El rótulo también cambia: la misma casilla dice «gastos del año» o
+        # «gastos del mes» según lo que se esté mirando.
+        if rotulo is not None:
+            self.etiqueta_rotulo.configure(text=rotulo.upper())
         self.etiqueta_valor.configure(text=valor, style=f"Hundido.Grande{color}.TLabel")
         # La explicación se rehace en cada refresco porque lleva dentro las
         # cifras del momento; hay que cambiarle el gatillo al botón.
@@ -223,7 +236,7 @@ class PanelCifras(ttk.Frame):
         """Crea la casilla la primera vez y la actualiza las siguientes, para
         no destruir y rehacer widgets en cada refresco."""
         if clave in self._cifras:
-            self._cifras[clave].actualizar(valor, color, nota, ayuda)
+            self._cifras[clave].actualizar(valor, color, nota, ayuda, rotulo)
             return
         posicion = len(self._cifras)
         cifra = Cifra(self, rotulo, valor, color, nota, ayuda)
@@ -465,7 +478,7 @@ class Tabla(ttk.Frame):
     """
 
     def __init__(self, padre, columnas: list[Columna], alto: int = 12,
-                 al_activar=None, seleccion: str = "browse", **kw):
+                 al_activar=None, seleccion: str = "browse", al_elegir=None, **kw):
         super().__init__(padre, style="Tarjeta.TFrame", **kw)
         self.columnas = columnas
         self._al_activar = al_activar
@@ -503,6 +516,9 @@ class Tabla(ttk.Frame):
         if al_activar:
             self.arbol.bind("<Double-1>", self._activar)
             self.arbol.bind("<Return>", self._activar)
+        if al_elegir:
+            # Para los botones que cambian de nombre según la fila elegida.
+            self.arbol.bind("<<TreeviewSelect>>", lambda _e: al_elegir())
 
     def _mover_vertical(self, primero, ultimo):
         self._ajustar(self.vertical, primero, ultimo)
@@ -532,6 +548,18 @@ class Tabla(ttk.Frame):
             if numero % 2:
                 marcas += ("franja",)
             self.arbol.insert("", "end", iid=str(clave), values=valores, tags=marcas)
+
+    def titulo_columna(self, clave: str, texto: str) -> None:
+        """Cambia la cabecera de una columna sin rehacer la tabla.
+
+        La misma tabla enseña meses o años según lo que se esté mirando, y la
+        cabecera tiene que decir cuál de los dos.
+        """
+        columna = next((c for c in self.columnas if c.clave == clave), None)
+        if columna is None:
+            return
+        self.arbol.heading(clave, text=texto,
+                           anchor="e" if columna.anclaje == "e" else "w")
 
     def seleccion(self) -> str | None:
         elegido = self.arbol.selection()
@@ -776,6 +804,53 @@ def _al_pasar(widget: tk.Widget, encima: str, normal: str) -> None:
     """Cambia el fondo al pasar el ratón. Dice que se puede pulsar."""
     widget.bind("<Enter>", lambda _e: widget.configure(background=encima), add="+")
     widget.bind("<Leave>", lambda _e: widget.configure(background=normal), add="+")
+
+
+# Con «1.234.567,89 €» sobran catorce. El tope está para que pegar media
+# página en la casilla no la llene, no para limitar la cifra.
+LARGO_NUMERO = 20
+
+
+def solo_numeros(entrada: ttk.Entry, negativos: bool = False) -> ttk.Entry:
+    """Deja la casilla sin poder escribir nada que no sea un número.
+
+    Igual que en las fechas: una letra en un importe no es un error que haya
+    que explicar después, es una tecla que no tiene por qué entrar. Se admite
+    lo que `formato.texto_a_numero` sabe leer —coma o punto, los puntos de los
+    miles, el símbolo del euro— para que pegar «1.234,56 €» siga funcionando.
+
+    El signo solo se permite donde tiene sentido: en el modelo los importes
+    son siempre positivos y el signo lo decide la categoría, así que casi
+    ningún campo lo necesita. El saldo inicial sí, que se puede empezar en
+    números rojos.
+
+    Ojo al escribir desde el programa: Tk apaga la validación en cuanto una
+    escritura incumple la regla. Todo lo que se pone a mano en la aplicación
+    ya viene formateado y pasa el filtro, pero si algún día se mete otra cosa
+    hay que volver a encenderla con `configure(validate="key")`.
+    """
+    permitidos = set("0123456789.,€ ")
+    if negativos:
+        permitidos.add("-")
+
+    def admite(propuesto: str) -> bool:
+        if len(propuesto) > LARGO_NUMERO:
+            return False
+        if not set(propuesto) <= permitidos:
+            return False
+        # Una coma sola: es el separador decimal. Los puntos pueden ser varios
+        # porque son los de los miles.
+        if propuesto.count(",") > 1:
+            return False
+        # El menos, solo delante y una vez: «1-2» no es ningún número.
+        if propuesto.count("-") > 1 or (propuesto[1:].find("-") >= 0):
+            return False
+        return True
+
+    entrada.configure(validate="key",
+                      validatecommand=(entrada.register(admite), "%P"))
+    return entrada
+
 
 
 def etiqueta_campo(padre, texto: str, fondo: str = "Tarjeta") -> ttk.Label:

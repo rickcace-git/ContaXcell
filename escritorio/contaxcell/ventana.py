@@ -145,8 +145,8 @@ class Aplicacion(tk.Tk):
         tk.Frame(cabecera, background=self.paleta.borde, height=1).pack(fill="x")
 
     def _construir_pestanas(self) -> None:
-        from .vistas import (ajustes, apuntar, inversiones, movimientos, periodicos,
-                             presupuesto, resumen)
+        from .vistas import (ajustes, apuntar, deudas, inversiones, movimientos,
+                             periodicos, presupuesto, resumen)
 
         self.cuaderno = ttk.Notebook(self.raiz)
         self.cuaderno.pack(fill="both", expand=True)
@@ -155,6 +155,7 @@ class Aplicacion(tk.Tk):
             ("apuntar", "Apuntar", apuntar.VistaApuntar),
             ("movimientos", "Movimientos", movimientos.VistaMovimientos),
             ("periodicos", "Periódicos", periodicos.VistaPeriodicos),
+            ("deudas", "Deudas", deudas.VistaDeudas),
             ("resumen", "Resumen", resumen.VistaResumen),
             ("presupuesto", "Presupuesto", presupuesto.VistaPresupuesto),
             ("inversiones", "Inversiones", inversiones.VistaInversiones),

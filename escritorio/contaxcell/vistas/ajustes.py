@@ -41,6 +41,9 @@ class VistaAjustes:
                        "movimiento").pack(anchor="w")
         self.var_saldo = tk.StringVar()
         self.campo_saldo = ttk.Entry(bloque, textvariable=self.var_saldo, width=16)
+        # El único importe que puede ir en negativo: se puede empezar a llevar
+        # la cuenta estando en números rojos.
+        widgets.solo_numeros(self.campo_saldo, negativos=True)
         self.campo_saldo.pack(anchor="w", pady=(3, 0))
         self.campo_saldo.bind("<FocusOut>", lambda _e: self._guardar_saldo())
         self.campo_saldo.bind("<Return>", lambda _e: self._guardar_saldo())

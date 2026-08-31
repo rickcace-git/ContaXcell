@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from contaxcell import calculos  # noqa: E402
 from contaxcell.modelo import (  # noqa: E402
     ANUAL, GASTO, INVERSION, MENSUAL, SEMANAL, TRIMESTRAL,
-    Libro, Periodico, suma_dias, suma_meses,
+    Libro, Movimiento, Periodico, suma_dias, suma_meses,
 )
 
 
@@ -405,6 +405,72 @@ class PruebasGuardado(unittest.TestCase):
     def test_un_libro_viejo_sin_periodicos_carga_igual(self):
         libro = Libro.desde_json({"movimientos": []})
         self.assertEqual(libro.periodicos, [])
+
+
+class PruebasDesdeUnApunte(unittest.TestCase):
+    """La casilla «se repite» de la pestaña Apuntar.
+
+    Lo delicado es que el movimiento que se acaba de escribir no se vuelva a
+    apuntar solo: es el primer pago, no uno más.
+    """
+
+    def apunte(self, fecha="2026-03-10", descripcion="Gimnasio"):
+        return Movimiento(fecha=fecha, descripcion=descripcion,
+                          categoria="Ocio", importe=35.0)
+
+    def test_copia_lo_del_movimiento(self):
+        periodico = calculos.periodico_de(self.apunte(), MENSUAL, "2026-03-10")
+
+        self.assertEqual(periodico.nombre, "Gimnasio")
+        self.assertEqual(periodico.categoria, "Ocio")
+        self.assertEqual(periodico.importe, 35.0)
+        self.assertEqual(periodico.periodo, MENSUAL)
+        self.assertEqual(periodico.desde, "2026-03-10")
+        self.assertTrue(periodico.encendido)
+
+    def test_sin_descripcion_se_queda_con_la_categoria(self):
+        periodico = calculos.periodico_de(self.apunte(descripcion="  "), MENSUAL,
+                                          "2026-03-10")
+        self.assertEqual(periodico.nombre, "Ocio")
+
+    def test_el_apunte_de_hoy_no_se_duplica(self):
+        movimiento = self.apunte()
+        periodico = calculos.periodico_de(movimiento, MENSUAL, "2026-03-10")
+        libro = libro_con(periodico)
+        libro.movimientos.append(movimiento)
+
+        # Ese mismo día no se fabrica nada: el pago ya está escrito.
+        self.assertEqual(calculos.apuntar_pendientes(libro, "2026-03-10"), [])
+        # Y el mes que viene, uno solo.
+        creados = calculos.apuntar_pendientes(libro, "2026-04-10")
+        self.assertEqual([m.fecha for m in creados], ["2026-04-10"])
+
+    def test_una_fecha_vieja_no_rellena_el_pasado(self):
+        # Se apuntó un gasto de enero, no se pidió el histórico de tres meses.
+        movimiento = self.apunte(fecha="2026-01-10")
+        periodico = calculos.periodico_de(movimiento, MENSUAL, "2026-03-15")
+        libro = libro_con(periodico)
+        libro.movimientos.append(movimiento)
+
+        self.assertEqual(calculos.apuntar_pendientes(libro, "2026-03-15"), [])
+        creados = calculos.apuntar_pendientes(libro, "2026-04-10")
+        self.assertEqual([m.fecha for m in creados], ["2026-04-10"])
+
+    def test_el_movimiento_se_queda_apuntado_a_su_regla(self):
+        movimiento = self.apunte()
+        periodico = calculos.periodico_de(movimiento, MENSUAL, "2026-03-10")
+        libro = libro_con(periodico)
+        libro.movimientos.append(movimiento)
+
+        self.assertEqual(movimiento.origen, periodico.id)
+        self.assertEqual(calculos.apuntados_por(libro, periodico), 1)
+
+    def test_se_lleva_el_activo_de_una_aportacion(self):
+        movimiento = Movimiento(fecha="2026-03-10", descripcion="Aportación",
+                                categoria="Inversión", importe=400.0,
+                                activo="MSCI World")
+        periodico = calculos.periodico_de(movimiento, MENSUAL, "2026-03-10")
+        self.assertEqual(periodico.activo, "MSCI World")
 
 
 class PruebasTipos(unittest.TestCase):

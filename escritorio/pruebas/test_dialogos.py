@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import tkinter as tk
+from tkinter import ttk
 import unittest
 from datetime import date
 from pathlib import Path
@@ -20,27 +21,38 @@ from contaxcell import dialogos, tema, widgets  # noqa: E402
 
 
 class ConVentana(unittest.TestCase):
-    """Base para las pruebas que necesitan una ventana de tkinter."""
+    """Base para las pruebas que necesitan una ventana de tkinter.
+
+    La ventana es una sola para todo el módulo y se cierra al final. Abriendo
+    y cerrando una por cada clase, tkinter deja avisos por la salida de error
+    al repintar los estilos de una ventana que ya no existe.
+    """
+
+    raiz: tk.Tk | None = None
 
     @classmethod
     def setUpClass(cls):
+        if ConVentana.raiz is not None:
+            return
         try:
-            cls.raiz = tk.Tk()
+            ConVentana.raiz = tk.Tk()
         except tk.TclError as error:
             raise unittest.SkipTest(f"no hay pantalla disponible: {error}") from error
-        cls.raiz.withdraw()
+        ConVentana.raiz.withdraw()
         fuentes = tema.Fuentes()
-        tema.aplicar(cls.raiz, tema.CLARA, fuentes)
+        tema.aplicar(ConVentana.raiz, tema.CLARA, fuentes)
         widgets.usar(tema.CLARA, fuentes)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.raiz.destroy()
 
     def formulario(self, campos, **kw) -> dialogos.Formulario:
         ventana = dialogos.Formulario(self.raiz, "Prueba", campos, **kw)
         self.addCleanup(ventana.destroy)
         return ventana
+
+
+def tearDownModule():
+    if ConVentana.raiz is not None:
+        ConVentana.raiz.destroy()
+        ConVentana.raiz = None
 
 
 class PruebasValidacion(ConVentana):
@@ -183,6 +195,56 @@ class PruebasValidacion(ConVentana):
             if valores["nombre"] == "Repetido" else None)
         self.assertIsNone(ventana._recoger())
         self.assertIn("Ya existe", ventana.error.cget("text"))
+
+
+class PruebasParrafoYCasilla(ConVentana):
+    """Los dos campos que no llevan una variable de texto detrás.
+
+    El párrafo se lee del propio control, y por eso es el que se rompe en
+    silencio si alguien toca `valor()`.
+    """
+
+    def test_el_parrafo_se_recoge_entero(self):
+        ventana = self.formulario([dialogos.Parrafo("nota", "Nota", "Primera")])
+        ventana._controles["nota"].insert("end", "\nSegunda")
+
+        self.assertEqual(ventana._recoger()["nota"], "Primera\nSegunda")
+
+    def test_un_parrafo_vacio_es_cadena_vacia(self):
+        ventana = self.formulario([dialogos.Parrafo("nota", "Nota")])
+        self.assertEqual(ventana._recoger()["nota"], "")
+
+    def test_un_parrafo_obligatorio_avisa(self):
+        ventana = self.formulario([dialogos.Parrafo("nota", "Nota", obligatorio=True)])
+        self.assertIsNone(ventana._recoger())
+        self.assertIn("vacío", ventana.error.cget("text"))
+
+    def test_enter_dentro_del_parrafo_no_guarda_el_formulario(self):
+        # Si la ventana siguiera oyendo el Enter, escribir una segunda línea
+        # cerraría el formulario a media nota.
+        ventana = self.formulario([dialogos.Parrafo("nota", "Nota")])
+        self.assertNotIn(str(ventana), ventana._controles["nota"].bindtags())
+
+    def test_la_casilla_devuelve_si_o_no(self):
+        ventana = self.formulario([dialogos.Casilla("apuntar", "Apuntar", False)])
+        self.assertIs(ventana._recoger()["apuntar"], False)
+
+        ventana._variables["apuntar"].set(True)
+        self.assertIs(ventana._recoger()["apuntar"], True)
+
+    def test_la_casilla_puede_enseñar_otro_campo(self):
+        def al_cambiar(formulario, _evento):
+            formulario.mostrar_campo("categoria", bool(formulario.valor("apuntar")))
+
+        ventana = self.formulario([
+            dialogos.Casilla("apuntar", "Apuntar", False),
+            dialogos.Opcion("categoria", "Categoría", ["Ocio"], "Ocio"),
+        ], al_cambiar=al_cambiar)
+
+        self.assertFalse(ventana.campo_visible("categoria"))
+        ventana._variables["apuntar"].set(True)
+        ventana._cambio()
+        self.assertTrue(ventana.campo_visible("categoria"))
 
 
 class PruebasCamposCondicionales(ConVentana):
@@ -336,6 +398,70 @@ class PruebasCampoFecha(ConVentana):
         self.assertEqual(casilla.calendario.mes, date.today().replace(day=1))
 
 
+class PruebasSoloNumeros(ConVentana):
+    """El filtro de las casillas de importe.
+
+    Cada caso estrena casilla: si Tk rechaza una escritura del programa deja
+    de validar, y compartiéndola las pruebas siguientes no comprobarían nada.
+    """
+
+    def escribir(self, texto: str, negativos: bool = False) -> str:
+        entrada = ttk.Entry(self.raiz)
+        self.addCleanup(entrada.destroy)
+        widgets.solo_numeros(entrada, negativos=negativos)
+        entrada.insert(0, texto)
+        return entrada.get()
+
+    def test_un_importe_normal_entra(self):
+        self.assertEqual(self.escribir("12,50"), "12,50")
+
+    def test_con_punto_decimal_tambien(self):
+        self.assertEqual(self.escribir("12.50"), "12.50")
+
+    def test_con_miles_y_euro_pegado_del_portapapeles(self):
+        self.assertEqual(self.escribir("1.234,56 €"), "1.234,56 €")
+
+    def test_las_letras_no_entran(self):
+        self.assertEqual(self.escribir("dos euros"), "")
+
+    def test_ni_una_letra_suelta_en_medio(self):
+        self.assertEqual(self.escribir("12a"), "")
+
+    def test_los_caracteres_raros_tampoco(self):
+        for raro in ("12$", "12%", "1;2", "<script>", "12\n34"):
+            self.assertEqual(self.escribir(raro), "", raro)
+
+    def test_dos_comas_no_son_un_numero(self):
+        self.assertEqual(self.escribir("1,2,3"), "")
+
+    def test_los_puntos_de_los_miles_pueden_ser_varios(self):
+        self.assertEqual(self.escribir("1.234.567"), "1.234.567")
+
+    def test_el_signo_solo_donde_se_permite(self):
+        # En el modelo los importes son positivos: el signo lo pone la
+        # categoría. Solo el saldo inicial puede ir en rojo.
+        self.assertEqual(self.escribir("-100"), "")
+        self.assertEqual(self.escribir("-100", negativos=True), "-100")
+
+    def test_el_signo_va_delante_y_una_sola_vez(self):
+        self.assertEqual(self.escribir("1-2", negativos=True), "")
+        self.assertEqual(self.escribir("--5", negativos=True), "")
+
+    def test_no_cabe_una_parrafada(self):
+        self.assertEqual(self.escribir("1" * 40), "")
+
+    def test_el_campo_de_importe_de_los_formularios_lo_lleva_puesto(self):
+        ventana = self.formulario([dialogos.Importe("importe", "Importe")])
+        ventana._controles["importe"].insert(0, "abc")
+        self.assertEqual(ventana.valor("importe"), "")
+
+    def test_y_el_de_un_importe_que_admite_negativos(self):
+        ventana = self.formulario([
+            dialogos.Importe("importe", "Importe", permitir_negativo=True)])
+        ventana._controles["importe"].insert(0, "-30")
+        self.assertEqual(ventana.valor("importe"), "-30")
+
+
 class PruebasWidgets(ConVentana):
 
     def test_la_barra_aguanta_valores_raros(self):
@@ -351,6 +477,28 @@ class PruebasWidgets(ConVentana):
         panel.poner("a", "Uno", "2,00 €", "Gasto")
         self.assertEqual(len(panel._cifras), 1)
         self.assertEqual(panel._cifras["a"].etiqueta_valor.cget("text"), "2,00 €")
+
+    def test_la_casilla_tambien_se_cambia_de_rotulo(self):
+        # La misma casilla dice «gastos del año» o «gastos del mes» según lo
+        # que se esté mirando en el resumen.
+        panel = widgets.PanelCifras(self.raiz, columnas=2)
+        self.addCleanup(panel.destroy)
+        panel.poner("a", "Gastos del año", "1,00 €")
+        panel.poner("a", "Gastos del mes", "2,00 €")
+        self.assertEqual(panel._cifras["a"].etiqueta_rotulo.cget("text"),
+                         "GASTOS DEL MES")
+
+    def test_quitar_una_tarjeta_no_deja_el_marco_puesto(self):
+        # Quitando solo la tarjeta se quedaba el marco del borde, vacío y con
+        # el alto que tenía: un hueco gris en medio de la pantalla.
+        padre = ttk.Frame(self.raiz)
+        self.addCleanup(padre.destroy)
+        tarjeta = widgets.Tarjeta(padre, "Prueba")
+        tarjeta.pack(fill="x")
+        self.raiz.update_idletasks()
+
+        tarjeta.pack_forget()
+        self.assertEqual(padre.pack_slaves(), [])
 
 
 if __name__ == "__main__":
