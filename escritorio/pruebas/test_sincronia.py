@@ -111,6 +111,78 @@ class ConCarpeta(unittest.TestCase):
         return avisos
 
 
+# --- la dirección del servidor -----------------------------------------------
+
+class PruebaServidorDeFabrica(ConCarpeta):
+    """La dirección viene puesta desde fuera del código: quien recibe el
+    programa no tiene que escribir nada para entrar, y el repositorio no
+    lleva dentro la dirección de nadie.
+
+    Las pruebas se aíslan del `.env` de verdad que pueda haber en la máquina:
+    si no, pasarían o fallarían según quién las corra.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.entorno_de_antes = os.environ.pop(modulo.CLAVE_SERVIDOR, None)
+        self.leer_env_de_antes = modulo._leer_env
+        self.env = {}
+        modulo._leer_env = lambda: dict(self.env)
+        self.addCleanup(self._restaurar)
+
+    def _restaurar(self):
+        modulo._leer_env = self.leer_env_de_antes
+        if self.entorno_de_antes is None:
+            os.environ.pop(modulo.CLAVE_SERVIDOR, None)
+        else:
+            os.environ[modulo.CLAVE_SERVIDOR] = self.entorno_de_antes
+
+    def test_sin_env_ni_variable_apunta_a_este_ordenador(self):
+        # Un clon recién bajado del repositorio: lo único que se puede
+        # suponer es que el servidor lo levantas tú con docker.
+        self.assertEqual(modulo.servidor_de_fabrica(), modulo.SERVIDOR_DE_CASA)
+
+    def test_la_direccion_sale_del_env(self):
+        self.env = {modulo.CLAVE_SERVIDOR: "https://servidor.de.ejemplo/"}
+        self.assertEqual(modulo.servidor_de_fabrica(),
+                         "https://servidor.de.ejemplo")
+
+    def test_la_variable_de_entorno_manda_sobre_el_env(self):
+        self.env = {modulo.CLAVE_SERVIDOR: "https://el.de.siempre"}
+        os.environ[modulo.CLAVE_SERVIDOR] = "https://el.de.pruebas"
+        self.assertEqual(modulo.servidor_de_fabrica(), "https://el.de.pruebas")
+
+    def test_el_env_se_lee_con_comentarios_y_comillas(self):
+        valores = modulo._valores_de_env(
+            '# esto es un comentario\n'
+            '\n'
+            'CONTAXCELL_SERVIDOR="https://con.comillas"\n'
+            'OTRA=cosa\n')
+        self.assertEqual(valores["CONTAXCELL_SERVIDOR"], "https://con.comillas")
+        self.assertEqual(valores["OTRA"], "cosa")
+
+    def test_sin_sesion_se_arranca_con_la_de_fabrica(self):
+        self.env = {modulo.CLAVE_SERVIDOR: "https://servidor.de.ejemplo"}
+        sinc, _ = self.nueva()
+        self.assertEqual(sinc.sesion["servidor"], "https://servidor.de.ejemplo")
+
+    def test_el_localhost_de_las_versiones_de_antes_se_reemplaza(self):
+        self.env = {modulo.CLAVE_SERVIDOR: "https://servidor.de.ejemplo"}
+        self.carpeta.mkdir(parents=True, exist_ok=True)
+        (self.carpeta / modulo.ARCHIVO_SESION).write_text(json.dumps({
+            "servidor": "http://localhost:8000", "usuario": "", "token": "",
+        }), encoding="utf-8")
+        sinc, _ = self.nueva()
+        self.assertEqual(sinc.sesion["servidor"], "https://servidor.de.ejemplo")
+
+    def test_un_servidor_elegido_no_se_toca(self):
+        # Con sesión hecha hay alguien que eligió su servidor y tiene su ficha
+        # en él: cambiárselo por debajo lo dejaría fuera de su propia cuenta.
+        self.env = {modulo.CLAVE_SERVIDOR: "https://servidor.de.ejemplo"}
+        sinc, _ = self.con_sesion()
+        self.assertEqual(sinc.sesion["servidor"], "http://servidor:8000")
+
+
 # --- entrar y registrarse ----------------------------------------------------
 
 class PruebaEntrar(ConCarpeta):
@@ -143,6 +215,18 @@ class PruebaEntrar(ConCarpeta):
         sinc, _ = self.nueva(("sin-conexion", None))
         with self.assertRaises(ErrorDeSincronia):
             sinc.entrar("pablo", "secreta")
+
+    def test_sin_conexion_manda_avisar_a_quien_administra(self):
+        """La dirección viene puesta de fábrica: si no contesta, no es que el
+        usuario la haya escrito mal, es que hay que avisar a alguien."""
+        sinc, _ = self.nueva(("sin-conexion", None))
+        with self.assertRaises(ErrorDeSincronia) as contexto:
+            sinc.entrar("pablo", "secreta")
+        mensaje = str(contexto.exception)
+        self.assertIn("administra ContaXcell", mensaje)
+        # Y con la dirección dentro, que es lo que hay que decirle a quien
+        # administre para que sepa cuál dejó de contestar.
+        self.assertIn(sinc.sesion["servidor"], mensaje)
 
     def test_entrar_con_otro_usuario_aparta_los_datos(self):
         self.escribir_datos({"version": 1, "movimientos": [{"fecha": "2026-01-05"}]})

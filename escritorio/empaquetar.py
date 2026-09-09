@@ -25,6 +25,11 @@ RAIZ = Path(__file__).resolve().parent
 NOMBRE = "ContaXcell"
 ICONO = RAIZ / "recursos" / "icono.ico"
 PLANTILLA = RAIZ / "recursos" / "plantilla.xlsx"
+# La dirección del servidor, que es distinta en cada despliegue y no está en el
+# repositorio. Va dentro del programa para que quien lo reciba no tenga que
+# escribirla: sin ella, el ejecutable saldría apuntando a localhost, o sea, a
+# ningún sitio útil para quien no seas tú.
+ENV = RAIZ / ".env"
 
 # openpyxl arrastra dependencias opcionales que no usamos. Fuera hacen la
 # carpeta bastante más pequeña y el arranque más rápido.
@@ -43,6 +48,19 @@ def comprobar_pyinstaller() -> bool:
         print("Falta PyInstaller, que es lo que crea el ejecutable.\n"
               "Instálalo con:\n\n    pip install pyinstaller\n")
         return False
+
+
+def comprobar_env() -> bool:
+    """Sin `.env` no se empaqueta: es el fallo que no se ve hasta que alguien
+    abre el programa en su casa y no puede entrar."""
+    if ENV.exists():
+        return True
+    print(f"Falta {ENV.name}, que es donde va la dirección del servidor.\n"
+          "Sin él, el programa saldría apuntando a este mismo ordenador y\n"
+          "quien lo reciba no podría entrar. Créalo con:\n\n"
+          "    cp .env.ejemplo .env\n\n"
+          "y pon dentro la dirección de tu servidor.\n")
+    return False
 
 
 def preparar_icono() -> None:
@@ -76,6 +94,9 @@ def construir(consola: bool) -> Path:
         # y la plantilla de Excel, que es lo que rellena la exportación.
         "--add-data", f"{ICONO}{';' if sys.platform == 'win32' else ':'}recursos",
         "--add-data", f"{PLANTILLA}{';' if sys.platform == 'win32' else ':'}recursos",
+        # Y la dirección del servidor, que si no el programa no sabría con
+        # quién hablar en el ordenador de quien lo reciba.
+        "--add-data", f"{ENV}{';' if sys.platform == 'win32' else ':'}recursos",
         # Todo lo accesorio en una subcarpeta: así lo primero que se ve al
         # abrir la carpeta es el ejecutable y no cien archivos sueltos.
         "--contents-directory", "recursos-internos",
@@ -128,6 +149,8 @@ def main() -> int:
     argumentos = analizador.parse_args()
 
     if not comprobar_pyinstaller():
+        return 1
+    if not comprobar_env():
         return 1
 
     preparar_icono()

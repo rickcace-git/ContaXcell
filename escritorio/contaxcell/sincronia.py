@@ -25,10 +25,73 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from .almacen import CARPETA_COPIAS, NOMBRE_ARCHIVO
+from .almacen import CARPETA_COPIAS, NOMBRE_ARCHIVO, carpeta_de_recursos
 
 ARCHIVO_SESION = "sesion.json"
-SERVIDOR_POR_DEFECTO = "http://localhost:8000"
+ARCHIVO_ENV = ".env"
+CLAVE_SERVIDOR = "CONTAXCELL_SERVIDOR"
+# Sin `.env` y sin variable de entorno, el servidor es este mismo ordenador:
+# es lo que vale para trastear con `docker compose up` y lo único que se puede
+# suponer en un clon recién bajado del repositorio.
+SERVIDOR_DE_CASA = "http://localhost:8000"
+# Las que traían las versiones anteriores. Solo se usan para reconocerlas en el
+# `sesion.json` de quien viene de una de ellas sin haber entrado nunca.
+SERVIDORES_DE_ANTES = ("http://localhost:8000", "http://127.0.0.1:8000")
+
+
+def _valores_de_env(texto: str) -> dict:
+    """`CLAVE=valor` por línea; las almohadillas son comentarios y las comillas
+    se quitan. No hay librería de por medio ni falta."""
+    valores = {}
+    for linea in texto.splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("#") or "=" not in linea:
+            continue
+        clave, valor = linea.split("=", 1)
+        valores[clave.strip()] = valor.strip().strip('"').strip("'")
+    return valores
+
+
+def _leer_env() -> dict:
+    """El `.env` que acompaña al programa.
+
+    Se busca en la carpeta de recursos (que es donde lo mete el empaquetado) y,
+    si no está, junto al código, que es como se trabaja desde el repositorio.
+    """
+    for ruta in (carpeta_de_recursos() / ARCHIVO_ENV,
+                 Path(__file__).resolve().parent.parent / ARCHIVO_ENV):
+        try:
+            return _valores_de_env(ruta.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+    return {}
+
+
+def servidor_de_fabrica() -> str:
+    """La dirección con la que arranca quien no ha elegido ninguna.
+
+    No está escrita en el código a propósito: es un dato de cada despliegue, y
+    en el repositorio (que es público) no pinta nada. Manda la variable de
+    entorno, y si no la hay, el `.env` que el empaquetado mete dentro del
+    programa. Sin ninguna de las dos, este mismo ordenador.
+
+    Ojo con lo que esto **no** es: el `.env` viaja dentro del .exe que se
+    reparte, así que la dirección no queda secreta para quien reciba el
+    programa. Lo que guarda la puerta es el código de invitación, la
+    contraseña y el https, no que nadie sepa dónde está la máquina.
+
+    Se mira cada vez que hace falta y no se congela al importar el módulo, que
+    es lo que permite apuntar a otro sitio un rato con la variable de entorno.
+    """
+    del_entorno = os.environ.get(CLAVE_SERVIDOR, "").strip()
+    if del_entorno:
+        return del_entorno.rstrip("/")
+    del_archivo = _leer_env().get(CLAVE_SERVIDOR, "").strip()
+    if del_archivo:
+        return del_archivo.rstrip("/")
+    return SERVIDOR_DE_CASA
+
+
 SEGUNDOS_DE_ESPERA = 10
 SEGUNDOS_ENTRE_REINTENTOS = 30
 # Cada cuánto se vuelve a mirar qué hay en el servidor. Sin esto, el segundo
@@ -46,6 +109,15 @@ MENSAJE_DEMASIADOS_INTENTOS = ("Demasiados intentos seguidos. El servidor ha "
 MENSAJE_FALTA_CODIGO = ("Este servidor solo deja crear cuentas con un código de "
                         "invitación. Pídeselo a quien lo administra y escríbelo "
                         "abajo.")
+# Cuando no se llega al servidor al entrar, lo normal no es que el usuario haya
+# escrito mal nada: la dirección viene puesta de fábrica. O no hay internet, o
+# el servidor está apagado o ha cambiado de dirección, y eso no lo puede
+# arreglar quien está delante de la pantalla. Se dice a quién avisar.
+MENSAJE_SERVIDOR_INALCANZABLE = (
+    "No se ha podido hablar con el servidor ({servidor}).\n\n"
+    "Comprueba que tienes internet. Si la tienes, puede que el servidor esté "
+    "apagado o haya cambiado de dirección: ponte en contacto con quien "
+    "administra ContaXcell.")
 # Lo del conflicto se le cuenta al usuario con el nombre del archivo dentro,
 # porque es lo único que le sirve para rescatar la versión del otro ordenador.
 MENSAJE_CONFLICTO = ("Otro ordenador había subido cambios a tu cuenta antes que "
@@ -117,7 +189,7 @@ class Sincronia:
 
     @staticmethod
     def _sesion_vacia() -> dict:
-        return {"servidor": SERVIDOR_POR_DEFECTO, "usuario": "", "token": "",
+        return {"servidor": servidor_de_fabrica(), "usuario": "", "token": "",
                 "ultima_revision": 0, "pendiente": False}
 
     def _cargar_sesion(self) -> None:
@@ -128,7 +200,7 @@ class Sincronia:
         if not isinstance(crudo, dict):
             return
         sesion = self._sesion_vacia()
-        sesion["servidor"] = str(crudo.get("servidor") or SERVIDOR_POR_DEFECTO).rstrip("/")
+        sesion["servidor"] = str(crudo.get("servidor") or servidor_de_fabrica()).rstrip("/")
         sesion["usuario"] = str(crudo.get("usuario") or "")
         sesion["token"] = str(crudo.get("token") or "")
         try:
@@ -136,6 +208,13 @@ class Sincronia:
         except (TypeError, ValueError):
             sesion["ultima_revision"] = 0
         sesion["pendiente"] = bool(crudo.get("pendiente"))
+        # Las versiones de antes venían apuntando a este mismo ordenador. Si
+        # ahí no llegó a entrar nadie, esa dirección no vale para nada y solo
+        # serviría para que la aplicación nueva siguiera hablando sola: se
+        # pasa a la de fábrica. Con sesión hecha no se toca, que ahí sí hay
+        # alguien que eligió su servidor y tiene su ficha en él.
+        if not sesion["token"] and sesion["servidor"] in SERVIDORES_DE_ANTES:
+            sesion["servidor"] = servidor_de_fabrica()
         self.sesion = sesion
 
     def _guardar_sesion(self) -> None:
@@ -193,8 +272,7 @@ class Sincronia:
                                         con_token=False, cuerpo=cuerpo)
         except _SinConexion:
             raise ErrorDeSincronia(
-                "No se ha podido hablar con el servidor. Comprueba la conexión "
-                f"y que la dirección sea la buena: {servidor}") from None
+                MENSAJE_SERVIDOR_INALCANZABLE.format(servidor=servidor)) from None
 
         if estado == 409:
             raise ErrorDeSincronia("Ese nombre de usuario ya está cogido.")
