@@ -17,22 +17,11 @@ from pathlib import Path
 from tkinter import ttk
 
 from . import calculos, dialogos, formato, tema, widgets
-from .almacen import Almacen
+from .almacen import Almacen, carpeta_de_recursos
 from .modelo import Libro, hoy
 
 VERSION = "1.0.0"
 ARCHIVO_VENTANA = "ventana.json"
-
-
-def carpeta_de_recursos() -> Path:
-    """Dónde están el icono y demás archivos que acompañan al programa.
-
-    Empaquetado con PyInstaller, los datos se descomprimen en una carpeta
-    temporal que el propio ejecutable anuncia en `sys._MEIPASS`.
-    """
-    if getattr(sys, "frozen", False):
-        return Path(getattr(sys, "_MEIPASS", ".")) / "recursos"
-    return Path(__file__).resolve().parent.parent / "recursos"
 
 
 def _preparar_pantalla() -> float:
@@ -513,13 +502,27 @@ class Aplicacion(tk.Tk):
             subprocess.Popen(["xdg-open", str(carpeta)])
 
     def _acerca_de(self) -> None:
-        dialogos.avisar(
-            self,
-            f"ContaXcell {VERSION}",
-            "Contabilidad personal de escritorio.\n\n"
-            "Tus datos no salen de este ordenador. Están en:\n"
-            f"{self.almacen.carpeta}",
-        )
+        dialogos.AcercaDe(self, VERSION, self.almacen.carpeta,
+                          self._donde_van_los_datos()).mostrar()
+
+    def _donde_van_los_datos(self) -> str:
+        """Qué pasa con los datos fuera de este ordenador.
+
+        Decir «no salen de aquí» habiendo una cuenta detrás sería falso: con
+        la sesión abierta, cada cambio se sube al servidor. Y sin cuenta la
+        frase de la nube tampoco vale, así que la eligen los tres estados.
+        """
+        if self.sincronia is None:
+            return "No hay cuenta ni servidor: los datos no salen de este ordenador."
+        if not self.sincronia.hay_sesion():
+            return ("Ahora mismo no has entrado en ninguna cuenta, así que no sale "
+                    "nada de aquí. Al entrar, cada cambio subiría también al "
+                    "servidor para poder seguir en otro ordenador.")
+        return (f"Además, como has entrado como «{self.sincronia.sesion['usuario']}», "
+                f"cada cambio sube a {self.sincronia.sesion['servidor']} para poder "
+                "abrir la misma contabilidad en otro ordenador. Allí se guarda una "
+                "copia a la que solo se llega con tu usuario y tu contraseña. "
+                "Saliendo de la cuenta en Ajustes se deja de subir.")
 
     # --- tamaño de la ventana --------------------------------------------
 

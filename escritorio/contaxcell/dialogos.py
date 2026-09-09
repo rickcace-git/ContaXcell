@@ -527,3 +527,78 @@ class Explicacion(tk.Toplevel):
         except tk.TclError:
             pass
         self.wait_window()
+
+
+# --- acerca de ---------------------------------------------------------------
+
+class AcercaDe(tk.Toplevel):
+    """La ventana de «Ayuda ▸ Acerca de ContaXcell».
+
+    Cuenta qué lleva el programa, dónde están los datos y si salen o no de
+    este ordenador. Lo de la nube no se decide aquí: lo trae quien la abre,
+    porque no es lo mismo estar sin cuenta que estar subiendo a un servidor,
+    y dar por hecho lo primero sería mentir.
+    """
+
+    ANCHO = 460
+
+    RESUMEN = ("Contabilidad personal de escritorio para Windows. Sustituye a "
+               "la hoja de cálculo de toda la vida, pero sabiendo de dinero: "
+               "la inversión no se cuenta como un gasto y la rentabilidad solo "
+               "la genera el mercado.")
+
+    QUE_LLEVA = (
+        "Ingresos, gastos e inversión, con el saldo del banco al día.",
+        "La cartera: lo aportado, lo que vale hoy y lo que ha generado.",
+        "Los recibos que se repiten solos cada mes.",
+        "Las deudas: lo que te deben y lo que debes, en su libreta aparte.",
+        "El resumen por días, meses o años, con su gráfico.",
+        "El extracto en PDF de Trade Republic y la ida y vuelta a Excel.",
+    )
+
+    AUTORES = ("Cáceres García, Ricardo", "Rodríguez Martín, Pablo")
+
+    def __init__(self, padre, version: str, carpeta, nube: str):
+        super().__init__(padre)
+        self.title("Acerca de ContaXcell")
+        self.resizable(False, False)
+        self.configure(background=widgets.PALETA.tarjeta)
+        self.transient(padre)
+
+        cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=20)
+        cuerpo.pack(fill="both", expand=True)
+
+        ttk.Label(cuerpo, text="ContaXcell", style="Tarjeta.Cifra.TLabel").pack(anchor="w")
+        ttk.Label(cuerpo, text=f"Versión {version}",
+                  style="Tarjeta.Suave.TLabel").pack(anchor="w")
+        ttk.Label(cuerpo, text=self.RESUMEN, style="Tarjeta.TLabel",
+                  wraplength=self.ANCHO, justify="left").pack(anchor="w", pady=(10, 0))
+
+        lista = "\n".join(f"•  {linea}" for linea in self.QUE_LLEVA)
+        self._apartado(cuerpo, "Qué lleva", lista)
+        self._apartado(cuerpo, "Dónde están tus datos",
+                       f"En este ordenador, en:\n{carpeta}\n\n"
+                       "Ahí están el archivo de datos y las copias de seguridad, "
+                       f"y de ahí salen las exportaciones a Excel.\n\n{nube}")
+        self._apartado(cuerpo, "Quién lo ha hecho", "\n".join(self.AUTORES))
+
+        ttk.Button(cuerpo, text="Cerrar", style="Principal.TButton",
+                   command=self.destroy).pack(anchor="e", pady=(18, 0))
+
+        self.bind("<Return>", lambda _e: self.destroy())
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _apartado(self, padre, titulo: str, texto: str) -> None:
+        ttk.Label(padre, text=titulo, style="Tarjeta.Negrita.TLabel").pack(
+            anchor="w", pady=(16, 4))
+        ttk.Label(padre, text=texto, style="Tarjeta.TLabel",
+                  wraplength=self.ANCHO, justify="left").pack(anchor="w")
+
+    def mostrar(self) -> None:
+        self.update_idletasks()
+        _centrar(self)
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window()

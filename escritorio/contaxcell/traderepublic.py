@@ -165,12 +165,17 @@ def lineas_del_pdf(datos: bytes) -> list[str]:
 
 # --- del texto a los apuntes -----------------------------------------------
 
+# Septiembre lo escribe con cuatro letras, «sept», que es la abreviatura de
+# toda la vida. Se admiten las dos por si vuelve a cambiar.
 MESES_CORTOS_EXTRACTO = {
     "ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
-    "jul": 7, "ago": 8, "sep": 9, "oct": 10, "nov": 11, "dic": 12,
+    "jul": 7, "ago": 8, "sept": 9, "sep": 9, "oct": 10, "nov": 11, "dic": 12,
 }
 
-_DIA = re.compile(r"\b(\d{1,2}) (" + "|".join(MESES_CORTOS_EXTRACTO) + r")\b")
+# Las largas van delante: probando antes «sep», «sept» no casaría, porque
+# detrás de la «p» todavía queda letra y ahí no hay final de palabra.
+_MESES_EN_ORDEN = sorted(MESES_CORTOS_EXTRACTO, key=len, reverse=True)
+_DIA = re.compile(r"\b(\d{1,2}) (" + "|".join(_MESES_EN_ORDEN) + r")\b")
 _ANIO = re.compile(r"^\s*(\d{4})\b")
 _ISIN = re.compile(r"\b([A-Z]{2}[A-Z0-9]{9}\d)\b")
 _EUROS = re.compile(r"([\d.]+,\d{2})")
@@ -184,9 +189,15 @@ CONCEPTO_BONIFICACION = "Bonificación de Trade Republic"
 # Los intereses son dinero que te dan de verdad y se quedan en la cuenta: son
 # un ingreso. La bonificación normalmente se reinvierte, y entonces deja de
 # ser ingreso para ser aportación gratis a la cartera.
+#
+# A la bonificación el banco la ha llamado de dos maneras: «Cash reward
+# allocation» en los extractos de antes y «Saveback cash reward» en los de
+# ahora. Es lo mismo, así que valen las dos y los extractos viejos se siguen
+# leyendo igual.
 _MARCAS_INGRESO = {
     "Interest payment": CONCEPTO_INTERESES,
     "Cash reward allocation": CONCEPTO_BONIFICACION,
+    "Saveback cash reward": CONCEPTO_BONIFICACION,
 }
 
 

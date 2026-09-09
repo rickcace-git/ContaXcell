@@ -25,6 +25,11 @@ RAIZ = Path(__file__).resolve().parent
 NOMBRE = "ContaXcell"
 ICONO = RAIZ / "recursos" / "icono.ico"
 PLANTILLA = RAIZ / "recursos" / "plantilla.xlsx"
+# La dirección del servidor, que es distinta en cada despliegue y no está en el
+# repositorio. Va dentro del programa para que quien lo reciba no tenga que
+# escribirla: sin ella, el ejecutable saldría apuntando a localhost, o sea, a
+# ningún sitio útil para quien no seas tú.
+ENV = RAIZ / ".env"
 
 # openpyxl arrastra dependencias opcionales que no usamos. Fuera hacen la
 # carpeta bastante más pequeña y el arranque más rápido.
@@ -43,6 +48,19 @@ def comprobar_pyinstaller() -> bool:
         print("Falta PyInstaller, que es lo que crea el ejecutable.\n"
               "Instálalo con:\n\n    pip install pyinstaller\n")
         return False
+
+
+def comprobar_env() -> bool:
+    """Sin `.env` no se empaqueta: es el fallo que no se ve hasta que alguien
+    abre el programa en su casa y no puede entrar."""
+    if ENV.exists():
+        return True
+    print(f"Falta {ENV.name}, que es donde va la dirección del servidor.\n"
+          "Sin él, el programa saldría apuntando a este mismo ordenador y\n"
+          "quien lo reciba no podría entrar. Créalo con:\n\n"
+          "    cp .env.ejemplo .env\n\n"
+          "y pon dentro la dirección de tu servidor.\n")
+    return False
 
 
 def preparar_icono() -> None:
@@ -76,6 +94,9 @@ def construir(consola: bool) -> Path:
         # y la plantilla de Excel, que es lo que rellena la exportación.
         "--add-data", f"{ICONO}{';' if sys.platform == 'win32' else ':'}recursos",
         "--add-data", f"{PLANTILLA}{';' if sys.platform == 'win32' else ':'}recursos",
+        # Y la dirección del servidor, que si no el programa no sabría con
+        # quién hablar en el ordenador de quien lo reciba.
+        "--add-data", f"{ENV}{';' if sys.platform == 'win32' else ':'}recursos",
         # Todo lo accesorio en una subcarpeta: así lo primero que se ve al
         # abrir la carpeta es el ejecutable y no cien archivos sueltos.
         "--contents-directory", "recursos-internos",
@@ -104,7 +125,11 @@ def escribir_instrucciones(carpeta: Path) -> None:
     (carpeta / "LÉEME.txt").write_text(
         "ContaXcell\n"
         "==========\n\n"
-        "Para abrirlo: doble clic en ContaXcell.exe\n\n"
+        "Contabilidad personal para Windows: ingresos, gastos e inversión,\n"
+        "con la cartera, las deudas y los recibos que se repiten solos.\n\n\n"
+        "ABRIRLO\n"
+        "-------\n\n"
+        "Doble clic en ContaXcell.exe\n\n"
         "La primera vez, Windows puede avisar de que no reconoce el programa.\n"
         "Es normal: significa que no está firmado por una empresa registrada,\n"
         "no que tenga nada malo. Pulsa «Más información» y luego\n"
@@ -112,10 +137,44 @@ def escribir_instrucciones(carpeta: Path) -> None:
         "No muevas ni borres la carpeta «recursos-internos»: el programa\n"
         "la necesita para funcionar. Si quieres un acceso directo en el\n"
         "escritorio, haz clic derecho en ContaXcell.exe y elige\n"
-        "«Enviar a» → «Escritorio (crear acceso directo)».\n\n"
-        "Tus datos se guardan en tu propia carpeta de usuario, no aquí\n"
-        "dentro, así que puedes sustituir esta carpeta por una versión más\n"
-        "nueva sin perder nada.\n",
+        "«Enviar a» → «Escritorio (crear acceso directo)».\n\n\n"
+        "LA CUENTA\n"
+        "---------\n\n"
+        "Lo primero que pide el programa es un usuario y una contraseña.\n"
+        "La cuenta sirve para que tu contabilidad se guarde también en el\n"
+        "servidor y puedas abrirla en otro ordenador: apuntas un gasto en\n"
+        "el portátil y lo tienes en el de casa.\n\n"
+        "Si todavía no tienes, pulsa «Crear cuenta». Puede que te pida un\n"
+        "código de invitación: el servidor no está abierto a cualquiera,\n"
+        "así que pídeselo a quien te haya pasado el programa.\n\n"
+        "Apunta la contraseña donde no se te pierda. No hay correo de\n"
+        "recuperación: si la olvidas, esa cuenta no se abre. Y cambiarla\n"
+        "cierra la sesión en los demás ordenadores, que es justo lo que\n"
+        "hace falta si alguna vez crees que alguien la sabe.\n\n"
+        "Si sale que no se ha podido hablar con el servidor, casi nunca es\n"
+        "culpa tuya: suele estar apagado o haber cambiado de dirección.\n"
+        "Avisa a quien te pasó el programa. A partir de la segunda vez\n"
+        "aparece además «Seguir sin conexión», que te deja trabajar con lo\n"
+        "que ya tienes en este ordenador; lo apuntado se sube solo cuando\n"
+        "el servidor vuelva.\n\n\n"
+        "TUS DATOS\n"
+        "---------\n\n"
+        "Se guardan en tu carpeta de usuario (%APPDATA%\\ContaXcell), no\n"
+        "aquí dentro. El menú «Archivo → Abrir la carpeta de mis datos» te\n"
+        "la abre, y ahí mismo tienes «Guardar copia de seguridad» y\n"
+        "«Restaurar una copia…».\n\n"
+        "Con la cuenta abierta, cada cambio sube además una copia al\n"
+        "servidor. A esa copia se llega con tu usuario y tu contraseña, y\n"
+        "«Ayuda → Acerca de ContaXcell» te dice en todo momento dónde están\n"
+        "tus datos y a dónde van.\n\n\n"
+        "ACTUALIZARLO\n"
+        "------------\n\n"
+        "Descomprime la versión nueva y borra la carpeta vieja. Como los\n"
+        "datos no viven aquí dentro, no se pierde nada.\n\n\n"
+        "DUDAS\n"
+        "-----\n\n"
+        "Pregunta a quien te lo haya pasado. Lo han escrito\n"
+        "Cáceres García, Ricardo y Rodríguez Martín, Pablo.\n",
         encoding="utf-8")
 
 
@@ -128,6 +187,8 @@ def main() -> int:
     argumentos = analizador.parse_args()
 
     if not comprobar_pyinstaller():
+        return 1
+    if not comprobar_env():
         return 1
 
     preparar_icono()

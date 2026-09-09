@@ -501,5 +501,38 @@ class PruebasWidgets(ConVentana):
         self.assertEqual(padre.pack_slaves(), [])
 
 
+class PruebasAcercaDe(ConVentana):
+    """El «Acerca de» dice dónde están los datos, y eso tiene que ser verdad."""
+
+    def acerca(self, nube: str) -> dialogos.AcercaDe:
+        ventana = dialogos.AcercaDe(self.raiz, "9.9.9", r"C:\datos", nube)
+        self.addCleanup(ventana.destroy)
+        return ventana
+
+    @staticmethod
+    def _textos(ventana) -> str:
+        def recorrer(padre):
+            for hijo in padre.winfo_children():
+                if isinstance(hijo, ttk.Label):
+                    yield hijo.cget("text")
+                yield from recorrer(hijo)
+        return "\n".join(recorrer(ventana))
+
+    def test_ensena_version_carpeta_y_autores(self):
+        texto = self._textos(self.acerca("sin cuenta"))
+        self.assertIn("9.9.9", texto)
+        self.assertIn(r"C:\datos", texto)
+        self.assertIn("Cáceres García, Ricardo", texto)
+        self.assertIn("Rodríguez Martín, Pablo", texto)
+
+    def test_la_frase_de_la_nube_es_la_que_le_dan(self):
+        # Lo que pase con los datos fuera del ordenador lo decide la ventana
+        # principal, que es la que sabe si hay cuenta: el diálogo no se lo
+        # inventa ni promete que no salgan de aquí.
+        texto = self._textos(self.acerca("cada cambio sube a mi-servidor"))
+        self.assertIn("cada cambio sube a mi-servidor", texto)
+        self.assertNotIn("no salen de este ordenador", texto)
+
+
 if __name__ == "__main__":
     unittest.main()

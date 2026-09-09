@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +19,22 @@ from .modelo import Libro
 NOMBRE_ARCHIVO = "datos.json"
 CARPETA_COPIAS = "copias"
 COPIAS_QUE_GUARDAMOS = 20
+
+
+def carpeta_de_recursos() -> Path:
+    """Dónde están el icono, la plantilla y demás archivos que acompañan al
+    programa.
+
+    Empaquetado con PyInstaller, los datos se descomprimen en una carpeta
+    temporal que el propio ejecutable anuncia en `sys._MEIPASS`.
+
+    Vive aquí, y no en `ventana.py`, porque también lo necesita `sincronia.py`
+    para dar con el `.env`, y ese módulo no puede importar nada que arrastre
+    tkinter: corre en el hilo de fondo.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", ".")) / "recursos"
+    return Path(__file__).resolve().parent.parent / "recursos"
 
 
 def carpeta_de_datos() -> Path:
