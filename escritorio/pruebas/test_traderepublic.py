@@ -36,8 +36,9 @@ def filas_interes(dia: str, anio: str, euros: str) -> list[str]:
     return [dia, f"Interés  |  Interest payment  |  {euros} €  |  5.000,00 €", anio]
 
 
-def filas_bonificacion(dia: str, anio: str, euros: str) -> list[str]:
-    return [dia, f"Bonificación  |  Cash reward allocation  |  {euros} €  |  5.000,00 €",
+def filas_bonificacion(dia: str, anio: str, euros: str,
+                       marca: str = "Cash reward allocation") -> list[str]:
+    return [dia, f"Bonificación  |  {marca}  |  {euros} €  |  5.000,00 €",
             anio]
 
 
@@ -93,6 +94,27 @@ class PruebasLectura(unittest.TestCase):
         lectura = tr.leer_lineas(EXTRACTO)
         self.assertEqual(lectura.desde, "2026-07-01")
         self.assertEqual(lectura.hasta, "2026-07-09")
+
+    def test_septiembre_se_escribe_con_cuatro_letras(self):
+        # El banco pone «02 sept», no «02 sep». Sin admitirlo, un extracto
+        # que llegue a septiembre se deja fuera ese mes entero.
+        lineas = (filas_compra("02 sept", "2026", "100,00", "0.788651")
+                  + filas_interes("01 sept", "2026", "10,38"))
+        lectura = tr.leer_lineas(lineas)
+        self.assertEqual(lectura.avisos, [])
+        self.assertEqual(lectura.compras[0].fecha, "2026-09-02")
+        self.assertEqual(lectura.ingresos[0].fecha, "2026-09-01")
+
+    def test_la_bonificacion_tambien_se_llama_saveback(self):
+        # Es el nombre nuevo de lo mismo: si no se reconoce, la compra en la
+        # que se reinvierte parece dinero salido del banco.
+        lineas = (filas_bonificacion("01 sept", "2026", "3,51",
+                                     marca="Saveback cash reward")
+                  + filas_compra("02 sept", "2026", "3,51", "0.027685"))
+        lectura = tr.leer_lineas(lineas)
+        self.assertEqual(lectura.ingresos, [])
+        self.assertEqual(len(lectura.gratis), 1)
+        self.assertEqual(lectura.gratis[0].importe, 3.51)
 
     def test_una_compra_a_medias_se_avisa_y_no_se_inventa(self):
         rotas = ["05 jul  |  Savings plan execution IE00B4L5Y983 iShares Core MSCI",
