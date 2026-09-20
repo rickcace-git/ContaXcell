@@ -1,5 +1,9 @@
 # ContaXcell
 
+> **Android:** la nueva aplicación nativa está en [`android/`](android/README.md).
+> Conserva el libro, los cálculos, la sincronización y la importación/exportación
+> de la versión de escritorio con una entrada adaptada al móvil.
+
 Contabilidad personal para Windows. Los datos viven en tu ordenador, en un
 archivo tuyo, sin cuentas de Google ni conexión de por medio.
 
