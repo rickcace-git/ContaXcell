@@ -90,10 +90,16 @@ To_Do_List.md        lo que queda por hacer
   Un cero **con** fecha sí es valer cero, y se respeta. Por compra no se
   inventa nada: ahí sale «—» hasta que haya un valor de verdad.
 - **Los títulos van con seis decimales** (`redondea_titulos`), no con dos: un
-  fondo se compra por fracciones y 0,795628 participaciones no son 0,80. Solo
-  los traen las compras importadas del banco; a mano se quedan en cero. El
-  precio de hoy no se apunta: sale de dividir el valor de mercado entre los
-  títulos, y de ahí sale la evolución de cada compra por separado.
+  fondo se compra por fracciones y 0,795628 participaciones no son 0,80. Los
+  traen las compras importadas del banco y, si se escriben al crear o editar
+  el activo, la aportación inicial (`titulos_iniciales`); las aportaciones a
+  mano desde Apuntar se quedan en cero a propósito, que ahí no se mete nada
+  de inversiones. Sin los de la inicial, un activo creado a mano y enlazado a
+  su cotización se valoraba solo por las compras del banco: los mil euros de
+  antes se multiplicaban por cero títulos. El precio de hoy no se apunta:
+  sale de dividir el valor de mercado entre los títulos, y de ahí sale la
+  evolución de cada compra por separado (la inicial sale la última, sin
+  fecha).
 - **Un periódico no es un movimiento**: es la receta para fabricarlos.
   `calculos.apuntar_pendientes` los convierte en movimientos normales al
   abrir, y solo hasta hoy, nunca por delante. Cada uno guarda `apuntado_hasta`
@@ -140,7 +146,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      373 pruebas, ~11 s (test_dialogos y
+python -m unittest discover -s pruebas      380 pruebas, ~11 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas

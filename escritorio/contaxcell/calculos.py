@@ -471,8 +471,8 @@ class FilaActivo:
     @property
     def hay_titulos(self) -> bool:
         """Si se sabe en participaciones o solo en euros. Las aportaciones
-        apuntadas a mano no las traen, y entonces no hay evolución por
-        compra que enseñar."""
+        apuntadas a mano no las traen (la inicial sí puede), y sin ninguna
+        no hay evolución por compra que enseñar."""
         return self.titulos > 0
 
     @property
@@ -574,9 +574,11 @@ def cartera(libro: Libro) -> Cartera:
         del_banco = redondea(sum(m.importe for m in aportaciones if m.activo == activo.nombre))
         gratis = redondea(sum(g.importe for g in libro.aportaciones_gratis if g.activo == activo.nombre))
         # Los títulos que compró una bonificación reinvertida son títulos
-        # igual que los demás: cuentan para el precio y para lo que vale.
+        # igual que los demás, y los de la aportación inicial también:
+        # cuentan para el precio y para lo que vale.
         titulos = redondea_titulos(
-            sum(m.titulos for m in aportaciones if m.activo == activo.nombre)
+            activo.titulos_iniciales
+            + sum(m.titulos for m in aportaciones if m.activo == activo.nombre)
             + sum(g.titulos for g in libro.aportaciones_gratis
                   if g.activo == activo.nombre))
         # Sin fecha de valoración y sin valor es que nunca se ha dicho lo que
@@ -1082,16 +1084,24 @@ class Compra:
         return self.generado / self.importe if self.importe > 0 else 0.0
 
 
+# El id con el que la aportación inicial sale entre las compras. No es un
+# movimiento, así que no tiene id propio ni fecha.
+COMPRA_INICIAL = "__inicial__"
+
+
 def compras_de(libro: Libro, nombre_activo: str) -> list[Compra]:
     """Las aportaciones a ese activo que dijeron cuántos títulos compraban.
 
     Las apuntadas a mano no lo dicen y se quedan fuera: sin participaciones
     no se puede saber cómo ha ido esa compra en concreto, solo cuánto se
-    metió. Van de la más reciente a la más antigua.
+    metió. La aportación inicial sí entra si trae sus títulos, y va la
+    última: es lo más antiguo que hay, aunque no tenga fecha. Las demás van
+    de la más reciente a la más antigua.
     """
     fila = next((a for a in cartera(libro).activos if a.nombre == nombre_activo), None)
     if fila is None:
         return []
+    activo = libro.activo(nombre_activo)
 
     # Si nadie ha dicho lo que vale el activo, no hay precio de hoy y no se
     # inventa: para la cartera se da por hecho que vale lo aportado, pero eso
@@ -1105,7 +1115,12 @@ def compras_de(libro: Libro, nombre_activo: str) -> list[Compra]:
         if m.activo == nombre_activo and m.titulos > 0
         and libro.tipo_de(m.categoria) == INVERSION
     ]
-    return sorted(compras, key=lambda c: (c.fecha, c.id), reverse=True)
+    compras.sort(key=lambda c: (c.fecha, c.id), reverse=True)
+    if activo is not None and activo.titulos_iniciales > 0:
+        compras.append(Compra(id=COMPRA_INICIAL, fecha="", descripcion="Aportación inicial",
+                              importe=activo.aportacion_inicial,
+                              titulos=activo.titulos_iniciales, precio_hoy=precio))
+    return compras
 
 
 @dataclass

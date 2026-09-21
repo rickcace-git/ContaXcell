@@ -191,6 +191,78 @@ class PruebasLaCotizacionManda(unittest.TestCase):
         self.assertGreater(del_9.generado, del_2.generado)
 
 
+class PruebasAportacionInicialConTitulos(unittest.TestCase):
+    """Un activo creado a mano trae lo que ya había dentro: euros y, si se
+    saben, participaciones. Sin ellas, al ponerle la cotización se valoraría
+    solo por las compras del banco y los mil euros de antes contarían cero.
+    """
+
+    def test_sin_titulos_iniciales_la_inicial_no_cuenta_para_el_precio(self):
+        # Lo que pasaba: 1000 € iniciales y el fondo «vale» dos compras de 100.
+        libro = libro_con_fondo()
+        libro.activos[0].aportacion_inicial = 1000.0
+        calculos.guardar_cotizaciones(libro, "SWDA:XMIL", cierres())
+
+        activo = calculos.cartera(libro).activos[0]
+        self.assertAlmostEqual(activo.titulos, 1.592758, places=6)
+        self.assertEqual(activo.total_aportado, 1200.0)
+        self.assertLess(activo.valor_mercado, 300.0)
+
+    def test_con_titulos_iniciales_se_valora_entera(self):
+        libro = libro_con_fondo()
+        libro.activos[0].aportacion_inicial = 1000.0
+        libro.activos[0].titulos_iniciales = 8.5
+        calculos.guardar_cotizaciones(libro, "SWDA:XMIL", cierres())
+
+        activo = calculos.cartera(libro).activos[0]
+        self.assertAlmostEqual(activo.titulos, 10.092758, places=6)
+        self.assertEqual(activo.valor_mercado, calculos.redondea(10.092758 * 126.68))
+        self.assertEqual(activo.generado, calculos.redondea(activo.valor_mercado - 1200.0))
+
+    def test_solo_con_la_inicial_ya_se_puede_cotizar(self):
+        # Un activo recién creado a mano, sin ninguna compra importada.
+        libro = libro_con_fondo()
+        libro.movimientos = []
+        libro.activos[0].aportacion_inicial = 1000.0
+        libro.activos[0].titulos_iniciales = 8.5
+        calculos.guardar_cotizaciones(libro, "SWDA:XMIL", cierres())
+
+        activo = calculos.cartera(libro).activos[0]
+        self.assertTrue(activo.cotizado)
+        self.assertEqual(activo.valor_mercado, calculos.redondea(8.5 * 126.68))
+
+    def test_la_inicial_sale_en_compras_la_ultima_y_sin_fecha(self):
+        libro = libro_con_fondo()
+        libro.activos[0].aportacion_inicial = 1000.0
+        libro.activos[0].titulos_iniciales = 8.5
+        calculos.guardar_cotizaciones(libro, "SWDA:XMIL", cierres())
+
+        compras = calculos.compras_de(libro, "MSCI World")
+
+        self.assertEqual([c.fecha for c in compras], ["2026-07-09", "2026-07-02", ""])
+        inicial = compras[-1]
+        self.assertEqual(inicial.id, calculos.COMPRA_INICIAL)
+        self.assertEqual(inicial.importe, 1000.0)
+        self.assertEqual(inicial.titulos, 8.5)
+        self.assertAlmostEqual(inicial.precio_pagado, 1000 / 8.5, places=6)
+        self.assertEqual(inicial.valor_hoy, calculos.redondea(8.5 * 126.68))
+
+    def test_sin_titulos_la_inicial_no_sale_en_compras(self):
+        libro = libro_con_fondo()
+        libro.activos[0].aportacion_inicial = 1000.0
+        self.assertEqual(len(calculos.compras_de(libro, "MSCI World")), 2)
+
+    def test_van_y_vuelven_del_json_con_seis_decimales(self):
+        libro = libro_con_fondo()
+        libro.activos[0].titulos_iniciales = 8.1234567
+        vuelto = Libro.desde_json(libro.a_json())
+        self.assertEqual(vuelto.activos[0].titulos_iniciales, 8.123457)
+
+    def test_un_libro_de_antes_no_trae_el_campo_y_vale_cero(self):
+        vuelto = Libro.desde_json({"activos": [{"nombre": "Oro", "aportacion_inicial": 500}]})
+        self.assertEqual(vuelto.activos[0].titulos_iniciales, 0.0)
+
+
 class PruebasQuePedir(unittest.TestCase):
     """Qué cotizaciones hay que mantener al día y desde cuándo."""
 

@@ -42,6 +42,9 @@ class Importe:
     # que no se sabe todavía: «no lo sé» no es lo mismo que «vale cero», y
     # un cero devuelto aquí se confundiría con uno escrito a mano.
     opcional: bool = False
+    # Con cuántos decimales se enseña el valor de partida. Dos para el
+    # dinero; seis para participaciones, que se compran por fracciones.
+    decimales: int = 2
 
 
 @dataclass
@@ -222,7 +225,7 @@ class Formulario(tk.Toplevel):
         else:
             inicial = ""
             if isinstance(campo, Importe) and campo.valor is not None:
-                inicial = f"{campo.valor:.2f}".replace(".", ",")
+                inicial = f"{campo.valor:.{campo.decimales}f}".replace(".", ",")
             elif isinstance(campo, Texto):
                 inicial = campo.valor
             variable = tk.StringVar(value=inicial)
