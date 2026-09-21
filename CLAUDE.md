@@ -31,12 +31,11 @@ El **tipo lo manda la categoría**: cambiarlo recalcula todo el histórico.
 ## Estructura
 
 ```
-escritorio/          la aplicación (Python + tkinter, solo openpyxl de extra)
+escritorio/          la aplicación (Python + tkinter, nada que instalar)
   contaxcell/
     modelo.py        dataclasses + normalización desde JSON
     calculos.py      TODA la aritmética. No toca disco ni interfaz
     almacen.py       datos.json, escritura atómica, copias
-    excel.py         importar/exportar .xlsx (rellena la plantilla original)
     traderepublic.py lee el extracto en PDF del banco. Sin librerías
     sincronia.py     cliente del servidor. Hilo de fondo, sin tkinter dentro
     acceso.py        ventana de usuario/contraseña
@@ -146,7 +145,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      380 pruebas, ~11 s (test_dialogos y
+python -m unittest discover -s pruebas      359 pruebas, ~4 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas

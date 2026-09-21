@@ -27,27 +27,11 @@ malo. Pulsa **Más información** → **Ejecutar de todas formas**.
 
 ```
 cd escritorio
-pip install openpyxl
 python ejecutar.py
 ```
 
-Tkinter, que es la interfaz, ya viene dentro de Python. `openpyxl` solo hace
-falta para leer y escribir Excel.
-
-## Traer tu contabilidad desde la hoja de Google
-
-1. En Google Sheets: **Archivo → Descargar → Microsoft Excel (.xlsx)**.
-2. En ContaXcell: **Ajustes → Importar desde Excel…** (o `Ctrl+I`).
-
-Se traen los movimientos, las categorías con su tipo, el saldo inicial, los
-presupuestos, los activos, el cashback y el histórico de la cartera. Lo que
-hubiera en la aplicación se sustituye, pero antes se guarda una copia de
-seguridad automática, así que se puede deshacer.
-
-La importación no necesita que la hoja esté intacta: busca las cabeceras en
-vez de ir a ciegas por número de fila, así que aguanta filas insertadas o
-categorías de más. Si encuentra una categoría que no estaba en el panel, la
-añade como gasto y avisa.
+No hay nada que instalar: Tkinter, que es la interfaz, ya viene dentro de
+Python, y el resto es de la biblioteca estándar.
 
 ## Las pestañas
 
@@ -60,10 +44,9 @@ añade como gasto y avisa.
 | **Resumen** | Cómo va el dinero: los meses de un año, un mes suelto o varios años, con gráfico e indicadores. |
 | **Presupuesto** | Cuánto tenías previsto gastar en cada cosa y cuánto llevas, con barras de consumo. |
 | **Inversiones** | La cartera: qué has aportado, qué vale hoy y qué ha hecho el mercado. |
-| **Ajustes** | Saldo inicial, categorías, tema, tu cuenta y el trasiego de archivos. |
+| **Ajustes** | Saldo inicial, categorías, tema, tu cuenta y las copias de tus datos. |
 
-**Atajos:** `Ctrl+1`…`Ctrl+8` cambian de pestaña, `Ctrl+H` tapa los importes,
-`Ctrl+I` importa, `Ctrl+E` exporta.
+**Atajos:** `Ctrl+1`…`Ctrl+8` cambian de pestaña, `Ctrl+H` tapa los importes.
 
 El **botón del ojo** de la barra de arriba tapa de golpe todos los importes de
 la aplicación, por si apuntas algo con gente delante. Se recuerda al cerrar.
@@ -170,16 +153,16 @@ Se guarda **cada vez que cambias algo**, no hay botón de guardar. La escritura
 es en dos pasos (archivo temporal y luego cambio de nombre), así que un corte
 de luz a mitad no puede dejar el archivo partido.
 
-Antes de importar o restaurar siempre se hace una copia automática. Si el
-archivo llegara a estropearse, la aplicación lo aparta en vez de sobrescribirlo
-y avisa al abrir.
+Antes de restaurar una copia o importar un extracto siempre se hace una copia
+automática. Si el archivo llegara a estropearse, la aplicación lo aparta en vez
+de sobrescribirlo y avisa al abrir.
 
-**Exportar a Excel** genera la plantilla original de siempre, rellena con tus
-datos: las cuatro hojas con sus fórmulas vivas, sus textos y sus colores, lista
-para seguir usándola en Excel o en Google Sheets. Si tienes más movimientos o
-categorías de los que la plantilla traía, las tablas crecen y las fórmulas se
-ajustan solas. Ese archivo se puede volver a importar sin perder nada: es la
-vía de escape si algún día quieres irte.
+Para llevar la contabilidad a otro ordenador están la cuenta (se sube sola) y,
+sin cuenta, **Guardar copia** en un sitio y **Restaurar copia…** en el otro:
+la copia es el archivo de datos entero. Hubo una importación y exportación a
+Excel que rellenaba la hoja de cálculo original; se quitó cuando la aplicación
+dejó de parecerse a la hoja (periódicos, deudas, participaciones, cotizaciones…
+nada de eso cabía en la plantilla).
 
 ## Hacer el ejecutable para repartir
 
@@ -284,7 +267,6 @@ ContaXcell/
 │   │   ├── almacen.py         leer y guardar en disco, copias de seguridad
 │   │   ├── sincronia.py       subir y bajar el libro del servidor, sin tocar la ventana
 │   │   ├── acceso.py          la puerta de entrada: crear cuenta y entrar
-│   │   ├── excel.py           importar y exportar .xlsx
 │   │   ├── traderepublic.py   lee el extracto del banco en PDF, sin librerías
 │   │   ├── tema.py            colores y estilos, claro y oscuro
 │   │   ├── formato.py         cómo se enseñan cifras y fechas; el botón del ojo
@@ -329,8 +311,6 @@ python -m unittest discover -s pruebas    # 75 pruebas, con SQLite y sin red
 verdad. Con `--captura foto.png` hace una imagen y se cierra, que es la forma
 rápida de revisar cómo queda una pantalla.
 
-La prueba que más vale de todas es la de ida y vuelta de Excel: importar un
-libro, exportarlo y volver a importarlo tiene que dar exactamente lo mismo.
 
 ## Cosas que conviene saber
 

@@ -187,11 +187,6 @@ class Aplicacion(tk.Tk):
         barra = tk.Menu(self)
 
         archivo = tk.Menu(barra, tearoff=0)
-        archivo.add_command(label="Importar desde Excel…\tCtrl+I",
-                            command=lambda: self.vistas["ajustes"].importar_excel())
-        archivo.add_command(label="Exportar a Excel…\tCtrl+E",
-                            command=lambda: self.vistas["ajustes"].exportar_excel())
-        archivo.add_separator()
         archivo.add_command(label="Guardar copia de seguridad",
                             command=lambda: self.vistas["ajustes"].guardar_copia())
         archivo.add_command(label="Restaurar una copia…",
@@ -219,8 +214,6 @@ class Aplicacion(tk.Tk):
 
     def _atajos(self) -> None:
         self.bind_all("<Control-h>", lambda _e: self.alternar_ocultos())
-        self.bind_all("<Control-i>", lambda _e: self.vistas["ajustes"].importar_excel())
-        self.bind_all("<Control-e>", lambda _e: self.vistas["ajustes"].exportar_excel())
         for numero, clave in enumerate(self._claves, start=1):
             self.bind_all(f"<Control-Key-{numero}>", lambda _e, c=clave: self.ir_a(c))
 

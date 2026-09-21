@@ -236,8 +236,7 @@ class VistaMovimientos:
 
         self.tabla.pack_forget()
         self.vacio.configure(text=(
-            "El libro está vacío.\n\nApunta algo en la pestaña Apuntar, o trae tu "
-            "historial desde el Excel en Ajustes."
+            "El libro está vacío.\n\nApunta algo en la pestaña Apuntar."
             if total == 0 else
             "Ningún movimiento coincide con el filtro.\n\nPrueba a pulsar «Limpiar»."))
         if not self.vacio.winfo_ismapped():

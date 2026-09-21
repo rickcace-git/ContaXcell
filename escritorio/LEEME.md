@@ -17,27 +17,11 @@ instalar nada.
 **Si tienes el código:**
 
 ```
-pip install openpyxl
 python ejecutar.py
 ```
 
-Tkinter, que es la interfaz, ya viene dentro de Python. `openpyxl` solo hace
-falta para leer y escribir Excel.
-
-## Traer tu contabilidad desde la hoja de Google
-
-1. En Google Sheets: **Archivo → Descargar → Microsoft Excel (.xlsx)**.
-2. En ContaXcell: pestaña **Ajustes → Importar desde Excel…** (o `Ctrl+I`).
-
-Se traen los movimientos, las categorías con su tipo, el saldo inicial, los
-presupuestos, los activos, el cashback y el histórico de la cartera. Lo que
-hubiera en la aplicación se sustituye, pero antes se guarda una copia de
-seguridad automática, así que se puede deshacer.
-
-La importación no necesita que la hoja esté intacta: busca las cabeceras en
-vez de ir a ciegas por número de fila, así que aguanta filas insertadas o
-categorías de más. Si encuentra una categoría que no estaba en el panel, la
-añade como gasto y te avisa.
+No hay nada que instalar: Tkinter, que es la interfaz, ya viene dentro de
+Python, y el resto es de la biblioteca estándar.
 
 ## Las pestañas
 
@@ -48,10 +32,9 @@ añade como gasto y te avisa.
 | **Resumen** | Cómo va el año: los doce meses, en qué se va el dinero, y los indicadores. |
 | **Presupuesto** | Cuánto tenías previsto gastar en cada cosa y cuánto llevas, con barras de consumo. |
 | **Inversiones** | La cartera: qué has aportado, qué vale hoy y qué ha hecho el mercado. |
-| **Ajustes** | Saldo inicial, categorías, tema, y el trasiego de archivos. |
+| **Ajustes** | Saldo inicial, categorías, tema y las copias de tus datos. |
 
-**Atajos:** `Ctrl+1`…`Ctrl+6` cambian de pestaña, `Ctrl+H` tapa los importes,
-`Ctrl+I` importa, `Ctrl+E` exporta.
+**Atajos:** `Ctrl+1`…`Ctrl+8` cambian de pestaña, `Ctrl+H` tapa los importes.
 
 El **botón del ojo** de la barra de arriba tapa de golpe todos los importes de
 la aplicación, por si apuntas algo con gente delante. Se recuerda al cerrar.
@@ -98,13 +81,13 @@ Se guarda **cada vez que cambias algo**, no hay botón de guardar. La escritura
 es en dos pasos (archivo temporal y luego cambio de nombre), así que un corte
 de luz a mitad no puede dejar el archivo partido.
 
-Antes de importar o restaurar siempre se hace una copia automática. Si el
-archivo llegara a estropearse, la aplicación lo aparta en vez de sobrescribirlo
-y te avisa al abrir.
+Antes de restaurar una copia o importar un extracto siempre se hace una copia
+automática. Si el archivo llegara a estropearse, la aplicación lo aparta en vez
+de sobrescribirlo y te avisa al abrir.
 
-**Exportar a Excel** genera un `.xlsx` con las cuatro hojas de siempre y con
-los valores ya calculados, no con fórmulas. Ese archivo se puede volver a
-importar sin perder nada: es la vía de escape si algún día quieres irte.
+Para llevar la contabilidad a otro ordenador está la cuenta (se sube sola) y,
+sin cuenta, **Guardar copia** en un sitio y **Restaurar copia…** en el otro: la
+copia es el archivo de datos entero.
 
 ## Hacer el ejecutable para repartir
 
@@ -149,7 +132,6 @@ escritorio/
 │   ├── modelo.py          qué es un movimiento, una categoría, un activo…
 │   ├── calculos.py        toda la aritmética. No sabe que existe una ventana
 │   ├── almacen.py         leer y guardar en disco, copias de seguridad
-│   ├── excel.py           importar y exportar .xlsx
 │   ├── tema.py            colores y estilos, claro y oscuro
 │   ├── formato.py         cómo se enseñan cifras y fechas; el botón del ojo
 │   ├── widgets.py         tarjetas, tablas, barras, gráficos
@@ -181,8 +163,6 @@ python pruebas/ver.py --pestana resumen   # abre con datos de prueba
 de verdad. Con `--captura foto.png` hace una imagen y se cierra, que es la
 forma rápida de revisar cómo queda una pantalla.
 
-La prueba que más vale de todas es la de ida y vuelta de Excel: importar un
-libro, exportarlo y volver a importarlo tiene que dar exactamente lo mismo.
 
 ## Cosas que conviene saber
 
