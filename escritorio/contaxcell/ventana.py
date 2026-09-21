@@ -289,7 +289,10 @@ class Aplicacion(tk.Tk):
 
         Una vez al día basta: la bolsa cierra una vez y el servidor guarda lo
         que trae, así que insistir no daría nada nuevo. Con `forzando` se
-        pide igual, que es lo que hace el botón.
+        pide igual: es lo que pasa al enlazar un activo con su cotización,
+        para no esperar a mañana. (Hubo un botón «Actualizar precios» para
+        esto mismo y se quitó: al lado de «Cotización…», que ya pide los
+        precios sola, solo despistaba.)
 
         Devuelve si se ha llegado a pedir algo, para poder decirlo.
         """

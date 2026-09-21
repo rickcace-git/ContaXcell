@@ -116,8 +116,6 @@ class VistaInversiones:
                    command=self.anadir_activo).pack(side="right")
         ttk.Button(self.tarjeta_activos.derecha, text="Importar de Trade Republic",
                    command=self.importar_extracto).pack(side="right", padx=(0, 8))
-        ttk.Button(self.tarjeta_activos.derecha, text="Actualizar precios",
-                   command=self.actualizar_precios).pack(side="right", padx=(0, 8))
 
         self.tabla_activos = widgets.Tabla(self.tarjeta_activos.cuerpo, [
             widgets.Columna("nombre", "Activo", 150, estira=True),
@@ -312,20 +310,6 @@ class VistaInversiones:
             self.app.pedir_precios(forzando=True)
         else:
             self.app.estado(f"«{nombre}» ya no sigue ninguna cotización.")
-
-    def actualizar_precios(self) -> None:
-        """El botón. Pide los precios aunque ya se hayan mirado hoy."""
-        if self.app.sincronia is None:
-            dialogos.avisar(self.app, "Hace falta una cuenta",
-                            "Los precios los sirve tu servidor.")
-            return
-        if not self.app.pedir_precios(forzando=True):
-            dialogos.avisar(
-                self.app, "Ningún activo sigue una cotización",
-                "Elige uno de la lista y pulsa «Cotización…» para enlazarlo con "
-                "su fondo en bolsa. A partir de ahí el precio se actualiza solo.")
-            return
-        self.app.estado("Pidiendo los precios…")
 
     # --- importar del banco ------------------------------------------------
 
