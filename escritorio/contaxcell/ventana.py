@@ -22,6 +22,10 @@ from .modelo import Libro, hoy
 
 VERSION = "1.0.0"
 ARCHIVO_VENTANA = "ventana.json"
+# Cuánto se espera como mucho al hilo de sincronía antes de apuntar los
+# recibos por cuenta propia. Una petición se rinde a los diez segundos, así
+# que para entonces ya ha avisado de algo; esto es por si ni eso.
+MS_TOPE_ESPERA_SERVIDOR = 15_000
 
 
 def _preparar_pantalla() -> float:
@@ -84,9 +88,17 @@ class Aplicacion(tk.Tk):
             self.sincronia.arrancar_fondo()
             self.after(500, self._atender_sincronia)
 
-        # Después de la cuenta, para que su aviso sea el que quede a la vista:
-        # que se hayan apuntado recibos importa más que el estado de la copia.
-        self._apuntar_periodicos()
+        # Los recibos periódicos se apuntan sobre la contabilidad buena, y
+        # con cuenta la buena puede estar en el servidor: si se apuntaran ya,
+        # sobre una copia atrasada, esa copia pasaría a «tiene cambios» y se
+        # subiría encima de la de otro ordenador. Así que con cuenta se
+        # espera a que el hilo diga qué hay, con un tope por si no contesta.
+        self._espera_periodicos = None
+        if self.sincronia is not None and self.sincronia.conviene_esperar():
+            self._espera_periodicos = self.after(
+                MS_TOPE_ESPERA_SERVIDOR, self._apuntar_periodicos)
+        else:
+            self._apuntar_periodicos()
 
         # Los precios van en un hilo aparte y llegan cuando lleguen: la
         # ventana no espera por ellos.
@@ -253,8 +265,12 @@ class Aplicacion(tk.Tk):
 
         Solo hasta hoy, nunca por delante: el saldo del banco tiene que ser el
         que hay de verdad, no uno con recibos que aún no han pasado. Si no hay
-        nada vencido esto no toca el libro ni escribe en disco.
+        nada vencido esto no toca el libro ni escribe en disco, así que se
+        puede llamar las veces que haga falta.
         """
+        if self._espera_periodicos is not None:
+            self.after_cancel(self._espera_periodicos)
+            self._espera_periodicos = None
         vencidos = calculos.pendientes(self.libro, hoy())
         if not vencidos:
             return
@@ -402,6 +418,9 @@ class Aplicacion(tk.Tk):
             # segundos y nadie lo lee.
             self.estado("Había cambios de otro ordenador; mira el aviso.", "malo")
             dialogos.avisar(self, "Dos ordenadores han cambiado lo mismo", aviso[1])
+        elif tipo == "comprobado":
+            # El servidor está mirado y no trae nada: lo de aquí es lo bueno.
+            self._apuntar_periodicos()
         elif tipo == "descargar":
             if self._hay_dialogo_abierto():
                 # Con una ventanita encima, cambiar la contabilidad por debajo
@@ -434,6 +453,8 @@ class Aplicacion(tk.Tk):
         self.ensuciar()
         self.refrescar()
         self.estado("Contabilidad descargada de tu cuenta.", "bien")
+        # Ahora sí: los recibos vencidos van sobre el libro que acaba de llegar.
+        self._apuntar_periodicos()
 
         if local_sin_vinculo:
             copias = self.almacen.listar_copias()

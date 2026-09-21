@@ -108,6 +108,16 @@ To_Do_List.md        lo que queda por hacer
   `calculos.periodico_de`: ese movimiento **es** el primer pago, así que la
   marca nace ya en su fecha y no se rellena lo anterior. Sin eso, el gasto que
   acabas de escribir saldría dos veces.
+- **Con cuenta, los periódicos esperan al servidor.** Apuntar un recibo es un
+  cambio como otro cualquiera: guarda en disco y marca «pendiente de subir».
+  Si la ventana los apuntara nada más abrirse, una copia atrasada (el otro
+  ordenador, sin abrir desde hace semanas) pasaría a tener cambios, el hilo
+  la subiría antes de mirar, y en el conflicto gana lo local: la copia buena
+  acabaría en `copias/…-conflicto-sincronia.json` y la vieja en el servidor.
+  Pasó. Por eso `sincronia.descargar` siempre dice algo («descargar» o
+  «comprobado»), y `ventana._apuntar_periodicos` no corre hasta oírlo, con
+  un tope de quince segundos por si nadie contesta. Sin cuenta, o con algo ya
+  pendiente (ahí lo local va a ganar igual), se apuntan al momento.
 - **El resumen se mira por tramos.** `calculos.resumen_periodo` parte el
   periodo en días (un mes suelto), meses (un año) o años (varios), y de ahí
   salen el gráfico y la tabla. Las medias van **siempre por mes** sean los
@@ -130,9 +140,9 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      348 pruebas, ~9 s (test_dialogos abre
-                                            ventanas: en Mac/Linux, mejor correr
-                                            los demás módulos sueltos)
+python -m unittest discover -s pruebas      373 pruebas, ~11 s (test_dialogos y
+                                            test_arranque abren ventanas: en Mac/Linux,
+                                            mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
 python pruebas/ver.py --pestana resumen --captura foto.png
 python empaquetar.py                        genera el .exe y el .zip
