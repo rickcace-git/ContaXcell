@@ -244,6 +244,12 @@ class Categoria:
 class Activo:
     nombre: str
     aportacion_inicial: float = 0.0
+    # Las participaciones que eran esa aportación inicial, si se saben. Sin
+    # ellas, un activo creado a mano y enlazado a su cotización se valoraría
+    # solo por las compras que trajeran títulos: los mil euros de antes se
+    # multiplicarían por cero. A cero es «no se sabe», y entonces el valor
+    # de mercado se sigue escribiendo a mano.
+    titulos_iniciales: float = 0.0
     valor_mercado: float = 0.0
     ultima_valoracion: str = ""
     # Para agrupar la cartera: «Indexados», «Acciones sueltas», «Cripto».
@@ -264,6 +270,7 @@ class Activo:
         return cls(
             nombre=_texto(d.get("nombre")),
             aportacion_inicial=redondea(d.get("aportacion_inicial")),
+            titulos_iniciales=redondea_titulos(d.get("titulos_iniciales")),
             valor_mercado=redondea(d.get("valor_mercado")),
             ultima_valoracion=fecha if es_fecha(fecha) else "",
             categoria=_texto(d.get("categoria")),

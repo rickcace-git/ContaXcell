@@ -42,6 +42,9 @@ class Importe:
     # que no se sabe todavía: «no lo sé» no es lo mismo que «vale cero», y
     # un cero devuelto aquí se confundiría con uno escrito a mano.
     opcional: bool = False
+    # Con cuántos decimales se enseña el valor de partida. Dos para el
+    # dinero; seis para participaciones, que se compran por fracciones.
+    decimales: int = 2
 
 
 @dataclass
@@ -222,7 +225,7 @@ class Formulario(tk.Toplevel):
         else:
             inicial = ""
             if isinstance(campo, Importe) and campo.valor is not None:
-                inicial = f"{campo.valor:.2f}".replace(".", ",")
+                inicial = f"{campo.valor:.{campo.decimales}f}".replace(".", ",")
             elif isinstance(campo, Texto):
                 inicial = campo.valor
             variable = tk.StringVar(value=inicial)
@@ -553,7 +556,7 @@ class AcercaDe(tk.Toplevel):
         "Los recibos que se repiten solos cada mes.",
         "Las deudas: lo que te deben y lo que debes, en su libreta aparte.",
         "El resumen por días, meses o años, con su gráfico.",
-        "El extracto en PDF de Trade Republic y la ida y vuelta a Excel.",
+        "El extracto en PDF de Trade Republic, para no apuntar las compras a mano.",
     )
 
     AUTORES = ("Cáceres García, Ricardo", "Rodríguez Martín, Pablo")
@@ -578,8 +581,8 @@ class AcercaDe(tk.Toplevel):
         self._apartado(cuerpo, "Qué lleva", lista)
         self._apartado(cuerpo, "Dónde están tus datos",
                        f"En este ordenador, en:\n{carpeta}\n\n"
-                       "Ahí están el archivo de datos y las copias de seguridad, "
-                       f"y de ahí salen las exportaciones a Excel.\n\n{nube}")
+                       "Ahí están el archivo de datos y las copias de seguridad, que "
+                       f"son la forma de llevarlos a otro sitio.\n\n{nube}")
         self._apartado(cuerpo, "Quién lo ha hecho", "\n".join(self.AUTORES))
 
         ttk.Button(cuerpo, text="Cerrar", style="Principal.TButton",

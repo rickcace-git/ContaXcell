@@ -24,15 +24,14 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent
 NOMBRE = "ContaXcell"
 ICONO = RAIZ / "recursos" / "icono.ico"
-PLANTILLA = RAIZ / "recursos" / "plantilla.xlsx"
 # La dirección del servidor, que es distinta en cada despliegue y no está en el
 # repositorio. Va dentro del programa para que quien lo reciba no tenga que
 # escribirla: sin ella, el ejecutable saldría apuntando a localhost, o sea, a
 # ningún sitio útil para quien no seas tú.
 ENV = RAIZ / ".env"
 
-# openpyxl arrastra dependencias opcionales que no usamos. Fuera hacen la
-# carpeta bastante más pequeña y el arranque más rápido.
+# Lo que PyInstaller podría meter de más si lo encuentra instalado. Fuera
+# hace la carpeta bastante más pequeña y el arranque más rápido.
 SOBRAN = [
     "numpy", "pandas", "matplotlib", "scipy", "PIL", "PyQt5", "PyQt6",
     "PySide2", "PySide6", "IPython", "pytest", "setuptools", "pip",
@@ -90,10 +89,8 @@ def construir(consola: bool) -> Path:
         "--console" if consola else "--windowed",
         "--name", NOMBRE,
         "--icon", str(ICONO),
-        # El icono también va dentro, para la ventana y la barra de tareas,
-        # y la plantilla de Excel, que es lo que rellena la exportación.
+        # El icono también va dentro, para la ventana y la barra de tareas.
         "--add-data", f"{ICONO}{';' if sys.platform == 'win32' else ':'}recursos",
-        "--add-data", f"{PLANTILLA}{';' if sys.platform == 'win32' else ':'}recursos",
         # Y la dirección del servidor, que si no el programa no sabría con
         # quién hablar en el ordenador de quien lo reciba.
         "--add-data", f"{ENV}{';' if sys.platform == 'win32' else ':'}recursos",

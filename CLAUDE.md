@@ -31,12 +31,11 @@ El **tipo lo manda la categoría**: cambiarlo recalcula todo el histórico.
 ## Estructura
 
 ```
-escritorio/          la aplicación (Python + tkinter, solo openpyxl de extra)
+escritorio/          la aplicación (Python + tkinter, nada que instalar)
   contaxcell/
     modelo.py        dataclasses + normalización desde JSON
     calculos.py      TODA la aritmética. No toca disco ni interfaz
     almacen.py       datos.json, escritura atómica, copias
-    excel.py         importar/exportar .xlsx (rellena la plantilla original)
     traderepublic.py lee el extracto en PDF del banco. Sin librerías
     sincronia.py     cliente del servidor. Hilo de fondo, sin tkinter dentro
     acceso.py        ventana de usuario/contraseña
@@ -90,10 +89,16 @@ To_Do_List.md        lo que queda por hacer
   Un cero **con** fecha sí es valer cero, y se respeta. Por compra no se
   inventa nada: ahí sale «—» hasta que haya un valor de verdad.
 - **Los títulos van con seis decimales** (`redondea_titulos`), no con dos: un
-  fondo se compra por fracciones y 0,795628 participaciones no son 0,80. Solo
-  los traen las compras importadas del banco; a mano se quedan en cero. El
-  precio de hoy no se apunta: sale de dividir el valor de mercado entre los
-  títulos, y de ahí sale la evolución de cada compra por separado.
+  fondo se compra por fracciones y 0,795628 participaciones no son 0,80. Los
+  traen las compras importadas del banco y, si se escriben al crear o editar
+  el activo, la aportación inicial (`titulos_iniciales`); las aportaciones a
+  mano desde Apuntar se quedan en cero a propósito, que ahí no se mete nada
+  de inversiones. Sin los de la inicial, un activo creado a mano y enlazado a
+  su cotización se valoraba solo por las compras del banco: los mil euros de
+  antes se multiplicaban por cero títulos. El precio de hoy no se apunta:
+  sale de dividir el valor de mercado entre los títulos, y de ahí sale la
+  evolución de cada compra por separado (la inicial sale la última, sin
+  fecha).
 - **Un periódico no es un movimiento**: es la receta para fabricarlos.
   `calculos.apuntar_pendientes` los convierte en movimientos normales al
   abrir, y solo hasta hoy, nunca por delante. Cada uno guarda `apuntado_hasta`
@@ -108,6 +113,16 @@ To_Do_List.md        lo que queda por hacer
   `calculos.periodico_de`: ese movimiento **es** el primer pago, así que la
   marca nace ya en su fecha y no se rellena lo anterior. Sin eso, el gasto que
   acabas de escribir saldría dos veces.
+- **Con cuenta, los periódicos esperan al servidor.** Apuntar un recibo es un
+  cambio como otro cualquiera: guarda en disco y marca «pendiente de subir».
+  Si la ventana los apuntara nada más abrirse, una copia atrasada (el otro
+  ordenador, sin abrir desde hace semanas) pasaría a tener cambios, el hilo
+  la subiría antes de mirar, y en el conflicto gana lo local: la copia buena
+  acabaría en `copias/…-conflicto-sincronia.json` y la vieja en el servidor.
+  Pasó. Por eso `sincronia.descargar` siempre dice algo («descargar» o
+  «comprobado»), y `ventana._apuntar_periodicos` no corre hasta oírlo, con
+  un tope de quince segundos por si nadie contesta. Sin cuenta, o con algo ya
+  pendiente (ahí lo local va a ganar igual), se apuntan al momento.
 - **El resumen se mira por tramos.** `calculos.resumen_periodo` parte el
   periodo en días (un mes suelto), meses (un año) o años (varios), y de ahí
   salen el gráfico y la tabla. Las medias van **siempre por mes** sean los
@@ -130,9 +145,9 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      348 pruebas, ~9 s (test_dialogos abre
-                                            ventanas: en Mac/Linux, mejor correr
-                                            los demás módulos sueltos)
+python -m unittest discover -s pruebas      359 pruebas, ~4 s (test_dialogos y
+                                            test_arranque abren ventanas: en Mac/Linux,
+                                            mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
 python pruebas/ver.py --pestana resumen --captura foto.png
 python empaquetar.py                        genera el .exe y el .zip

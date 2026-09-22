@@ -8,7 +8,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
 
-from .. import calculos, dialogos, excel, formato, widgets
+from .. import calculos, dialogos, formato, widgets
 from ..modelo import GASTO, INGRESO, INVERSION, Categoria
 from ..sincronia import ErrorDeSincronia
 
@@ -249,20 +249,13 @@ class VistaAjustes:
         tarjeta = widgets.Tarjeta(padre, "Tus datos")
         tarjeta.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        primera = ttk.Frame(tarjeta.cuerpo, style="Tarjeta.TFrame")
-        primera.pack(fill="x")
-        ttk.Button(primera, text="Importar desde Excel…",
-                   command=self.importar_excel).pack(side="left")
-        ttk.Button(primera, text="Exportar a Excel…",
-                   command=self.exportar_excel).pack(side="left", padx=(8, 0))
-
-        segunda = ttk.Frame(tarjeta.cuerpo, style="Tarjeta.TFrame")
-        segunda.pack(fill="x", pady=(8, 0))
-        ttk.Button(segunda, text="Guardar copia",
+        botones = ttk.Frame(tarjeta.cuerpo, style="Tarjeta.TFrame")
+        botones.pack(fill="x")
+        ttk.Button(botones, text="Guardar copia",
                    command=self.guardar_copia).pack(side="left")
-        ttk.Button(segunda, text="Restaurar copia…",
+        ttk.Button(botones, text="Restaurar copia…",
                    command=self.restaurar_copia).pack(side="left", padx=(8, 0))
-        ttk.Button(segunda, text="Abrir la carpeta",
+        ttk.Button(botones, text="Abrir la carpeta",
                    command=self.app.abrir_carpeta_datos).pack(side="left", padx=(8, 0))
 
         self.ruta = ttk.Label(tarjeta.cuerpo, style="Tarjeta.Suave.TLabel",
@@ -271,9 +264,10 @@ class VistaAjustes:
         self.ruta.pack(anchor="w", pady=(12, 0))
         ttk.Label(tarjeta.cuerpo, style="Tarjeta.Suave.TLabel", justify="left",
                   wraplength=380,
-                  text="Tus datos no salen de este ordenador. Cada vez que importas o "
-                       "restauras se guarda antes una copia automática, y se conservan "
-                       "las veinte últimas.").pack(anchor="w", pady=(4, 0))
+                  text="Una copia es tu contabilidad entera en un archivo: sirve para "
+                       "llevarla a otro ordenador o volver atrás. Cada vez que restauras "
+                       "o importas un extracto se guarda antes una automática, y se "
+                       "conservan las veinte últimas.").pack(anchor="w", pady=(4, 0))
         from ..ventana import VERSION
         ttk.Label(tarjeta.cuerpo, text=f"ContaXcell {VERSION}",
                   style="Tarjeta.Suave.TLabel").pack(anchor="w", pady=(8, 0))
@@ -360,57 +354,6 @@ class VistaAjustes:
         self.app.cerrar_sesion()
 
     # --- archivos ---------------------------------------------------------
-
-    def importar_excel(self) -> None:
-        if not dialogos.confirmar(
-                self.app, "¿Sustituir la contabilidad actual por la de un Excel?",
-                "Se leen los movimientos, las categorías, el presupuesto y la cartera del "
-                "archivo que elijas. Lo que tengas ahora en la aplicación se reemplaza por "
-                "completo, pero antes se guarda una copia de seguridad automática."):
-            return
-
-        ruta = filedialog.askopenfilename(
-            parent=self.app, title="Elige el Excel de tu contabilidad",
-            filetypes=[("Libros de Excel", "*.xlsx"), ("Todos los archivos", "*.*")])
-        if not ruta:
-            return
-
-        try:
-            libro, avisos = excel.importar(ruta)
-        except excel.ErrorDeImportacion as error:
-            dialogos.error(self.app, "No se ha podido importar", str(error))
-            return
-        except Exception as error:  # noqa: BLE001
-            dialogos.error(self.app, "No se ha podido importar",
-                           f"El archivo ha dado este error:\n\n{error}")
-            return
-
-        self.app.reemplazar_libro(libro, "antes-de-importar",
-                                  f"Importados {len(libro.movimientos)} movimientos.")
-        if avisos:
-            dialogos.avisar(self.app, "Importado, con algunos detalles",
-                            "\n\n".join(avisos))
-
-    def exportar_excel(self) -> None:
-        anio = getattr(self.app.vistas.get("resumen"), "anio", None) or \
-            calculos.anios_con_datos(self.app.libro)[0]
-        ruta = filedialog.asksaveasfilename(
-            parent=self.app, title="Guardar la contabilidad como Excel",
-            defaultextension=".xlsx", initialfile=f"ContaXcell-{anio}.xlsx",
-            filetypes=[("Libros de Excel", "*.xlsx")])
-        if not ruta:
-            return
-
-        try:
-            _, avisos = excel.exportar(ruta, self.app.libro, anio)
-        except OSError as error:
-            dialogos.error(self.app, "No se ha podido guardar el Excel",
-                           f"{error}\n\n¿Lo tienes abierto en Excel ahora mismo?")
-            return
-        self.app.estado(f"Guardado en {ruta}", "bien")
-        if avisos:
-            dialogos.avisar(self.app, "Exportado, con algún detalle",
-                            "\n\n".join(avisos))
 
     def guardar_copia(self) -> None:
         destino = self.app.almacen.copia_de_seguridad("manual")

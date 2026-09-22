@@ -182,6 +182,10 @@ class Sincronia:
         # `time.monotonic()` (que no se mueve si el usuario cambia la hora).
         # A None significa «todavía nunca», o sea, que toca ya.
         self._ultima_descarga: float | None = None
+        # Si ya se ha avisado a la ventana de que el servidor está mirado (o
+        # de que no se puede mirar). Se avisa una sola vez: es lo que la
+        # ventana espera al arrancar antes de apuntar nada por su cuenta.
+        self._comprobado_avisado = False
 
         self._cargar_sesion()
 
@@ -404,6 +408,12 @@ class Sincronia:
             self.sesion["ultima_revision"] = int(revision)
             self._guardar_sesion()
 
+    def conviene_esperar(self) -> bool:
+        """Si a la ventana le conviene esperar a que se mire el servidor
+        antes de apuntar nada por su cuenta: hay cuenta y nada a medio
+        subir. Con algo pendiente, lo de aquí va a subir de todas formas."""
+        return self.hay_sesion() and not self.caducada and not self.sesion["pendiente"]
+
     def estado_actual(self) -> str:
         """Una frase para la pestaña de Ajustes."""
         if not self.hay_sesion():
@@ -460,23 +470,34 @@ class Sincronia:
         Solo se sustituye lo local si aquí no hay nada a medio subir y el
         servidor va por otra revisión. Y si el servidor está vacío pero aquí
         hay contabilidad, lo que toca es subirla, no borrarla.
+
+        Acabe como acabe, la ventana se entera: o le llega el libro nuevo
+        («descargar») o un «comprobado» que dice que no hay nada que traer.
+        Hasta entonces no apunta los recibos periódicos, porque apuntarlos
+        sobre una copia vieja la marcaría como cambiada y la subiría encima
+        de la buena.
         """
         if not self.hay_sesion():
             return
         # Se apunta el intento, no el acierto: si el servidor no contesta,
         # tampoco hay que insistir cada treinta segundos.
         self._ultima_descarga = time.monotonic()
+        if not self._descargar():
+            self._dar_por_comprobado()
+
+    def _descargar(self) -> bool:
+        """Devuelve si ha dejado un aviso «descargar» en la cola."""
         try:
             codigo, datos = self._pedir("GET", "/api/libro")
         except _SinConexion:
             self._avisar_sin_conexion()
-            return
+            return False
 
         if codigo == 401:
             self._caducar()
-            return
+            return False
         if codigo != 200 or not isinstance(datos, dict):
-            return
+            return False
         self._sin_conexion_avisado = False
 
         revision = int(datos.get("revision") or 0)
@@ -491,14 +512,14 @@ class Sincronia:
                 self._guardar_sesion()
             if self.sesion["pendiente"]:
                 self._despertador.set()
-            return
+            return False
 
         if self.sesion["pendiente"]:
             # Lo de aquí todavía no está subido: primero se sube (y el propio
             # servidor avisará del conflicto si lo hay).
-            return
+            return False
         if revision == self.sesion["ultima_revision"]:
-            return
+            return False
 
         local = self._libro_local()
         if local is not None and local == libro:
@@ -509,7 +530,7 @@ class Sincronia:
             with self._candado:
                 self.sesion["ultima_revision"] = revision
                 self._guardar_sesion()
-            return
+            return False
 
         # Sin revisión apuntada no se sabe de dónde viene lo de aquí: puede
         # ser trabajo hecho sin conexión después de cerrar sesión, y está a
@@ -517,6 +538,7 @@ class Sincronia:
         local_sin_vinculo = (self.sesion["ultima_revision"] == 0
                              and self.ruta_datos.exists())
         self.avisos.put(("descargar", libro, revision, local_sin_vinculo))
+        return True
 
     def empujar(self) -> bool:
         """Sube el `datos.json` tal cual está en el disco. Devuelve si ha
@@ -579,16 +601,26 @@ class Sincronia:
     def _avisar_sin_conexion(self) -> None:
         # Solo la primera vez de cada racha: repetirlo cada medio minuto
         # sería un incordio, y el estado ya se ve en Ajustes.
-        if self._sin_conexion_avisado:
-            return
-        self._sin_conexion_avisado = True
-        self.avisos.put(("estado", MENSAJE_SIN_CONEXION, ""))
+        if not self._sin_conexion_avisado:
+            self._sin_conexion_avisado = True
+            self.avisos.put(("estado", MENSAJE_SIN_CONEXION, ""))
+        # Sin servidor no hay nada que esperar: que la ventana siga.
+        self._dar_por_comprobado()
 
     def _caducar(self) -> None:
         # El pendiente no se toca: en cuanto se entre otra vez, se sube.
         if not self.caducada:
             self.caducada = True
             self.avisos.put(("caducada", MENSAJE_CADUCADA))
+        self._dar_por_comprobado()
+
+    def _dar_por_comprobado(self) -> None:
+        """Avisa a la ventana, una sola vez, de que el servidor ya está
+        mirado y no va a llegar ningún libro: puede apuntar lo suyo."""
+        if self._comprobado_avisado:
+            return
+        self._comprobado_avisado = True
+        self.avisos.put(("comprobado",))
 
     def _guardar_copia_del_conflicto(self, libro) -> Path | None:
         """Deja la versión del servidor en copias y devuelve dónde, que es lo

@@ -1,6 +1,5 @@
-# Lo único que hace falta para usar ContaXcell.
-# La interfaz usa tkinter, que ya viene dentro de Python.
-openpyxl>=3.1
+# Para usar ContaXcell no hace falta instalar nada: la interfaz usa tkinter,
+# que ya viene dentro de Python, y todo lo demás es de la biblioteca estándar.
 
 # Solo para generar el ejecutable (python empaquetar.py):
 # pyinstaller>=6.0

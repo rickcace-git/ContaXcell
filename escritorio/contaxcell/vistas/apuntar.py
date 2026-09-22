@@ -274,7 +274,7 @@ class VistaApuntar:
         self.vacio = ttk.Label(
             tarjeta.cuerpo, style="Tarjeta.Suave.TLabel", justify="center",
             text="Todavía no hay nada apuntado.\n\nApunta el primero en el formulario "
-                 "de la izquierda, o trae tu historial desde el Excel en Ajustes.")
+                 "de la izquierda.")
 
         ttk.Button(acciones, text="Editar", command=self._editar_seleccionado).pack(side="left")
         ttk.Button(acciones, text="Borrar", style="Peligro.TButton",

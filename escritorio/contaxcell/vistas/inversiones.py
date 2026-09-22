@@ -13,7 +13,7 @@ from tkinter import filedialog, ttk
 
 from .. import calculos, dialogos, formato, sincronia, traderepublic, widgets
 from ..modelo import (CATEGORIAS_ACTIVO, INGRESO, INVERSION,
-                      Activo, AportacionGratis, Valoracion, hoy)
+                      Activo, AportacionGratis, Valoracion, hoy, redondea_titulos)
 from . import comun
 
 
@@ -116,8 +116,6 @@ class VistaInversiones:
                    command=self.anadir_activo).pack(side="right")
         ttk.Button(self.tarjeta_activos.derecha, text="Importar de Trade Republic",
                    command=self.importar_extracto).pack(side="right", padx=(0, 8))
-        ttk.Button(self.tarjeta_activos.derecha, text="Actualizar precios",
-                   command=self.actualizar_precios).pack(side="right", padx=(0, 8))
 
         self.tabla_activos = widgets.Tabla(self.tarjeta_activos.cuerpo, [
             widgets.Columna("nombre", "Activo", 150, estira=True),
@@ -220,6 +218,12 @@ class VistaInversiones:
             dialogos.Importe("inicial", "Aportación inicial", 0,
                              ayuda="Lo que ya tenías dentro antes de empezar a apuntar "
                                    "aportaciones en esta aplicación."),
+            dialogos.Importe("titulos", "Participaciones de esa aportación", None,
+                             opcional=True, decimales=6,
+                             ayuda="Cuántas participaciones son esos euros, con todos los decimales "
+                                   "que diga el banco. Con ellas el activo se valora solo "
+                                   "en cuanto le pongas su cotización, y esa aportación "
+                                   "sale en Compras como una más. En blanco si no lo sabes."),
             dialogos.Importe("valor", "Valor de mercado hoy", 0),
             dialogos.Opcion("categoria", "Categoría", self._categorias_de_activo(), "",
                             vacio="— sin categoría —",
@@ -231,6 +235,7 @@ class VistaInversiones:
 
         nuevo = Activo(nombre=resultado["nombre"],
                        aportacion_inicial=resultado["inicial"],
+                       titulos_iniciales=redondea_titulos(resultado["titulos"] or 0.0),
                        valor_mercado=resultado["valor"],
                        ultima_valoracion=hoy(),
                        categoria=resultado["categoria"])
@@ -312,20 +317,6 @@ class VistaInversiones:
             self.app.pedir_precios(forzando=True)
         else:
             self.app.estado(f"«{nombre}» ya no sigue ninguna cotización.")
-
-    def actualizar_precios(self) -> None:
-        """El botón. Pide los precios aunque ya se hayan mirado hoy."""
-        if self.app.sincronia is None:
-            dialogos.avisar(self.app, "Hace falta una cuenta",
-                            "Los precios los sirve tu servidor.")
-            return
-        if not self.app.pedir_precios(forzando=True):
-            dialogos.avisar(
-                self.app, "Ningún activo sigue una cotización",
-                "Elige uno de la lista y pulsa «Cotización…» para enlazarlo con "
-                "su fondo en bolsa. A partir de ahí el precio se actualiza solo.")
-            return
-        self.app.estado("Pidiendo los precios…")
 
     # --- importar del banco ------------------------------------------------
 
@@ -599,6 +590,12 @@ class VistaInversiones:
         resultado = dialogos.Formulario(self.app, f"Editar «{anterior}»", [
             dialogos.Texto("nombre", "Nombre", activo.nombre, obligatorio=True),
             dialogos.Importe("inicial", "Aportación inicial", activo.aportacion_inicial),
+            dialogos.Importe("titulos", "Participaciones de esa aportación",
+                             activo.titulos_iniciales or None, opcional=True, decimales=6,
+                             ayuda="Cuántas participaciones son esos euros, con todos los decimales "
+                                   "que diga el banco. Con ellas el activo se valora solo "
+                                   "en cuanto le pongas su cotización, y esa aportación "
+                                   "sale en Compras como una más. En blanco si no lo sabes."),
             dialogos.Importe("valor", "Valor de mercado hoy",
                              activo.valor_mercado if activo.ultima_valoracion else None,
                              opcional=True,
@@ -628,6 +625,7 @@ class VistaInversiones:
                         aportacion.activo = nuevo_nombre
             objetivo.nombre = nuevo_nombre
             objetivo.aportacion_inicial = resultado["inicial"]
+            objetivo.titulos_iniciales = redondea_titulos(resultado["titulos"] or 0.0)
             # En blanco es «no lo sé»: se queda sin valorar, que no es lo
             # mismo que valer cero. Un cero escrito a mano sí se respeta.
             if resultado["valor"] is None:
@@ -792,7 +790,7 @@ class VistaInversiones:
         filas = []
         for compra in compras:
             filas.append((compra.id, (
-                formato.fecha_corta(compra.fecha),
+                formato.fecha_corta(compra.fecha) if compra.fecha else "Aportación inicial",
                 formato.euros(compra.importe),
                 formato.numero(compra.titulos, 6),
                 formato.euros(compra.precio_pagado),
@@ -815,8 +813,9 @@ class VistaInversiones:
             self.tabla_compras.pack_forget()
             self.compras_vacio.configure(text=(
                 "Aquí se ve cómo va cada compra por separado.\n\n"
-                "Hacen falta las participaciones que compró cada una, y eso solo "
-                "viene en el extracto del banco:\nusa «Importar de Trade Republic»."))
+                "Hacen falta las participaciones que compró cada una: las trae el "
+                "extracto del banco («Importar de Trade Republic»)\ny las de la "
+                "aportación inicial se escriben al crear o editar el activo."))
             if not self.compras_vacio.winfo_ismapped():
                 self.compras_vacio.pack(pady=30)
 

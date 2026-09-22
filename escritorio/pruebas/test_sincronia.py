@@ -401,7 +401,8 @@ class PruebaEmpujar(ConCarpeta):
         self.assertFalse(sinc.empujar())
         self.assertTrue(self.sesion_grabada()["pendiente"])
         avisos = self.avisos_de(sinc)
-        self.assertEqual(avisos, [("estado", modulo.MENSAJE_SIN_CONEXION, "")])
+        self.assertEqual(avisos, [("estado", modulo.MENSAJE_SIN_CONEXION, ""),
+                                  ("comprobado",)])
 
     def test_reintento_tras_volver_la_conexion(self):
         self.escribir_datos()
@@ -502,7 +503,7 @@ class PruebaDescargar(ConCarpeta):
         sinc, _ = self.con_sesion((200, {"revision": 5, "libro": mismo}), revision=2)
         sinc.descargar()
 
-        self.assertEqual(self.avisos_de(sinc), [])
+        self.assertEqual(self.avisos_de(sinc), [("comprobado",)])
         self.assertEqual(sinc.sesion["ultima_revision"], 5)
         self.assertEqual(self.sesion_grabada()["ultima_revision"], 5)
 
@@ -528,7 +529,7 @@ class PruebaDescargar(ConCarpeta):
         sinc, _ = self.con_sesion((200, {"revision": 2, "libro": {"version": 1}}),
                                   revision=2)
         sinc.descargar()
-        self.assertEqual(self.avisos_de(sinc), [])
+        self.assertEqual(self.avisos_de(sinc), [("comprobado",)])
 
     def test_con_pendiente_local_no_se_pisa_nada(self):
         remoto = {"version": 1}
@@ -536,7 +537,7 @@ class PruebaDescargar(ConCarpeta):
                                   revision=2, pendiente=True)
         sinc.descargar()
         # Primero se sube lo de aquí; si hay conflicto ya lo dirá el servidor.
-        self.assertEqual(self.avisos_de(sinc), [])
+        self.assertEqual(self.avisos_de(sinc), [("comprobado",)])
 
     def test_cuenta_estrenada_sube_lo_local(self):
         self.escribir_datos()
@@ -548,7 +549,7 @@ class PruebaDescargar(ConCarpeta):
         sinc, _ = self.con_sesion(("sin-conexion", None), ("sin-conexion", None))
         sinc.descargar()
         sinc.descargar()
-        avisos = self.avisos_de(sinc)
+        avisos = [a for a in self.avisos_de(sinc) if a[0] == "estado"]
         self.assertEqual(len(avisos), 1)
 
     def test_token_caducado_al_arrancar(self):
@@ -556,6 +557,97 @@ class PruebaDescargar(ConCarpeta):
         sinc.descargar()
         self.assertTrue(sinc.caducada)
         self.assertEqual(self.avisos_de(sinc)[0][0], "caducada")
+
+
+class PruebaComprobado(ConCarpeta):
+    """La ventana no apunta los recibos periódicos hasta saber qué hay en el
+    servidor. Es lo que evitó que una copia atrasada, al apuntar dos recibos
+    nada más abrirse, pasara por «cambiada» y subiera encima de la buena.
+    Así que el hilo tiene que decir siempre algo: o «descargar» o «comprobado».
+    """
+
+    def test_sin_nada_que_traer_se_dice_comprobado(self):
+        sinc, _ = self.con_sesion((200, {"revision": 2, "libro": {"version": 1}}),
+                                  revision=2)
+        sinc.descargar()
+        self.assertEqual(self.avisos_de(sinc), [("comprobado",)])
+
+    def test_con_libro_nuevo_no_se_dice_comprobado(self):
+        # Ahí lo que toca es esperar al libro; los recibos van sobre él.
+        remoto = {"version": 1, "movimientos": [{"fecha": "2026-09-01"}]}
+        sinc, _ = self.con_sesion((200, {"revision": 5, "libro": remoto}), revision=2)
+        sinc.descargar()
+        self.assertEqual(self.avisos_de(sinc), [("descargar", remoto, 5, False)])
+
+    def test_sin_conexion_tambien_cuenta_como_mirado(self):
+        sinc, _ = self.con_sesion(("sin-conexion", None))
+        sinc.descargar()
+        self.assertEqual(self.avisos_de(sinc),
+                         [("estado", modulo.MENSAJE_SIN_CONEXION, ""), ("comprobado",)])
+
+    def test_sesion_caducada_tambien(self):
+        sinc, _ = self.con_sesion((401, {}))
+        sinc.descargar()
+        self.assertEqual([a[0] for a in self.avisos_de(sinc)], ["caducada", "comprobado"])
+
+    def test_solo_se_dice_una_vez(self):
+        sinc, _ = self.con_sesion(*[(200, {"revision": 2, "libro": {"version": 1}})] * 3,
+                                  revision=2)
+        for _ in range(3):
+            sinc.descargar()
+        self.assertEqual(self.avisos_de(sinc), [("comprobado",)])
+
+    def test_con_algo_por_subir_y_sin_conexion_no_se_espera(self):
+        # El bucle no llega a descargar() mientras haya pendiente; si además
+        # no hay red, la ventana no puede quedarse esperando a nadie.
+        self.escribir_datos()
+        sinc, _ = self.con_sesion(("sin-conexion", None), pendiente=True)
+        sinc.empujar()
+        self.assertIn(("comprobado",), self.avisos_de(sinc))
+
+    def test_conviene_esperar_con_cuenta_y_nada_pendiente(self):
+        sinc, _ = self.con_sesion()
+        self.assertTrue(sinc.conviene_esperar())
+
+    def test_con_algo_pendiente_no_conviene_esperar(self):
+        # Lo de aquí va a subir de todas formas: apuntar recibos no cambia
+        # quién gana.
+        sinc, _ = self.con_sesion(pendiente=True)
+        self.assertFalse(sinc.conviene_esperar())
+
+    def test_sin_cuenta_no_hay_a_quien_esperar(self):
+        sinc, _ = self.nueva()
+        self.assertFalse(sinc.conviene_esperar())
+
+    def test_la_copia_atrasada_no_pisa_a_la_del_servidor(self):
+        """Lo que pasó: aquí una copia del día 9, en el servidor la del 28.
+        Mirando antes de apuntar, lo que sube después va sobre la del 28."""
+        vieja = {"version": 1, "movimientos": [{"fecha": "2026-09-09"}]}
+        nueva = {"version": 1, "movimientos": [{"fecha": "2026-09-09"},
+                                               {"fecha": "2026-09-28"}]}
+        self.escribir_datos(vieja)
+        sinc, servidor = self.con_sesion(
+            (200, {"revision": 7, "libro": nueva}),
+            (200, {"revision": 8}),
+            revision=3)
+
+        # Al arrancar se mira el servidor, que va por delante: llega su libro.
+        sinc.descargar()
+        self.assertEqual(self.avisos_de(sinc), [("descargar", nueva, 7, False)])
+
+        # La ventana lo aplica, y entonces apunta el recibo encima y guarda.
+        self.escribir_datos(nueva | {"movimientos": nueva["movimientos"]
+                                     + [{"fecha": "2026-09-05"}]})
+        sinc.confirmar_descarga(7)
+        sinc.marcar_pendiente()
+        self.assertTrue(sinc.empujar())
+
+        # Lo que se ha subido parte de la revisión 7 y lleva el apunte del 28.
+        subida = servidor.peticiones[-1]
+        self.assertEqual(subida["metodo"], "PUT")
+        self.assertEqual(subida["cuerpo"]["revision_base"], 7)
+        self.assertIn({"fecha": "2026-09-28"}, subida["cuerpo"]["libro"]["movimientos"])
+        self.assertEqual(self.sesion_grabada()["ultima_revision"], 8)
 
 
 class PruebaCuandoTocaDescargar(ConCarpeta):
