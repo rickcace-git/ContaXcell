@@ -17,8 +17,6 @@ servidor de `server/` cuando hay una cuenta y conexión.
 - Libreta de deudas: lo que te deben, lo que debes, pagos parciales, notas y
   saldo compensado por persona, sin alterar el saldo bancario por sí sola.
 - Registro, inicio de sesión, cambio de contraseña y sincronización sin conexión.
-- Importación y exportación de libros Excel mediante el selector de documentos
-  de Android, sin pedir acceso general a los archivos del teléfono.
 - Importación de extractos PDF de Trade Republic.
 
 Los importes se guardan positivos y el tipo lo decide la categoría. La

@@ -44,6 +44,10 @@ escritorio/          la aplicación (Python + tkinter, nada que instalar)
 server/              FastAPI + Postgres en Docker (lo escribió un amigo)
   contaserver/       aplicacion.py (8 rutas), seguridad.py, almacen.py,
                      limites.py (frena los intentos a lo bruto)
+android/             la app nativa (Kotlin + Compose). Lee y sube el mismo
+                     datos.json: un campo nuevo en modelo.py hay que añadirlo
+                     también en android/.../domain/Model.kt, o el móvil lo
+                     borra al sincronizar
 app/                 versión anterior para móvil (Apps Script). Retirada
 To_Do_List.md        lo que queda por hacer
 ```

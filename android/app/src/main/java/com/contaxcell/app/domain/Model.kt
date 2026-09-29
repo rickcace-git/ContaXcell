@@ -179,6 +179,8 @@ data class Categoria(
 data class Activo(
     val nombre: String,
     @SerialName("aportacion_inicial") val aportacionInicial: Double = 0.0,
+    // Participaciones de la aportación inicial, si se saben. A cero es «no se sabe».
+    @SerialName("titulos_iniciales") val titulosIniciales: Double = 0.0,
     @SerialName("valor_mercado") val valorMercado: Double = 0.0,
     @SerialName("ultima_valoracion") val ultimaValoracion: String = "",
     val categoria: String = "",
@@ -188,6 +190,7 @@ data class Activo(
     fun normalized() = copy(
         nombre = nombre.trim(),
         aportacionInicial = DomainNumbers.money(aportacionInicial),
+        titulosIniciales = DomainNumbers.titles(titulosIniciales),
         valorMercado = DomainNumbers.money(valorMercado),
         ultimaValoracion = ultimaValoracion.takeIf(IsoDates::isValid).orEmpty(),
         categoria = categoria.trim(),

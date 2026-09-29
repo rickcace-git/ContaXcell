@@ -216,6 +216,7 @@ data class AssetUi(
     val returnLabel: String,
     val valuedAt: String,
     val rawInitial: String = "",
+    val rawInitialUnits: String = "",
     val rawMarketValue: String = "",
     val quoteSymbol: String = "",
     val quoteStatus: String = "Sin cotizaci\u00f3n autom\u00e1tica",
@@ -399,6 +400,7 @@ data class AssetDraft(
     val initial: String,
     val marketValue: String,
     val quoteSymbol: String = "",
+    val initialUnits: String = "",
 )
 
 data class AccountUi(
@@ -452,7 +454,6 @@ sealed interface AppAction {
     data object ImportTradeRepublic : AppAction
     data class SearchQuotes(val assetId: String, val query: String) : AppAction
     data class SelectQuote(val assetId: String, val symbol: String?) : AppAction
-    data object RefreshQuotes : AppAction
 
     data class SaveRecurring(val id: String?, val draft: RecurringDraft) : AppAction
     data class ToggleRecurring(val id: String) : AppAction
@@ -468,8 +469,6 @@ sealed interface AppAction {
     data class MoveCategory(val id: String, val direction: Int) : AppAction
     data class DeleteCategory(val id: String) : AppAction
     data class SetTheme(val preference: ThemePreference) : AppAction
-    data object ImportExcel : AppAction
-    data object ExportExcel : AppAction
     data object SaveBackup : AppAction
     data object RestoreBackup : AppAction
     data class ChangePassword(val current: String, val new: String) : AppAction

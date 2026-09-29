@@ -5,7 +5,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.contaxcell.app.data.local.JsonLibroStore
 import com.contaxcell.app.data.local.LibroStore
-import com.contaxcell.app.data.excel.ExcelBookService
 import com.contaxcell.app.data.excel.TradeRepublicImporter
 import com.contaxcell.app.data.excel.TradeRepublicOptions
 import com.contaxcell.app.data.remote.AuthRepository
@@ -80,8 +79,8 @@ import com.contaxcell.app.ui.SyncUiState
 import com.contaxcell.app.ui.ThemePreference
 import com.contaxcell.app.ui.UiMessage
 import java.io.InputStream
-import java.io.OutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -92,12 +91,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface AppEffect {
-    data object ChooseExcelImport : AppEffect
-    data class ChooseExcelExport(val suggestedName: String) : AppEffect
     data object ChooseTradeRepublicPdf : AppEffect
 }
+
+/** Tope para esperar al servidor antes de apuntar los periódicos, por si nadie contesta. */
+private const val ESPERA_SERVIDOR_MS = 15_000L
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val store: LibroStore = JsonLibroStore(application.filesDir)
@@ -296,7 +297,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             AppAction.ImportTradeRepublic -> _effects.tryEmit(AppEffect.ChooseTradeRepublicPdf)
             is AppAction.SearchQuotes -> searchQuotes(action.assetId, action.query)
             is AppAction.SelectQuote -> selectQuote(action.assetId, action.symbol)
-            AppAction.RefreshQuotes -> refreshQuotes(force = true, announce = true)
             is AppAction.SaveRecurring -> saveRecurring(action)
             is AppAction.ToggleRecurring -> mutate("Pago periódico actualizado") { current ->
                 current.copy(periodicos = current.periodicos.map { recurring ->
@@ -334,8 +334,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             is AppAction.SetTheme -> mutate("") {
                 it.copy(ajustes = it.ajustes.copy(tema = action.preference.toDomain()))
             }
-            AppAction.ImportExcel -> _effects.tryEmit(AppEffect.ChooseExcelImport)
-            AppAction.ExportExcel -> _effects.tryEmit(AppEffect.ChooseExcelExport("ContaXcell-${IsoDates.today()}.xlsx"))
             AppAction.SaveBackup -> viewModelScope.launch(Dispatchers.IO) {
                 val file = store.backup("manual")
                 withContext(Dispatchers.Main) {
@@ -346,40 +344,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             AppAction.RestoreBackup -> restoreLatestBackup()
             is AppAction.ChangePassword -> changePassword(action.current, action.new)
             AppAction.SignOut -> signOut()
-        }
-    }
-
-    /** Called by MainActivity after Android's document picker returns a workbook. */
-    fun importExcel(input: InputStream) {
-        viewModelScope.launch {
-            busy = true; refresh()
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    ExcelBookService().import(input)
-                }
-            }.onSuccess { imported ->
-                replaceBook(
-                    imported.book,
-                    "antes-de-importar-excel",
-                    listOf("Excel importado", *imported.warnings.toTypedArray()).joinToString(" · "),
-                )
-            }
-                .onFailure { showError("No se ha podido importar el Excel: ${rootMessage(it)}") }
-            busy = false; refresh()
-        }
-    }
-
-    /** Called by MainActivity after Android's create-document picker returns a destination. */
-    fun exportExcel(output: OutputStream) {
-        viewModelScope.launch {
-            busy = true; refresh()
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    ExcelBookService().export(output, book, selectedYear)
-                }
-            }.onSuccess { message = UiMessage("Excel exportado", MessageKind.Success) }
-                .onFailure { showError("No se ha podido exportar el Excel: ${rootMessage(it)}") }
-            busy = false; refresh()
         }
     }
 
@@ -419,11 +383,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun loadInitialState() {
         val loaded = withContext(Dispatchers.IO) { store.load() }
-        val pending = Calculos.apuntarPendientes(loaded.libro, IsoDates.today())
-        book = pending.libro
-        if (pending.creados.isNotEmpty()) withContext(Dispatchers.IO) { store.save(book) }
+        book = loaded.libro
         val session = sessions.read()
-        auth = if (session.isSignedIn && !session.expired) {
+        val signedIn = session.isSignedIn && !session.expired
+        auth = if (signedIn) {
             AuthUiState.SignedIn(session.username, session.serverUrl)
         } else {
             AuthUiState.Gate(
@@ -433,13 +396,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         if (loaded.startupNotice.isNotBlank()) message = UiMessage(loaded.startupNotice, MessageKind.Warning)
-        if (pending.creados.isNotEmpty()) {
-            message = UiMessage("Se han apuntado ${pending.creados.size} movimientos periódicos pendientes.", MessageKind.Success)
-        }
         busy = false
         updateSyncUi()
         refresh()
-        if (session.isSignedIn && !session.expired) syncNow()
+        // Con cuenta, los periódicos esperan a que se mire el servidor: apuntados
+        // sobre una copia atrasada, esta se daría por cambiada y se subiría encima
+        // de la buena. Con algo ya pendiente lo de aquí va a subir igual, así que
+        // no hay nada que esperar. Si el servidor no contesta, se sigue sin él.
+        if (signedIn && !session.pending) {
+            val sync = syncNow()
+            withTimeoutOrNull(ESPERA_SERVIDOR_MS) { sync.join() }
+            apuntarPeriodicos()
+        } else {
+            apuntarPeriodicos()
+            if (signedIn) syncNow()
+        }
+    }
+
+    /** Convierte en movimientos los periódicos que ya tocaban, hasta hoy. */
+    private suspend fun apuntarPeriodicos() {
+        val creados = mutationMutex.withLock {
+            val pending = Calculos.apuntarPendientes(book, IsoDates.today())
+            if (pending.creados.isEmpty()) return
+            val next = pending.libro.normalized()
+            withContext(Dispatchers.IO) { store.save(next) }
+            book = next
+            pending.creados.size
+        }
+        syncEngine.markPending()
+        message = UiMessage("Se han apuntado $creados movimientos periódicos pendientes.", MessageKind.Success)
+        updateSyncUi()
+        refresh()
+        SyncScheduler.requestImmediate(getApplication())
     }
 
     private fun authenticate(register: Boolean, user: String, password: String, server: String, invitation: String) {
@@ -468,7 +456,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun syncNow() {
+    private fun syncNow(): Job =
         viewModelScope.launch {
             syncUi = SyncUiState(SyncStatus.Pending, "Sincronizando…")
             refresh()
@@ -484,7 +472,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             refresh()
             refreshQuotes(force = false, announce = false)
         }
-    }
 
     private fun mutate(success: String, kind: MessageKind = MessageKind.Info, transform: (Libro) -> Libro) {
         viewModelScope.launch {
@@ -516,6 +503,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun saveAsset(action: AppAction.SaveAsset) {
         val initial = nonNegativeAmount(action.draft.initial) ?: return
         val market = nonNegativeAmount(action.draft.marketValue) ?: return
+        val initialUnits = nonNegativeAmount(action.draft.initialUnits) ?: return
         val name = action.draft.name.trim()
         if (name.isEmpty()) return showError("Escribe un nombre para el activo.")
         if (book.activos.any { it.nombre.equals(name, true) && it.nombre != action.id }) {
@@ -525,6 +513,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val asset = Activo(
             nombre = name,
             aportacionInicial = initial,
+            titulosIniciales = initialUnits,
             valorMercado = market,
             ultimaValoracion = if (action.draft.marketValue.isNotBlank()) IsoDates.today() else "",
             categoria = action.draft.category,
@@ -909,6 +898,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     returnLabel = SpanishFormat.percentage(asset.rentabilidad),
                     valuedAt = asset.ultimaValoracion.ifBlank { "Sin valorar" },
                     rawInitial = SpanishFormat.number(asset.aportacionInicial),
+                    rawInitialUnits = book.activo(asset.nombre)?.titulosIniciales
+                        ?.takeIf { it > 0 }?.let { SpanishFormat.number(it, 6) }.orEmpty(),
                     rawMarketValue = SpanishFormat.number(asset.valorMercado),
                     quoteSymbol = asset.simbolo,
                     quoteStatus = when {
@@ -930,7 +921,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cashback = book.aportacionesGratis.sortedByDescending { it.fecha }.map { CashbackUi(it.id, it.fecha, it.activo, it.concepto, SpanishFormat.euros(it.importe, hidden)) },
                 purchases = chosenPurchases.map { purchase -> PurchaseUi(
                     id = purchase.id,
-                    date = purchase.fecha,
+                    date = purchase.fecha.ifEmpty { "Aportación inicial" },
                     invested = SpanishFormat.euros(purchase.importe, hidden),
                     units = SpanishFormat.number(purchase.titulos, 6),
                     paidPrice = if (purchase.titulos > 0) SpanishFormat.euros(purchase.precioPagado, hidden) else "—",

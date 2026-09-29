@@ -19,7 +19,6 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileUpload
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -324,12 +323,6 @@ fun InvestmentsScreen(state: InvestmentsUiState, onAction: (AppAction) -> Unit) 
             ScreenIntro(
                 "Inversiones",
                 "Lo aportado, lo que vale hoy y lo que ha generado el mercado.",
-                action = {
-                    OutlinedButton(onClick = { onAction(AppAction.RefreshQuotes) }) {
-                        Icon(Icons.Outlined.Refresh, null)
-                        Text("Precios")
-                    }
-                },
             )
         }
         item { MetricGrid(state.metrics) }
@@ -636,12 +629,13 @@ private fun AssetEditor(asset: AssetUi?, onDismiss: () -> Unit, onSave: (AssetDr
     var category by rememberSaveable(asset?.id) { mutableStateOf(asset?.category.orEmpty()) }
     var initial by rememberSaveable(asset?.id) { mutableStateOf(asset?.rawInitial.orEmpty()) }
     var market by rememberSaveable(asset?.id) { mutableStateOf(asset?.rawMarketValue.orEmpty()) }
+    var initialUnits by rememberSaveable(asset?.id) { mutableStateOf(asset?.rawInitialUnits.orEmpty()) }
     val quoteSymbol = asset?.quoteSymbol.orEmpty()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (asset == null) "Nuevo activo" else "Editar activo") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(name, { name = it }, label = { Text("Nombre") }); OutlinedTextField(category, { category = it }, label = { Text("Categor\u00eda") }); NumericTextField(initial, { initial = it }, "Aportaci\u00f3n inicial", Modifier.fillMaxWidth()); NumericTextField(market, { market = it }, "Valor de mercado", Modifier.fillMaxWidth()); if (quoteSymbol.isNotBlank()) Text("Cotizaci\u00f3n autom\u00e1tica: $quoteSymbol", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) } },
-        confirmButton = { Button(onClick = { onSave(AssetDraft(name, category, initial, market, quoteSymbol)) }, enabled = name.isNotBlank()) { Text("Guardar") } },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(name, { name = it }, label = { Text("Nombre") }); OutlinedTextField(category, { category = it }, label = { Text("Categor\u00eda") }); NumericTextField(initial, { initial = it }, "Aportaci\u00f3n inicial", Modifier.fillMaxWidth()); NumericTextField(initialUnits, { initialUnits = it }, "Participaciones de esa aportaci\u00f3n", Modifier.fillMaxWidth(), suffix = null, supporting = "Con todos los decimales que diga el banco. En blanco si no lo sabes."); NumericTextField(market, { market = it }, "Valor de mercado", Modifier.fillMaxWidth()); if (quoteSymbol.isNotBlank()) Text("Cotizaci\u00f3n autom\u00e1tica: $quoteSymbol", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary) } },
+        confirmButton = { Button(onClick = { onSave(AssetDraft(name, category, initial, market, quoteSymbol, initialUnits)) }, enabled = name.isNotBlank()) { Text("Guardar") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }

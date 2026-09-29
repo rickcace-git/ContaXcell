@@ -72,6 +72,25 @@ class DomainCalculationsTest {
         assertEquals(0.0, Calculos.comprasDe(unvalued, "Fondo").single().precioHoy, 0.0)
     }
 
+    @Test fun `initial units count for the portfolio and show as the oldest purchase`() {
+        val withUnits = book().copy(activos = listOf(
+            Activo("Fondo", aportacionInicial = 500.0, titulosIniciales = 5.0, valorMercado = 1_050.0, ultimaValoracion = "2026-03-31"),
+        ))
+        val asset = Calculos.cartera(withUnits).activos.single()
+        assertEquals(9.5, asset.titulos, 0.0)
+        val purchases = Calculos.comprasDe(withUnits, "Fondo")
+        assertEquals(listOf("c", COMPRA_INICIAL), purchases.map { it.id })
+        val initial = purchases.last()
+        assertEquals("", initial.fecha)
+        assertEquals(500.0, initial.importe, 0.0)
+        assertEquals(5.0, initial.titulos, 0.0)
+        assertEquals(1_050.0 / 9.5, initial.precioHoy, 1e-9)
+    }
+
+    @Test fun `initial units in blank keep purchases as before`() {
+        assertEquals(listOf("c"), Calculos.comprasDe(book(), "Fondo").map { it.id })
+    }
+
     @Test fun `monthly dates return to original day after February`() {
         val recurring = Periodico("Alquiler", "Casa", 700.0, desde = "2026-01-31", id = "p")
         assertEquals(
