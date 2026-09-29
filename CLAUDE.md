@@ -40,6 +40,8 @@ escritorio/          la aplicación (Python + tkinter, nada que instalar)
     sincronia.py     cliente del servidor. Hilo de fondo, sin tkinter dentro
     acceso.py        ventana de usuario/contraseña
     ventana.py       ventana principal y estado compartido
+    guia.py          la guía de uso (Ayuda ▸ Guía de uso, F1): un apartado
+                     por pestaña. Si cambias cómo se usa algo, cámbialo aquí
     vistas/          una pestaña por archivo
 server/              FastAPI + Postgres en Docker (lo escribió un amigo)
   contaserver/       aplicacion.py (8 rutas), seguridad.py, almacen.py,
@@ -149,7 +151,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      359 pruebas, ~4 s (test_dialogos y
+python -m unittest discover -s pruebas      368 pruebas, ~5 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas

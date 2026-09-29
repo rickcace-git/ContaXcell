@@ -207,6 +207,8 @@ class Aplicacion(tk.Tk):
         barra.add_cascade(label="Ver", menu=ver)
 
         ayuda = tk.Menu(barra, tearoff=0)
+        ayuda.add_command(label="Guía de uso\tF1", command=lambda: self.abrir_guia("empezar"))
+        ayuda.add_separator()
         ayuda.add_command(label="Acerca de ContaXcell", command=self._acerca_de)
         barra.add_cascade(label="Ayuda", menu=ayuda)
 
@@ -214,6 +216,8 @@ class Aplicacion(tk.Tk):
 
     def _atajos(self) -> None:
         self.bind_all("<Control-h>", lambda _e: self.alternar_ocultos())
+        # F1 abre la guía por el apartado de la pestaña en la que se está.
+        self.bind_all("<F1>", lambda _e: self.abrir_guia(self.pestana_actual()))
         for numero, clave in enumerate(self._claves, start=1):
             self.bind_all(f"<Control-Key-{numero}>", lambda _e, c=clave: self.ir_a(c))
 
@@ -517,6 +521,18 @@ class Aplicacion(tk.Tk):
         else:
             import subprocess
             subprocess.Popen(["xdg-open", str(carpeta)])
+
+    def abrir_guia(self, clave: str) -> None:
+        """Una sola guía abierta: si ya lo está, se trae delante y va al
+        apartado pedido en vez de abrir otra ventana igual."""
+        from . import guia
+
+        abierta = getattr(self, "_guia", None)
+        if abierta is not None and abierta.winfo_exists():
+            abierta.ir_a(clave)
+        else:
+            self._guia = guia.Guia(self, clave)
+        self._guia.mostrar()
 
     def _acerca_de(self) -> None:
         dialogos.AcercaDe(self, VERSION, self.almacen.carpeta,
