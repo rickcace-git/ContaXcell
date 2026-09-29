@@ -20,7 +20,27 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    // Firma fija para el APK que genera GitHub (.github/workflows/android.yml).
+    // Sin ella, cada compilación firmaría con una clave distinta y el móvil no
+    // dejaría instalar una versión encima de otra. La clave nunca va en el
+    // repositorio: llega por dos secretos de GitHub. Sin ellos (compilando en
+    // local), se usa la clave de depuración de siempre.
+    val almacenFirma = System.getenv("CONTAXCELL_KEYSTORE")
+    val claveFirma = System.getenv("CONTAXCELL_KEYSTORE_PASSWORD")
+    val hayFirmaFija = !almacenFirma.isNullOrBlank() && !claveFirma.isNullOrBlank()
+    if (hayFirmaFija) {
+        signingConfigs.create("fija") {
+            storeFile = file(almacenFirma!!)
+            storePassword = claveFirma
+            keyAlias = "contaxcell"
+            keyPassword = claveFirma
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hayFirmaFija) signingConfig = signingConfigs.getByName("fija")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

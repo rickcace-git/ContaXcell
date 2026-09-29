@@ -37,6 +37,37 @@ El APK queda en `app/build/outputs/apk/debug/app-debug.apk`. La aplicación
 admite Android 8.0 (API 26) o posterior. Esta primera fase se verifica con la
 compilación y las pruebas unitarias; no requiere arrancar un emulador.
 
+## El APK sin instalar nada: GitHub lo compila
+
+Cada vez que se suben cambios de `android/` a `master` o a `Rick`, GitHub
+pasa las pruebas y genera el APK (`.github/workflows/android.yml`). También se
+puede lanzar a mano: pestaña **Actions → App Android → Run workflow**.
+
+Para descargarlo: **Actions → App Android →** la ejecución más reciente con
+la marca verde **→ Artifacts → ContaXcell-android**. Llega como un `.zip`
+con el `app-debug.apk` dentro.
+
+### La firma, una sola vez
+
+El APK tiene que ir firmado siempre con la misma clave, o el móvil no deja
+instalar una versión nueva encima de la anterior. La clave no va en el
+repositorio: se guarda en dos secretos del repositorio en GitHub
+(**Settings → Secrets and variables → Actions → New repository secret**):
+
+- `ANDROID_KEYSTORE_BASE64`: el almacén de claves, en base64.
+- `ANDROID_KEYSTORE_PASSWORD`: su contraseña.
+
+Sin ellos el APK se genera igual, pero con una clave distinta cada vez.
+
+### Pasarlo al móvil
+
+1. Descomprime el `.zip` y pasa `app-debug.apk` al móvil: por cable, por
+   Google Drive o enviándotelo a ti mismo.
+2. Ábrelo en el móvil. La primera vez Android pedirá permiso para «instalar
+   aplicaciones desconocidas» desde esa app (Archivos, Drive…): concédelo.
+3. Para actualizar, repite lo mismo con el APK nuevo: se instala encima y
+   conserva los datos.
+
 ## Servidor
 
 En la pantalla de acceso se indica la URL completa del servidor, por ejemplo
