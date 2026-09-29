@@ -146,6 +146,7 @@ class Aplicacion(tk.Tk):
         tk.Frame(cabecera, background=self.paleta.borde, height=1).pack(fill="x")
 
     def _construir_pestanas(self) -> None:
+        from . import iconos
         from .vistas import (ajustes, apuntar, deudas, inversiones, movimientos,
                              periodicos, presupuesto, resumen)
 
@@ -164,9 +165,18 @@ class Aplicacion(tk.Tk):
         ]
         self._claves = [clave for clave, _, _ in definicion]
 
+        # Cada pestaña lleva su icono del color de su letra: gris, azul si
+        # es la elegida y más oscuro con el ratón encima. Las imágenes se
+        # guardan en la ventana: si Python las tirase, el icono desaparecería.
+        lado = round(16 * self.escala)
+        self._iconos_pestanas = []
         for clave, titulo, Clase in definicion:
             marco = ttk.Frame(self.cuaderno)
-            self.cuaderno.add(marco, text=titulo)
+            normal, elegida, encima = (iconos.imagen(self, clave, lado, color) for color in
+                                       (self.paleta.suave, self.paleta.acento, self.paleta.texto))
+            self._iconos_pestanas += [normal, elegida, encima]
+            self.cuaderno.add(marco, text=f" {titulo}", compound="left",
+                              image=(normal, "selected", elegida, "active", encima))
             self.vistas[clave] = Clase(marco, self)
 
         # Recién construidas están todas vacías: la primera vez que se abra

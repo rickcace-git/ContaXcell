@@ -31,6 +31,10 @@ class PruebasContenido(unittest.TestCase):
             with self.subTest(a.clave):
                 self.assertTrue(guia.trozos(a.texto))
 
+    def test_cada_apartado_tiene_su_icono(self):
+        from contaxcell import iconos
+        self.assertEqual(set(), {a.clave for a in guia.APARTADOS} - set(iconos.DIBUJOS))
+
     def test_una_clave_desconocida_abre_el_primero(self):
         self.assertIs(guia.APARTADOS[0], guia.apartado("no-existe"))
 
@@ -65,8 +69,7 @@ class PruebasVentana(unittest.TestCase):
     def test_abre_por_el_apartado_pedido(self):
         ventana = self.guia("deudas")
         self.assertEqual("deudas", ventana.apartado_actual.clave)
-        self.assertEqual((guia.APARTADOS.index(guia.apartado("deudas")),),
-                         ventana.lista.curselection())
+        self.assertEqual(("deudas",), ventana.lista.selection())
         self.assertTrue(ventana.texto.get("1.0", "2.0").startswith("Deudas"))
 
     def test_ir_a_cambia_el_texto(self):

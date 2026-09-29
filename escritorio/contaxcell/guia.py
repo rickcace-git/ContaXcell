@@ -18,7 +18,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from tkinter import ttk
 
-from . import widgets
+from . import iconos, widgets
 
 
 @dataclass(frozen=True)
@@ -278,15 +278,34 @@ class Guia(tk.Toplevel):
         tk.Frame(self, background=p.borde, width=1).pack(side="left", fill="y")
         ttk.Label(lado, text="APARTADOS", style="Tarjeta.Suave.TLabel").pack(
             anchor="w", padx=6, pady=(0, 8))
-        self.lista = tk.Listbox(
-            lado, activestyle="none", exportselection=False, width=22,
-            font=f.normal, relief="flat", borderwidth=0, highlightthickness=0,
-            background=p.tarjeta, foreground=p.texto,
-            selectbackground=p.acento, selectforeground="#ffffff")
+        # Un Treeview sin columnas y no un Listbox: es lo que deja poner un
+        # icono delante de cada apartado. Filas algo más altas que en las
+        # tablas, que esto es un menú y no una lista de datos.
+        estilo = ttk.Style(self)
+        estilo.configure("Guia.Treeview", rowheight=int(f.normal.metrics("linespace") * 2.1))
+        # Sin el marco que llevan las tablas: aquí sobra.
+        estilo.layout("Guia.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
+        self.lista = ttk.Treeview(lado, show="tree", selectmode="browse",
+                                  style="Guia.Treeview", height=len(APARTADOS))
+        # Dos colores por icono, como en las pestañas: gris, y azul el elegido.
+        # Hay que guardarlos: si Python los tira, el icono se queda en blanco.
+        tam = round(16 * f.escala)
+        # Ancho para el título más largo, más el icono y el margen de la fila.
+        largo = max(f.normal.measure(f"  {a.titulo}") for a in APARTADOS)
+        self.lista.column("#0", width=largo + tam + round(40 * f.escala))
+        self._iconos = {a.clave: (iconos.imagen(self, a.clave, tam, p.suave),
+                                  iconos.imagen(self, a.clave, tam, p.acento))
+                        for a in APARTADOS}
         for a in APARTADOS:
-            self.lista.insert("end", f"  {a.titulo}")
+            self.lista.insert("", "end", iid=a.clave, text=f"  {a.titulo}",
+                              image=self._iconos[a.clave][0])
         self.lista.pack(fill="y", expand=True)
-        self.lista.bind("<<ListboxSelect>>", lambda _e: self._al_elegir())
+        self.lista.bind("<<TreeviewSelect>>", lambda _e: self._al_elegir())
+        # Las flechas las lleva la guía, no el Treeview: si no, con la lista
+        # enfocada se moverían dos apartados de golpe.
+        for widget in (self, self.lista):
+            widget.bind("<Up>", lambda _e: self._mover(-1))
+            widget.bind("<Down>", lambda _e: self._mover(1))
 
         derecha = ttk.Frame(self, style="Tarjeta.TFrame")
         derecha.pack(side="left", fill="both", expand=True)
@@ -309,32 +328,31 @@ class Guia(tk.Toplevel):
         self.texto.tag_configure("paso", lmargin1=12, lmargin2=28)
 
         self.bind("<Escape>", lambda _e: self.destroy())
-        self.bind("<Up>", lambda _e: self._mover(-1))
-        self.bind("<Down>", lambda _e: self._mover(1))
 
         self.ir_a(clave)
 
     def ir_a(self, clave: str) -> None:
-        indice = APARTADOS.index(apartado(clave))
-        self.lista.selection_clear(0, "end")
-        self.lista.selection_set(indice)
-        self.lista.see(indice)
-        self._pintar(APARTADOS[indice])
+        clave = apartado(clave).clave
+        self.lista.selection_set(clave)
+        self.lista.focus(clave)
+        self.lista.see(clave)
+        self._pintar(apartado(clave))
 
     def _al_elegir(self) -> None:
-        elegido = self.lista.curselection()
+        elegido = self.lista.selection()
         if elegido:
-            self._pintar(APARTADOS[elegido[0]])
+            self._pintar(apartado(elegido[0]))
 
     def _mover(self, paso: int) -> str:
-        actual = self.lista.curselection()
-        indice = (actual[0] if actual else 0) + paso
+        indice = APARTADOS.index(self.apartado_actual) + paso
         if 0 <= indice < len(APARTADOS):
             self.ir_a(APARTADOS[indice].clave)
         return "break"
 
     def _pintar(self, a: Apartado) -> None:
         self.apartado_actual = a
+        for clave, (normal, elegido) in self._iconos.items():
+            self.lista.item(clave, image=elegido if clave == a.clave else normal)
         self.texto.configure(state="normal")
         self.texto.delete("1.0", "end")
         self.texto.insert("end", a.titulo + "\n", "cabecera")
