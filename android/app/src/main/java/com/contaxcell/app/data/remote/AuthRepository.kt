@@ -59,6 +59,7 @@ class AuthRepository(
         when (response.statusCode) {
             200 -> Unit
             401 -> {
+                com.contaxcell.app.data.sync.SyncDiagnostics.expired("Cambiar contraseña", response.detail(), session.token)
                 sessions.write(session.copy(expired = true))
                 fail("La sesión ha caducado. Entra de nuevo y vuelve a intentarlo.", AuthenticationException.Kind.SESSION_EXPIRED)
             }

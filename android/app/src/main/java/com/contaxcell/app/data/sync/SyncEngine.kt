@@ -140,7 +140,7 @@ class SyncEngine(
                     }
                     baseRevision = revision
                 }
-                401 -> return expireSession()
+                401 -> return expireSession("Subir", response.detail(), initial.token)
                 else -> return unexpected(response.statusCode)
             }
         }
@@ -158,7 +158,7 @@ class SyncEngine(
             events.emit(SyncEvent.Offline)
             return SyncResult.Offline
         }
-        if (response.statusCode == 401) return expireSession()
+        if (response.statusCode == 401) return expireSession("Descargar", response.detail(), session.token)
         if (response.statusCode != 200) return unexpected(response.statusCode)
         val body = response.objectBody ?: return unexpected(response.statusCode)
         val revision = body["revision"]?.jsonPrimitive?.intOrNull
@@ -203,7 +203,8 @@ class SyncEngine(
         }
     }
 
-    private suspend fun expireSession(): SyncResult.SessionExpired {
+    private suspend fun expireSession(request: String, detail: String?, token: String): SyncResult.SessionExpired {
+        SyncDiagnostics.expired(request, detail, token)
         sessions.update { it.copy(expired = true) }
         events.emit(SyncEvent.SessionExpired)
         return SyncResult.SessionExpired

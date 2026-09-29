@@ -19,6 +19,7 @@ import com.contaxcell.app.data.sync.QuoteRefreshResult
 import com.contaxcell.app.data.sync.SharedPreferencesSessionStore
 import com.contaxcell.app.data.sync.SyncBookStore
 import com.contaxcell.app.data.sync.SyncEngine
+import com.contaxcell.app.data.sync.SyncDiagnostics
 import com.contaxcell.app.data.sync.SyncEvent
 import com.contaxcell.app.data.sync.SyncEventSink
 import com.contaxcell.app.data.sync.SyncResult
@@ -465,7 +466,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is SyncResult.Downloaded -> book = withContext(Dispatchers.IO) { store.load().libro }
                 SyncResult.NoSession -> Unit
                 SyncResult.Offline -> syncUi = SyncUiState(SyncStatus.Offline, "Sin conexión · cambios a salvo")
-                SyncResult.SessionExpired -> syncUi = SyncUiState(SyncStatus.Error, "Sesión caducada")
+                SyncResult.SessionExpired -> syncUi = sesionCaducada()
                 is SyncResult.Failed -> syncUi = SyncUiState(SyncStatus.Error, "No se ha podido sincronizar")
             }
             updateSyncUi(keepError = true)
@@ -1021,7 +1022,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ) },
                 account = AccountUi(
                     signedIn = signedIn?.user?.isNotBlank() == true,
-                    user = signedIn?.user.orEmpty(), server = signedIn?.server.orEmpty(), syncDetail = syncUi.label,
+                    user = signedIn?.user.orEmpty(), server = signedIn?.server.orEmpty(), syncDetail = if (syncUi.label == "Sesión caducada" && SyncDiagnostics.lastExpiry.isNotBlank()) {
+                        "Sesión caducada\n${SyncDiagnostics.lastExpiry}"
+                    } else syncUi.label,
                     sessionExpired = syncUi.status == SyncStatus.Error && syncUi.label.contains("caducada", true),
                 ),
                 appVersion = BuildConfig.VERSION_NAME,
@@ -1084,7 +1087,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             when (event) {
                 SyncEvent.Synced -> syncUi = SyncUiState(SyncStatus.Synced, "Al día")
                 SyncEvent.Offline -> syncUi = SyncUiState(SyncStatus.Offline, "Sin conexión · cambios a salvo")
-                SyncEvent.SessionExpired -> syncUi = SyncUiState(SyncStatus.Error, "Sesión caducada")
+                SyncEvent.SessionExpired -> syncUi = sesionCaducada()
                 is SyncEvent.ConflictBackedUp -> message = UiMessage("Había cambios de otro dispositivo; se ha guardado una copia.", MessageKind.Warning)
                 is SyncEvent.Downloaded -> {
                     book = withContext(Dispatchers.IO) { store.load().libro }
@@ -1096,12 +1099,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         },
     )
 
+    /** Con el motivo que dio el servidor, para poder saber por qué sin mirar su registro. */
+    private fun sesionCaducada(): SyncUiState {
+        return SyncUiState(SyncStatus.Error, "Sesión caducada")
+    }
+
     private suspend fun updateSyncUi(keepError: Boolean = false) {
         if (keepError && syncUi.status in setOf(SyncStatus.Error, SyncStatus.Offline)) return
         val session = sessions.read()
         syncUi = when {
             !session.isSignedIn -> SyncUiState(SyncStatus.Offline, "Solo en este dispositivo")
-            session.expired -> SyncUiState(SyncStatus.Error, "Sesión caducada")
+            session.expired -> sesionCaducada()
             session.pending -> SyncUiState(SyncStatus.Pending, "Pendiente · a salvo en el teléfono")
             else -> SyncUiState(SyncStatus.Synced, "Al día")
         }

@@ -78,6 +78,7 @@ class MarketQuoteRepository(
         when (response.statusCode) {
             200 -> Unit
             401 -> {
+                com.contaxcell.app.data.sync.SyncDiagnostics.expired("Buscar cotización", response.detail(), session.token)
                 sessions.write(session.copy(expired = true))
                 fail("La sesión ha caducado: entra de nuevo.", MarketQuoteException.Kind.SESSION_EXPIRED)
             }

@@ -60,6 +60,23 @@ class SyncEngineTest {
     }
 
     @Test
+    fun expiredSessionRemembersWhatTheServerSaidWithoutTheToken() = runTest {
+        val api = FakeApi(downloadResponse = HttpResult(401, buildJsonObject {
+            put("detail", JsonPrimitive("La ficha de sesión no vale o ha caducado."))
+        }))
+        val sessions = MemorySessions(SyncSession("https://example.test", "ana", "1.0.99.firma", 0))
+
+        val result = SyncEngine(api, sessions, MemoryBooks(Libro.empty()), json = json).pull()
+
+        assertEquals(SyncResult.SessionExpired, result)
+        assertTrue(sessions.value.expired)
+        val motivo = SyncDiagnostics.lastExpiry
+        assertTrue(motivo, motivo.contains("Descargar") && motivo.contains("no vale o ha caducado"))
+        assertTrue(motivo, motivo.contains("12 caracteres en 4 trozos"))
+        assertFalse("La ficha no se enseña nunca", motivo.contains("firma"))
+    }
+
+    @Test
     fun remoteDownloadBacksUpUnlinkedLocalBookBeforeReplacing() = runTest {
         val local = Libro.empty().copy(movimientos = listOf(Movimiento("2026-01-02", importe = 20.0)))
         val remote = Libro.empty().copy(movimientos = listOf(Movimiento("2026-01-03", importe = 30.0)))
