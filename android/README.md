@@ -59,6 +59,11 @@ repositorio: se guarda en dos secretos del repositorio en GitHub
 
 Sin ellos el APK se genera igual, pero con una clave distinta cada vez.
 
+Un tercer secreto, `CONTAXCELL_SERVIDOR`, es la dirección del servidor con la
+que viene la app (por ejemplo `https://cuentas.ejemplo.es`), igual que el
+`.env` del escritorio. Sin él, la pantalla de acceso propone
+`http://localhost:8000`. Compilando en local se toma del `escritorio/.env`.
+
 ### Pasarlo al móvil
 
 1. Descomprime el `.zip` y pasa `app-debug.apk` al móvil: por cable, por

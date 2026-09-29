@@ -15,7 +15,8 @@ data class SyncSession(
     val isSignedIn: Boolean get() = token.isNotBlank()
 
     companion object {
-        const val DEFAULT_SERVER_URL = "http://localhost:8000"
+        /** El que se metió al compilar (ver app/build.gradle.kts). */
+        val DEFAULT_SERVER_URL: String = com.contaxcell.app.BuildConfig.SERVIDOR_POR_DEFECTO
     }
 }
 

@@ -10,11 +10,24 @@ android {
     compileSdk = 35
 
     defaultConfig {
+        // El servidor con el que viene la app, igual que el .exe del escritorio:
+        // de la variable CONTAXCELL_SERVIDOR (en GitHub, un secreto) o, en
+        // local, del escritorio/.env. No va en el repositorio, que es público.
+        // Sin ninguna de las dos, localhost, que es lo que vale para probar.
+        val servidor = System.getenv("CONTAXCELL_SERVIDOR")?.trim()?.takeIf(String::isNotEmpty)
+            ?: rootProject.file("../escritorio/.env").takeIf { it.exists() }?.readLines()
+                ?.firstOrNull { it.trim().startsWith("CONTAXCELL_SERVIDOR=") }
+                ?.substringAfter("=")?.trim()?.takeIf(String::isNotEmpty)
+            ?: "http://localhost:8000"
+        buildConfigField("String", "SERVIDOR_POR_DEFECTO", "\"$servidor\"")
         applicationId = "com.contaxcell.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // En GitHub, cada compilación sube el número: así se ve en Ajustes si el
+        // móvil tiene el APK más reciente, y cada uno se instala encima del anterior.
+        val compilacion = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = compilacion
+        versionName = "1.0.$compilacion"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

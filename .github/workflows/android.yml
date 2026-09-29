@@ -67,6 +67,10 @@ jobs:
           echo "CONTAXCELL_SERVIDOR_PRUEBAS=http://127.0.0.1:8765" >> "$GITHUB_ENV"
 
       - name: Pruebas y APK
+        env:
+          # La dirección del servidor con la que viene la app (secreto
+          # CONTAXCELL_SERVIDOR). Sin él, la app arranca con localhost.
+          CONTAXCELL_SERVIDOR: ${{ secrets.CONTAXCELL_SERVIDOR }}
         run: |
           chmod +x gradlew
           ./gradlew testDebugUnitTest assembleDebug --stacktrace
