@@ -122,6 +122,9 @@ class Fuentes:
     consume recursos del sistema y acaba dando errores raros."""
 
     def __init__(self, escala: float = 1.0):
+        # Se guarda para que los anchos de las tablas crezcan con la letra.
+        self.escala = escala
+
         def tam(puntos: int) -> int:
             return max(7, round(puntos * escala))
 

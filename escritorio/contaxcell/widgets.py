@@ -489,8 +489,8 @@ class Tabla(ttk.Frame):
         for columna in columnas:
             self.arbol.heading(columna.clave, text=columna.titulo,
                                anchor="e" if columna.anclaje == "e" else "w")
-            self.arbol.column(columna.clave, width=columna.ancho, anchor=columna.anclaje,
-                              stretch=columna.estira, minwidth=40)
+            self.arbol.column(columna.clave, width=self._ancho(columna.ancho, columna.titulo),
+                              anchor=columna.anclaje, stretch=columna.estira, minwidth=40)
 
         self.vertical = ttk.Scrollbar(self, orient="vertical", command=self.arbol.yview)
         self.horizontal = ttk.Scrollbar(self, orient="horizontal", command=self.arbol.xview)
@@ -519,6 +519,19 @@ class Tabla(ttk.Frame):
         if al_elegir:
             # Para los botones que cambian de nombre según la fila elegida.
             self.arbol.bind("<<TreeviewSelect>>", lambda _e: al_elegir())
+
+    @staticmethod
+    def _ancho(ancho: int, titulo: str) -> int:
+        """El ancho de una columna en esta pantalla.
+
+        Los anchos se escriben pensando en una pantalla al 100 %. Con el zoom
+        de Windows al 125 % o al 150 % la letra crece, así que el ancho tiene
+        que crecer con ella o las cabeceras salen cortadas («Valor de merc»).
+        Y por si acaso, nunca más estrecha que su propia cabecera: el relleno
+        de la cabecera son 6 píxeles por lado, y se deja un poco de aire.
+        """
+        return max(round(ancho * FUENTES.escala),
+                   FUENTES.titulo.measure(titulo) + 20)
 
     def _mover_vertical(self, primero, ultimo):
         self._ajustar(self.vertical, primero, ultimo)
@@ -560,6 +573,10 @@ class Tabla(ttk.Frame):
             return
         self.arbol.heading(clave, text=texto,
                            anchor="e" if columna.anclaje == "e" else "w")
+        # Un título más largo que el de antes no debe salir cortado.
+        necesita = self._ancho(columna.ancho, texto)
+        if int(self.arbol.column(clave, "width")) < necesita:
+            self.arbol.column(clave, width=necesita)
 
     def seleccion(self) -> str | None:
         elegido = self.arbol.selection()
