@@ -66,6 +66,9 @@ REGISTRO_INTENTOS = 5
 REGISTRO_VENTANA = 60 * 60
 
 AVISO_DEMASIADOS = "Demasiados intentos. Espera un rato y prueba de nuevo."
+# Lo que lee en su app quien ha sido vetado con `./usuarios vetar`.
+AVISO_VETADO = ("Esta cuenta está bloqueada en el servidor. Habla con quien "
+                "administra ContaXcell.")
 
 
 # Marca para distinguir «no me han dicho nada» de «me han dicho que sin
@@ -133,6 +136,11 @@ def crear_aplicacion(
         # ficha (o si el usuario ya no está), aquí se cae.
         if almacen.generacion_de(usuario_id) != generacion:
             raise HTTPException(401, "La ficha de sesión no vale o ha caducado.")
+        # Vetado: la sesión que tuviera abierta deja de valer al momento. Va
+        # como 401, que las apps ya entienden como «vuelve a entrar»; y al
+        # volver a entrar se encuentran con el 403 y este mismo motivo.
+        if almacen.esta_vetado(usuario_id):
+            raise HTTPException(401, AVISO_VETADO)
         # Para el `./usuarios` del administrador: quién usa el servidor.
         almacen.apuntar_uso(usuario_id)
         return usuario_id
@@ -205,6 +213,11 @@ def crear_aplicacion(
         # Al acertar, la cuenta empieza de cero: los despistes de antes no se
         # le siguen guardando a quien sí sabe su contraseña.
         fallos_por_cuenta.olvida(usuario)
+        # El veto se mira después de la contraseña, a propósito: a quien está
+        # probando contraseñas no se le dice si la cuenta está vetada.
+        if almacen.esta_vetado(usuario_id):
+            registro_log.warning("Entrada de un usuario vetado: usuario=%r ip=%s", usuario, ip)
+            raise HTTPException(403, AVISO_VETADO)
         almacen.apuntar_uso(usuario_id)
         return {
             "token": seguridad.crear_ficha(secreto, usuario_id, generacion),

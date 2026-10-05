@@ -5,6 +5,15 @@ Se mira desde la propia máquina, entrando por ssh:
     ./usuarios                                      (en la carpeta server/)
     docker compose exec api python -m contaserver.usuarios   (lo mismo, a mano)
 
+Y desde aquí se veta a alguien, o se le quita el veto:
+
+    ./usuarios vetar NOMBRE        no puede entrar ni sincronizar, al momento
+    ./usuarios readmitir NOMBRE    vuelve a poder, con su libro como estaba
+
+Vetar no borra nada: su libro se queda en el servidor tal cual, y en su
+ordenador sigue teniendo su contabilidad (es suya). Lo que pierde es la
+cuenta: ni sincronizar, ni otro aparato, ni cotizaciones.
+
 No hay ruta en la API para esto, y es a propósito: una puerta menos que
 guardar en Internet. Solo lo ve quien puede entrar en la máquina con la llave.
 
@@ -16,6 +25,7 @@ from __future__ import annotations
 
 import os
 import sys
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 from . import almacen as modulo_almacen
@@ -72,17 +82,20 @@ def informe(filas: list[dict], ahora: datetime) -> str:
         1 for f in filas
         if f["ultimo_uso"] and ahora - f["ultimo_uso"] < timedelta(days=DIAS_ACTIVO)
     )
+    vetados = sum(1 for f in filas if f.get("vetado"))
     cabecera = (
         f"{total} usuario{'s' if total != 1 else ''} "
         f"registrado{'s' if total != 1 else ''} · "
         f"{activos} activo{'s' if activos != 1 else ''} "
         f"en los últimos {DIAS_ACTIVO} días"
     )
+    if vetados:
+        cabecera += f" · {vetados} vetado{'s' if vetados != 1 else ''}"
 
     titulos = ("USUARIO", "CREADO", "ÚLTIMO USO", "SUBIDAS", "LIBRO")
     renglones = [
         (
-            f["usuario"],
+            f["usuario"] + ("  (VETADO)" if f.get("vetado") else ""),
             f["creado"].astimezone(ZONA).strftime("%Y-%m-%d") if f["creado"] else "—",
             cuando(f["ultimo_uso"], ahora),
             str(f["subidas"]),
@@ -110,6 +123,34 @@ def informe(filas: list[dict], ahora: datetime) -> str:
     ])
 
 
+def nombre_normalizado(nombre: str) -> str:
+    """El nombre como lo guarda el servidor: igual que
+    `aplicacion._normalizar_usuario`, para que «Ana» encuentre a «ana»."""
+    return unicodedata.normalize("NFC", nombre).casefold().strip()
+
+
+USO = ("Uso:  ./usuarios                    la tabla de usuarios\n"
+       "      ./usuarios vetar NOMBRE       que no pueda entrar ni sincronizar\n"
+       "      ./usuarios readmitir NOMBRE   quitarle el veto")
+
+
+def ejecutar(almacen, argumentos: list[str], ahora: datetime) -> tuple[int, str]:
+    """Hace lo pedido y devuelve (código de salida, lo que hay que decir).
+    Separado de `main` para poder probarlo sin Postgres."""
+    if not argumentos:
+        return 0, informe(almacen.resumen_usuarios(), ahora)
+    orden = argumentos[0]
+    if orden not in ("vetar", "readmitir") or len(argumentos) != 2:
+        return 2, USO
+    nombre = nombre_normalizado(argumentos[1])
+    if not almacen.vetar(nombre, orden == "vetar"):
+        return 1, f"No hay ningún usuario «{nombre}». Mira los nombres con ./usuarios"
+    if orden == "vetar":
+        return 0, (f"«{nombre}» queda vetado: ya no puede entrar ni sincronizar.\n"
+                   f"Su libro sigue guardado. Para deshacerlo: ./usuarios readmitir {nombre}")
+    return 0, f"«{nombre}» vuelve a poder entrar. Tendrá que poner su contraseña otra vez."
+
+
 def main() -> int:
     url = os.environ.get("CONTAXCELL_BASE_DATOS", "").strip()
     if not url:
@@ -120,8 +161,9 @@ def main() -> int:
               "python -m contaserver.usuarios", file=sys.stderr)
         return 1
     almacen = modulo_almacen.AlmacenPostgres(url)
-    print(informe(almacen.resumen_usuarios(), datetime.now(timezone.utc)))
-    return 0
+    codigo, texto = ejecutar(almacen, sys.argv[1:], datetime.now(timezone.utc))
+    print(texto, file=sys.stderr if codigo else sys.stdout)
+    return codigo
 
 
 if __name__ == "__main__":

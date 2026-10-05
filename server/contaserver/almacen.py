@@ -78,7 +78,8 @@ class AlmacenSQLite:
                     sal        TEXT NOT NULL,
                     generacion INTEGER NOT NULL DEFAULT 0,
                     creado     TEXT NOT NULL DEFAULT (datetime('now')),
-                    ultimo_uso TEXT
+                    ultimo_uso TEXT,
+                    vetado     TEXT
                 );
                 CREATE TABLE IF NOT EXISTS libros (
                     usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
@@ -104,7 +105,7 @@ class AlmacenSQLite:
             # toca, así que las columnas nuevas hay que añadirlas aparte. Si
             # ya están, SQLite protesta y no pasa nada.
             for columna in ("generacion INTEGER NOT NULL DEFAULT 0",
-                            "ultimo_uso TEXT"):
+                            "ultimo_uso TEXT", "vetado TEXT"):
                 try:
                     self._conexion.execute(
                         f"ALTER TABLE usuarios ADD COLUMN {columna}"
@@ -189,6 +190,29 @@ class AlmacenSQLite:
             )
             self._conexion.commit()
 
+    def esta_vetado(self, usuario_id: int) -> bool:
+        with self._candado:
+            fila = self._conexion.execute(
+                "SELECT vetado FROM usuarios WHERE id = ?", (usuario_id,),
+            ).fetchone()
+        return bool(fila and fila[0])
+
+    def vetar(self, usuario: str, vetado: bool) -> bool:
+        """Veta al usuario (o le quita el veto). Devuelve si existía.
+
+        Se guarda el momento, no un sí o un no: así se sabe desde cuándo. Su
+        libro no se toca: vetar es cerrarle la puerta, no tirar sus cosas.
+        """
+        with self._candado:
+            cursor = self._conexion.execute(
+                "UPDATE usuarios SET vetado = CASE WHEN ? THEN"
+                " COALESCE(vetado, datetime('now')) ELSE NULL END"
+                " WHERE usuario = ?",
+                (1 if vetado else 0, usuario),
+            )
+            self._conexion.commit()
+        return cursor.rowcount == 1
+
     def resumen_usuarios(self) -> list[dict]:
         """Quién tiene cuenta, cuándo la creó, cuándo la usó y cuánto subió.
 
@@ -200,7 +224,7 @@ class AlmacenSQLite:
             filas = self._conexion.execute(
                 "SELECT u.usuario, u.creado, u.ultimo_uso,"
                 " COALESCE(l.revision, 0),"
-                " COALESCE(length(CAST(l.datos AS BLOB)), 0)"
+                " COALESCE(length(CAST(l.datos AS BLOB)), 0), u.vetado"
                 " FROM usuarios u LEFT JOIN libros l ON l.usuario_id = u.id"
                 " ORDER BY u.ultimo_uso DESC NULLS LAST, u.usuario"
             ).fetchall()
@@ -211,6 +235,7 @@ class AlmacenSQLite:
                 "ultimo_uso": _momento_sqlite(f[2]),
                 "subidas": int(f[3]),
                 "tamano": int(f[4]),
+                "vetado": _momento_sqlite(f[5]),
             }
             for f in filas
         ]
@@ -351,6 +376,10 @@ class AlmacenPostgres:
             ADD COLUMN IF NOT EXISTS ultimo_uso TIMESTAMPTZ
         """)
         self._ejecutar("""
+            ALTER TABLE usuarios
+            ADD COLUMN IF NOT EXISTS vetado TIMESTAMPTZ
+        """)
+        self._ejecutar("""
             CREATE TABLE IF NOT EXISTS libros (
                 usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
                 revision    INTEGER NOT NULL,
@@ -431,12 +460,28 @@ class AlmacenPostgres:
             (usuario_id, MINUTOS_ENTRE_USOS),
         )
 
+    def esta_vetado(self, usuario_id: int) -> bool:
+        cursor = self._ejecutar(
+            "SELECT vetado FROM usuarios WHERE id = %s", (usuario_id,))
+        fila = cursor.fetchone()
+        return bool(fila and fila[0])
+
+    def vetar(self, usuario: str, vetado: bool) -> bool:
+        """Veta al usuario o le quita el veto; ver la versión de SQLite."""
+        cursor = self._ejecutar(
+            "UPDATE usuarios SET vetado = CASE WHEN %s THEN"
+            " COALESCE(vetado, now()) ELSE NULL END"
+            " WHERE usuario = %s",
+            (vetado, usuario),
+        )
+        return cursor.rowcount == 1
+
     def resumen_usuarios(self) -> list[dict]:
         """Quién tiene cuenta y cuánto lo usa; ver la versión de SQLite."""
         cursor = self._ejecutar(
             "SELECT u.usuario, u.creado, u.ultimo_uso,"
             " COALESCE(l.revision, 0),"
-            " COALESCE(octet_length(l.datos::text), 0)"
+            " COALESCE(octet_length(l.datos::text), 0), u.vetado"
             " FROM usuarios u LEFT JOIN libros l ON l.usuario_id = u.id"
             " ORDER BY u.ultimo_uso DESC NULLS LAST, u.usuario"
         )
@@ -447,6 +492,7 @@ class AlmacenPostgres:
                 "ultimo_uso": f[2],
                 "subidas": int(f[3]),
                 "tamano": int(f[4]),
+                "vetado": f[5],
             }
             for f in cursor.fetchall()
         ]

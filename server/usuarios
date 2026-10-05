@@ -1,5 +1,6 @@
 #!/bin/sh
 # Quién tiene cuenta y quién usa el servidor. Se lanza en la máquina:
 #   cd ~/server && ./usuarios
+#   ./usuarios vetar NOMBRE  |  ./usuarios readmitir NOMBRE
 # Lo de verdad está en contaserver/usuarios.py.
-cd "$(dirname "$0")" && exec docker compose exec -T api python -m contaserver.usuarios
+cd "$(dirname "$0")" && exec docker compose exec -T api python -m contaserver.usuarios "$@"

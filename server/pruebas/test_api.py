@@ -686,7 +686,7 @@ class PruebaQuienLoUsa(unittest.TestCase):
         ana = self.resumen("ana")
         self.assertEqual(ana["subidas"], 3)
         self.assertGreater(ana["tamano"], 0)
-        self.assertEqual(set(ana), {"usuario", "creado", "ultimo_uso", "subidas", "tamano"})
+        self.assertEqual(set(ana), {"usuario", "creado", "ultimo_uso", "subidas", "tamano", "vetado"})
         # Quien nunca subió nada sale igual, con ceros.
         self.assertEqual((self.resumen("bea")["subidas"], self.resumen("bea")["tamano"]), (0, 0))
 
@@ -697,6 +697,89 @@ class PruebaQuienLoUsa(unittest.TestCase):
         self.poner_ultimo_uso("carlos", "-1 hours")
         orden = [f["usuario"] for f in self.almacen.resumen_usuarios()]
         self.assertEqual(orden, ["carlos", "ana", "bea"])
+
+
+class PruebaVeto(unittest.TestCase):
+    """`./usuarios vetar`: fuera de la cuenta al momento, sin perder nada."""
+
+    def setUp(self):
+        self.almacen = AlmacenSQLite()
+        self.cliente = TestClient(crear_aplicacion(
+            almacen=self.almacen, secreto=SECRETO_DE_PRUEBA, cliente_precios=None,
+        ))
+        self.token = registrar(self.cliente, "ana", "contrasena1")
+        self.cabeceras = {"Authorization": f"Bearer {self.token}"}
+        self.cliente.put("/api/libro", headers=self.cabeceras,
+                         json={"revision_base": 0, "libro": UN_LIBRO})
+
+    def entrar(self, contrasena="contrasena1"):
+        return self.cliente.post("/api/cuentas/entrar",
+                                 json={"usuario": "ana", "contrasena": contrasena})
+
+    def test_la_sesion_abierta_deja_de_valer_al_momento(self):
+        self.assertTrue(self.almacen.vetar("ana", True))
+        for respuesta in (self.cliente.get("/api/libro", headers=self.cabeceras),
+                          self.cliente.put("/api/libro", headers=self.cabeceras,
+                                           json={"revision_base": 1, "libro": OTRO_LIBRO})):
+            self.assertEqual(respuesta.status_code, 401)
+            self.assertIn("bloqueada", respuesta.json()["detail"])
+
+    def test_al_entrar_se_le_dice_por_que(self):
+        self.almacen.vetar("ana", True)
+        respuesta = self.entrar()
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertIn("bloqueada", respuesta.json()["detail"])
+
+    def test_con_la_contrasena_mala_no_se_chiva_del_veto(self):
+        self.almacen.vetar("ana", True)
+        respuesta = self.entrar("equivocada1")
+        self.assertEqual(respuesta.status_code, 401)
+        self.assertNotIn("bloqueada", respuesta.json()["detail"])
+
+    def test_readmitido_vuelve_con_su_libro_intacto(self):
+        self.almacen.vetar("ana", True)
+        self.almacen.vetar("ana", False)
+        respuesta = self.entrar()
+        self.assertEqual(respuesta.status_code, 200)
+        token = respuesta.json()["token"]
+        libro = self.cliente.get("/api/libro", headers={"Authorization": f"Bearer {token}"}).json()
+        self.assertEqual(libro, {"revision": 1, "libro": UN_LIBRO})
+
+    def test_los_demas_siguen_igual(self):
+        token_bea = registrar(self.cliente, "bea")
+        self.almacen.vetar("ana", True)
+        respuesta = self.cliente.get("/api/libro", headers={"Authorization": f"Bearer {token_bea}"})
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_vetar_a_quien_no_existe_lo_dice(self):
+        self.assertFalse(self.almacen.vetar("nadie", True))
+
+    def test_vetar_dos_veces_guarda_la_primera_fecha(self):
+        self.almacen.vetar("ana", True)
+        primera = self.almacen.resumen_usuarios()[0]["vetado"]
+        self.almacen._conexion.execute("UPDATE usuarios SET vetado = '2026-01-01 10:00:00'")
+        self.almacen._conexion.commit()
+        self.almacen.vetar("ana", True)
+        self.assertNotEqual(self.almacen.resumen_usuarios()[0]["vetado"], primera)
+        self.assertEqual(self.almacen.resumen_usuarios()[0]["vetado"].year, 2026)
+        self.assertEqual(self.almacen.resumen_usuarios()[0]["vetado"].month, 1)
+
+    def test_la_orden_de_la_terminal(self):
+        from contaserver.usuarios import ejecutar
+        ahora = datetime.now(timezone.utc)
+        codigo, texto = ejecutar(self.almacen, ["vetar", "  Ana "], ahora)
+        self.assertEqual(codigo, 0)
+        self.assertIn("«ana» queda vetado", texto)
+        self.assertEqual(self.entrar().status_code, 403)
+        codigo, texto = ejecutar(self.almacen, [], ahora)
+        self.assertIn("ana  (VETADO)", texto)
+        self.assertIn("· 1 vetado", texto)
+        codigo, texto = ejecutar(self.almacen, ["readmitir", "ana"], ahora)
+        self.assertEqual(codigo, 0)
+        self.assertEqual(self.entrar().status_code, 200)
+        self.assertEqual(ejecutar(self.almacen, ["vetar", "nadie"], ahora)[0], 1)
+        self.assertEqual(ejecutar(self.almacen, ["borrar", "ana"], ahora)[0], 2)
+        self.assertEqual(ejecutar(self.almacen, ["vetar"], ahora)[0], 2)
 
 
 class PruebaInformeDeUsuarios(unittest.TestCase):

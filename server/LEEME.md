@@ -243,6 +243,23 @@ guardado su libro. De lo que hay dentro de cada libro no se enseña nada.
 No hay ruta en la API para esto, a propósito: solo lo ve quien entra en la
 máquina con la llave, y así no hay una puerta más que guardar.
 
+### Vetar a alguien
+
+```
+./usuarios vetar NOMBRE        no puede entrar ni sincronizar, al momento
+./usuarios readmitir NOMBRE    vuelve a poder, con su libro como estaba
+```
+
+La sesión que tuviera abierta deja de valer en el acto (las apps la ven
+caducada) y al intentar entrar le sale «Esta cuenta está bloqueada en el
+servidor». Ese motivo solo se le dice a quien acierta la contraseña: a quien
+la está adivinando, el servidor no le cuenta si la cuenta está vetada.
+
+Vetar **no borra nada**: el libro sigue en el servidor y la contabilidad sigue
+en su ordenador, que es suya. Lo que pierde es la cuenta. Y ojo, que con el
+código de invitación podría crearse otra: si de verdad no tiene que volver,
+cambia `CONTAXCELL_CODIGO_REGISTRO` en el `.env` y reinicia la API.
+
 ## Copias de seguridad de la base de datos
 
 Los datos viven en el volumen `datos_postgres`. Borrar los contenedores no
