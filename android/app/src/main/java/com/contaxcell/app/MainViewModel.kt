@@ -161,6 +161,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         SyncScheduler.schedulePeriodic(getApplication())
         viewModelScope.launch { loadInitialState() }
+        // Lo que se apunta lo sube el trabajador de fondo, no esta pantalla:
+        // cuando acaba, se vuelve a mirar la sesión para quitar el «Pendiente».
+        viewModelScope.launch {
+            SyncScheduler.immediateFinished(getApplication()).collect {
+                updateSyncUi()
+                refresh()
+            }
+        }
     }
 
     fun dispatch(action: AppAction) {
