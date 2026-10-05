@@ -15,3 +15,6 @@ __pycache__/
 # La dirección del servidor de cada despliegue. Nunca a git; el ejemplo sí.
 .env
 !.env.ejemplo
+
+# El archivo de llaves cifrado (boveda.py): nunca al repositorio.
+*.cxb
