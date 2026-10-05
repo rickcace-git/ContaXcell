@@ -1,8 +1,11 @@
 # Compila la app Android en GitHub y deja el APK listo para descargar.
 #
 # Se lanza sola al subir cambios de android/ a master o a Rick, y también a
-# mano desde la pestaña Actions («Run workflow»). Primero pasa las pruebas:
-# si alguna falla, no hay APK.
+# mano desde la pestaña Actions («Run workflow»). Ojo: ese botón solo sale
+# cuando este archivo ya está en master; mientras viva solo en Rick, la forma
+# de lanzarla sin tocar android/ es subir un cambio a este archivo. Hace
+# falta, por ejemplo, después de cambiar el secreto CONTAXCELL_SERVIDOR.
+# Primero pasa las pruebas: si alguna falla, no hay APK.
 #
 # El APK sale en la página de la ejecución, abajo, en «Artifacts».
 name: App Android
