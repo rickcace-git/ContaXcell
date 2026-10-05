@@ -102,7 +102,7 @@ private class AuthFakeApi : ContaXcellApi {
     var registerResponse = HttpResult(500)
     var passwordResponse = HttpResult(500)
     override suspend fun health(serverUrl: String) = HttpResult(200)
-    override suspend fun register(serverUrl: String, username: String, password: String, invitationCode: String) = registerResponse
+    override suspend fun register(serverUrl: String, username: String, password: String, invitationCode: String, email: String) = registerResponse
     override suspend fun login(serverUrl: String, username: String, password: String) = loginResponse
     override suspend fun changePassword(serverUrl: String, token: String, currentPassword: String, newPassword: String) = passwordResponse
     override suspend fun downloadBook(serverUrl: String, token: String) = HttpResult(500)

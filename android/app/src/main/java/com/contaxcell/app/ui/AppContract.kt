@@ -420,6 +420,7 @@ sealed interface AppAction {
         val password: String,
         val server: String,
         val inviteCode: String,
+        val email: String = "",
     ) : AppAction
     data object ContinueOffline : AppAction
     data object DismissMessage : AppAction

@@ -178,7 +178,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(ajustes = it.ajustes.copy(ocultarImportes = !it.ajustes.ocultarImportes))
             }
             is AppAction.SignIn -> authenticate(false, action.user, action.password, action.server, "")
-            is AppAction.Register -> authenticate(true, action.user, action.password, action.server, action.inviteCode)
+            is AppAction.Register -> authenticate(true, action.user, action.password, action.server, action.inviteCode, action.email)
             AppAction.ContinueOffline -> {
                 auth = AuthUiState.SignedIn()
                 syncUi = SyncUiState(SyncStatus.Offline, "Solo en este dispositivo")
@@ -439,12 +439,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         SyncScheduler.requestImmediate(getApplication())
     }
 
-    private fun authenticate(register: Boolean, user: String, password: String, server: String, invitation: String) {
+    private fun authenticate(
+        register: Boolean,
+        user: String,
+        password: String,
+        server: String,
+        invitation: String,
+        email: String = "",
+    ) {
         auth = AuthUiState.Gate(defaultUser = user, defaultServer = server, busy = true)
         refresh()
         viewModelScope.launch {
             runCatching {
-                if (register) authRepository.register(user, password, server, invitation)
+                if (register) authRepository.register(user, password, server, invitation, email)
                 else authRepository.login(user, password, server)
             }.onSuccess { session ->
                 auth = AuthUiState.SignedIn(session.username, session.serverUrl)

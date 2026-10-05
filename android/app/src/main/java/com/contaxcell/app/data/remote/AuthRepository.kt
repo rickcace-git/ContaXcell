@@ -40,7 +40,8 @@ class AuthRepository(
         password: String,
         serverUrl: String = "",
         invitationCode: String = "",
-    ): SyncSession = authenticate(username, password, serverUrl, true, invitationCode)
+        email: String = "",
+    ): SyncSession = authenticate(username, password, serverUrl, true, invitationCode, email)
 
     suspend fun login(
         username: String,
@@ -83,6 +84,7 @@ class AuthRepository(
         requestedServerUrl: String,
         registering: Boolean,
         invitationCode: String,
+        email: String = "",
     ): SyncSession {
         val username = rawUsername.trim()
         if (username.isBlank() || password.isBlank()) {
@@ -93,7 +95,7 @@ class AuthRepository(
             requestedServerUrl.ifBlank { old.serverUrl },
         )
         val response = callOrOffline {
-            if (registering) api.register(server, username, password, invitationCode)
+            if (registering) api.register(server, username, password, invitationCode, email)
             else api.login(server, username, password)
         }
         when (response.statusCode) {
