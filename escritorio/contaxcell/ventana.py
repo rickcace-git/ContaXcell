@@ -20,7 +20,8 @@ from . import calculos, dialogos, formato, tema, widgets
 from .almacen import Almacen, carpeta_de_recursos
 from .modelo import Libro, hoy
 
-VERSION = "1.0.0"
+# Súbela antes de cada `python publicar.py`: es lo que compara el actualizador.
+VERSION = "1.1.0"
 ARCHIVO_VENTANA = "ventana.json"
 # Cuánto se espera como mucho al hilo de sincronía antes de apuntar los
 # recibos por cuenta propia. Una petición se rinde a los diez segundos, así
@@ -104,6 +105,15 @@ class Aplicacion(tk.Tk):
         # ventana no espera por ellos.
         self.after(900, self.pedir_precios)
 
+        # Si hay versión nueva, se pregunta al rato de abrir, sin estorbar el
+        # arranque. Solo en el .exe: desde el código no hay nada que cambiar.
+        # CONTAXCELL_PROBAR_ACTUALIZACION=1 lo enciende igual, para probarlo.
+        from . import actualizar
+        self._buscando_actualizacion = False
+        if (actualizar.instalacion_actual() is not None
+                or os.environ.get("CONTAXCELL_PROBAR_ACTUALIZACION") == "1"):
+            self.after(4000, lambda: self.buscar_actualizacion(a_mano=False))
+
     # --- montaje ---------------------------------------------------------
 
     def _construir(self) -> None:
@@ -146,6 +156,7 @@ class Aplicacion(tk.Tk):
         tk.Frame(cabecera, background=self.paleta.borde, height=1).pack(fill="x")
 
     def _construir_pestanas(self) -> None:
+        from . import iconos
         from .vistas import (ajustes, apuntar, deudas, inversiones, movimientos,
                              periodicos, presupuesto, resumen)
 
@@ -164,9 +175,18 @@ class Aplicacion(tk.Tk):
         ]
         self._claves = [clave for clave, _, _ in definicion]
 
+        # Cada pestaña lleva su icono del color de su letra: gris, azul si
+        # es la elegida y más oscuro con el ratón encima. Las imágenes se
+        # guardan en la ventana: si Python las tirase, el icono desaparecería.
+        lado = round(16 * self.escala)
+        self._iconos_pestanas = []
         for clave, titulo, Clase in definicion:
             marco = ttk.Frame(self.cuaderno)
-            self.cuaderno.add(marco, text=titulo)
+            normal, elegida, encima = (iconos.imagen(self, clave, lado, color) for color in
+                                       (self.paleta.suave, self.paleta.acento, self.paleta.texto))
+            self._iconos_pestanas += [normal, elegida, encima]
+            self.cuaderno.add(marco, text=f" {titulo}", compound="left",
+                              image=(normal, "selected", elegida, "active", encima))
             self.vistas[clave] = Clase(marco, self)
 
         # Recién construidas están todas vacías: la primera vez que se abra
@@ -207,6 +227,13 @@ class Aplicacion(tk.Tk):
         barra.add_cascade(label="Ver", menu=ver)
 
         ayuda = tk.Menu(barra, tearoff=0)
+        # El atajo va en `accelerator`, que Windows pinta en su columna de la
+        # derecha. Con un tabulador dentro del texto salía pegado: «Guía de usoF1».
+        ayuda.add_command(label="Guía de uso", accelerator="F1",
+                          command=lambda: self.abrir_guia("empezar"))
+        ayuda.add_command(label="Buscar actualizaciones…",
+                          command=lambda: self.buscar_actualizacion(a_mano=True))
+        ayuda.add_separator()
         ayuda.add_command(label="Acerca de ContaXcell", command=self._acerca_de)
         barra.add_cascade(label="Ayuda", menu=ayuda)
 
@@ -214,6 +241,8 @@ class Aplicacion(tk.Tk):
 
     def _atajos(self) -> None:
         self.bind_all("<Control-h>", lambda _e: self.alternar_ocultos())
+        # F1 abre la guía por el apartado de la pestaña en la que se está.
+        self.bind_all("<F1>", lambda _e: self.abrir_guia(self.pestana_actual()))
         for numero, clave in enumerate(self._claves, start=1):
             self.bind_all(f"<Control-Key-{numero}>", lambda _e, c=clave: self.ir_a(c))
 
@@ -517,6 +546,131 @@ class Aplicacion(tk.Tk):
         else:
             import subprocess
             subprocess.Popen(["xdg-open", str(carpeta)])
+
+    def abrir_guia(self, clave: str) -> None:
+        """Una sola guía abierta: si ya lo está, se trae delante y va al
+        apartado pedido en vez de abrir otra ventana igual."""
+        from . import guia
+
+        abierta = getattr(self, "_guia", None)
+        if abierta is not None and abierta.winfo_exists():
+            abierta.ir_a(clave)
+        else:
+            # Con cuenta, la guía enseña el QR para bajarse la app del móvil
+            # desde el servidor en el que se está.
+            direccion = None
+            if self.sincronia is not None:
+                from .sincronia import direccion_app_movil
+                direccion = direccion_app_movil(self.sincronia.sesion["servidor"])
+            self._guia = guia.Guia(self, clave, direccion_app=direccion)
+        self._guia.mostrar()
+
+    # --- actualizaciones ------------------------------------------------------
+    #
+    # Preguntar y bajar van en un hilo (no hacen esperar a la ventana) y el
+    # resultado vuelve por `after`, que es lo único que puede tocar la ventana.
+
+    def _servidor(self) -> str:
+        from .sincronia import servidor_de_fabrica
+        if self.sincronia is not None:
+            return self.sincronia.sesion["servidor"]
+        return servidor_de_fabrica()
+
+    def _en_hilo(self, trabajo, al_acabar) -> None:
+        """Hace `trabajo()` en un hilo y llama a `al_acabar(resultado, error)`
+        en el hilo de la ventana."""
+        import threading
+        cola: queue.Queue = queue.Queue()
+
+        def correr():
+            try:
+                cola.put((trabajo(), None))
+            except Exception as error:  # noqa: BLE001 - se cuenta en la ventana
+                cola.put((None, error))
+
+        def mirar():
+            try:
+                resultado, error = cola.get_nowait()
+            except queue.Empty:
+                self.after(300, mirar)
+                return
+            al_acabar(resultado, error)
+
+        threading.Thread(target=correr, daemon=True).start()
+        self.after(300, mirar)
+
+    def buscar_actualizacion(self, a_mano: bool) -> None:
+        """Pregunta al servidor. Al abrir, calla si no hay nada o no hay red;
+        desde el menú, lo dice siempre."""
+        from . import actualizar
+        if self._buscando_actualizacion:
+            return
+        if a_mano and actualizar.instalacion_actual() is None \
+                and os.environ.get("CONTAXCELL_PROBAR_ACTUALIZACION") != "1":
+            dialogos.avisar(self, "Esto no es el programa instalado.",
+                            "Se está ejecutando desde el código fuente: se actualiza con git, "
+                            "no desde aquí.")
+            return
+        self._buscando_actualizacion = True
+        servidor = self._servidor()
+
+        def al_acabar(novedad, error):
+            self._buscando_actualizacion = False
+            if isinstance(error, actualizar.ActualizacionNoFiable):
+                dialogos.error(self, "Hay algo raro en la actualización del servidor.",
+                               f"{error}\n\nAvisa a quien administra ContaXcell.")
+            elif error is not None:
+                if a_mano:
+                    dialogos.avisar(self, "No se ha podido mirar si hay versión nueva.",
+                                    "Comprueba que tienes internet y prueba más tarde.")
+            elif novedad is None:
+                if a_mano:
+                    dialogos.avisar(self, "Ya tienes la última versión.",
+                                    f"ContaXcell {VERSION}.")
+            else:
+                self._ofrecer_actualizacion(servidor, novedad)
+
+        self._en_hilo(lambda: actualizar.buscar(servidor, VERSION), al_acabar)
+
+    def _ofrecer_actualizacion(self, servidor: str, novedad) -> None:
+        from tkinter import messagebox
+
+        from . import actualizar
+        notas = f"\n\nNovedades: {novedad.notas}" if novedad.notas else ""
+        si = messagebox.askyesno(
+            "Hay una versión nueva",
+            f"Hay una versión nueva de ContaXcell: la {novedad.version}. Tienes la {VERSION}.",
+            detail=f"¿Actualizar ahora? El programa se cerrará un momento y se volverá a "
+                   f"abrir solo. Tus datos no se tocan.{notas}",
+            parent=self, icon=messagebox.QUESTION, default=messagebox.YES)
+        if not si:
+            self.estado("Te lo volverá a preguntar la próxima vez que abras el programa.")
+            return
+        instalacion = actualizar.instalacion_actual()
+        if instalacion is None:  # al probarlo desde el código fuente
+            dialogos.avisar(self, "Descarga comprobada, pero esto no es el programa instalado.",
+                            "Desde el código fuente no se cambia nada.")
+            return
+        self.estado("Descargando la versión nueva…")
+        trabajo = actualizar.carpeta_de_trabajo()
+
+        def bajar_y_preparar():
+            archivo = actualizar.descargar(servidor, novedad, trabajo)
+            return actualizar.preparar(archivo, instalacion, os.getpid(), trabajo)
+
+        def al_acabar(guion, error):
+            if error is not None:
+                titulo = ("La actualización no es de fiar y no se ha instalado."
+                          if isinstance(error, actualizar.ActualizacionNoFiable)
+                          else "No se ha podido descargar la versión nueva.")
+                dialogos.error(self, titulo, f"{error}\n\nEl programa sigue como estaba.")
+                return
+            # Todo está en disco desde antes: cada cambio se guarda al hacerlo,
+            # y lo pendiente de subir queda apuntado para la próxima vez.
+            actualizar.lanzar(guion)
+            self._al_cerrar()
+
+        self._en_hilo(bajar_y_preparar, al_acabar)
 
     def _acerca_de(self) -> None:
         dialogos.AcercaDe(self, VERSION, self.almacen.carpeta,

@@ -60,6 +60,23 @@ class SyncEngineTest {
     }
 
     @Test
+    fun expiredSessionRemembersWhatTheServerSaidWithoutTheToken() = runTest {
+        val api = FakeApi(downloadResponse = HttpResult(401, buildJsonObject {
+            put("detail", JsonPrimitive("La ficha de sesión no vale o ha caducado."))
+        }))
+        val sessions = MemorySessions(SyncSession("https://example.test", "ana", "1.0.99.firma", 0))
+
+        val result = SyncEngine(api, sessions, MemoryBooks(Libro.empty()), json = json).pull()
+
+        assertEquals(SyncResult.SessionExpired, result)
+        assertTrue(sessions.value.expired)
+        val motivo = SyncDiagnostics.lastExpiry
+        assertTrue(motivo, motivo.contains("Descargar") && motivo.contains("no vale o ha caducado"))
+        assertTrue(motivo, motivo.contains("12 caracteres en 4 trozos"))
+        assertFalse("La ficha no se enseña nunca", motivo.contains("firma"))
+    }
+
+    @Test
     fun remoteDownloadBacksUpUnlinkedLocalBookBeforeReplacing() = runTest {
         val local = Libro.empty().copy(movimientos = listOf(Movimiento("2026-01-02", importe = 20.0)))
         val remote = Libro.empty().copy(movimientos = listOf(Movimiento("2026-01-03", importe = 30.0)))
@@ -85,6 +102,48 @@ class SyncEngineTest {
         assertEquals(SyncResult.SessionExpired, result)
         assertTrue(sessions.read().expired)
         assertTrue(sessions.read().pending)
+    }
+
+    @Test
+    fun accountAwaitingApprovalKeepsPendingAndDoesNotExpire() = runTest {
+        val api = FakeApi(uploadResponses = ArrayDeque(listOf(HttpResult(403))))
+        val sessions = MemorySessions(SyncSession("https://example.test", "ana", "token", 0, pending = true))
+
+        val result = SyncEngine(api, sessions, MemoryBooks(Libro.empty()), json = json).push()
+
+        assertEquals(SyncResult.AwaitingApproval, result)
+        assertTrue(sessions.read().awaitingApproval)
+        assertTrue(sessions.read().pending)
+        assertFalse(sessions.read().expired)
+    }
+
+    @Test
+    fun onceApprovedThePendingBookUploadsAndTheWaitIsOver() = runTest {
+        val api = FakeApi(
+            uploadResponses = ArrayDeque(
+                listOf(HttpResult(403), HttpResult(200, buildJsonObject { put("revision", JsonPrimitive(1)) })),
+            ),
+        )
+        val sessions = MemorySessions(SyncSession("https://example.test", "ana", "token", 0, pending = true))
+        val engine = SyncEngine(api, sessions, MemoryBooks(Libro.empty()), json = json)
+
+        engine.push()
+        val result = engine.push()
+
+        assertEquals(SyncResult.Uploaded(1, false), result)
+        assertFalse(sessions.read().awaitingApproval)
+        assertFalse(sessions.read().pending)
+    }
+
+    @Test
+    fun downloadingWhileAwaitingApprovalSaysSo() = runTest {
+        val api = FakeApi(downloadResponse = HttpResult(403))
+        val sessions = MemorySessions(SyncSession("https://example.test", "ana", "token", 0))
+
+        val result = SyncEngine(api, sessions, MemoryBooks(Libro.empty()), json = json).pull()
+
+        assertEquals(SyncResult.AwaitingApproval, result)
+        assertEquals(SyncEngine.AWAITING_APPROVAL_TEXT, SyncEngine(api, sessions, MemoryBooks(null), json = json).statusText(sessions.read()))
     }
 
     private fun bookEnvelope(revision: Int, book: Libro) = buildJsonObject {
@@ -119,7 +178,7 @@ private class FakeApi(
     var uploadCalls = 0
     var downloadCalls = 0
     override suspend fun health(serverUrl: String) = HttpResult(200)
-    override suspend fun register(serverUrl: String, username: String, password: String, invitationCode: String) = HttpResult(500)
+    override suspend fun register(serverUrl: String, username: String, password: String, invitationCode: String, email: String) = HttpResult(500)
     override suspend fun login(serverUrl: String, username: String, password: String) = HttpResult(500)
     override suspend fun changePassword(serverUrl: String, token: String, currentPassword: String, newPassword: String) = HttpResult(500)
     override suspend fun downloadBook(serverUrl: String, token: String): HttpResult {

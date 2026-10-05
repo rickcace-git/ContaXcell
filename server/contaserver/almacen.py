@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from datetime import datetime, timezone
 
 # psycopg solo hace falta en producción. Las pruebas y cualquier máquina sin
 # él siguen funcionando con SQLite, así que el import no puede ser mortal.
@@ -41,6 +42,20 @@ except ImportError:  # pragma: no cover - en las pruebas no está instalado
 
 class UsuarioYaExiste(Exception):
     """Alguien intenta registrarse con un nombre que ya está cogido."""
+
+
+# El último uso de cada usuario se apunta como mucho una vez cada tanto: para
+# saber quién usa el servidor basta con eso, y así no se escribe en la base
+# con cada petición que llega.
+MINUTOS_ENTRE_USOS = 5
+
+
+def _momento_sqlite(texto: str | None) -> datetime | None:
+    """Las fechas de SQLite son texto en UTC; aquí pasan a fecha con su zona,
+    que es como las devuelve Postgres."""
+    if not texto:
+        return None
+    return datetime.fromisoformat(texto).replace(tzinfo=timezone.utc)
 
 
 # --- SQLite: para las pruebas y para probar en local sin Docker --------------
@@ -62,7 +77,11 @@ class AlmacenSQLite:
                     hash       TEXT NOT NULL,
                     sal        TEXT NOT NULL,
                     generacion INTEGER NOT NULL DEFAULT 0,
-                    creado     TEXT NOT NULL DEFAULT (datetime('now'))
+                    creado     TEXT NOT NULL DEFAULT (datetime('now')),
+                    ultimo_uso TEXT,
+                    vetado     TEXT,
+                    en_espera  INTEGER NOT NULL DEFAULT 0,
+                    correo     TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS libros (
                     usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
@@ -85,23 +104,31 @@ class AlmacenSQLite:
                 );
             """)
             # Para una base que ya existía de antes: el CREATE de arriba no la
-            # toca, así que la columna nueva hay que añadirla aparte. Si ya
-            # está, SQLite protesta y no pasa nada.
-            try:
-                self._conexion.execute(
-                    "ALTER TABLE usuarios ADD COLUMN generacion"
-                    " INTEGER NOT NULL DEFAULT 0"
-                )
-            except sqlite3.OperationalError:
-                pass
+            # toca, así que las columnas nuevas hay que añadirlas aparte. Si
+            # ya están, SQLite protesta y no pasa nada.
+            for columna in ("generacion INTEGER NOT NULL DEFAULT 0",
+                            "ultimo_uso TEXT", "vetado TEXT",
+                            "en_espera INTEGER NOT NULL DEFAULT 0",
+                            "correo TEXT NOT NULL DEFAULT ''"):
+                try:
+                    self._conexion.execute(
+                        f"ALTER TABLE usuarios ADD COLUMN {columna}"
+                    )
+                except sqlite3.OperationalError:
+                    pass
             self._conexion.commit()
 
-    def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str) -> int:
+    def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str,
+                      en_espera: bool = False, correo: str = "") -> int:
+        """Con `en_espera`, la cuenta existe pero no guarda nada hasta que el
+        administrador la acepte (`./usuarios aceptar`). El correo se guarda
+        para saber quién es y, más adelante, para restablecer la contraseña."""
         with self._candado:
             try:
                 cursor = self._conexion.execute(
-                    "INSERT INTO usuarios (usuario, hash, sal) VALUES (?, ?, ?)",
-                    (usuario, hash_contrasena, sal),
+                    "INSERT INTO usuarios (usuario, hash, sal, en_espera, correo)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (usuario, hash_contrasena, sal, 1 if en_espera else 0, correo),
                 )
                 self._conexion.commit()
             except sqlite3.IntegrityError:
@@ -156,6 +183,100 @@ class AlmacenSQLite:
                 (usuario_id,),
             ).fetchone()
         return int(fila[0]) if fila else None
+
+    def apuntar_uso(self, usuario_id: int) -> None:
+        """Apunta que el usuario acaba de usar el servidor.
+
+        Solo escribe si la marca anterior tiene más de MINUTOS_ENTRE_USOS:
+        quien sincroniza diez veces seguidas no deja diez escrituras.
+        """
+        with self._candado:
+            self._conexion.execute(
+                "UPDATE usuarios SET ultimo_uso = datetime('now')"
+                " WHERE id = ? AND (ultimo_uso IS NULL"
+                " OR ultimo_uso < datetime('now', ?))",
+                (usuario_id, f"-{MINUTOS_ENTRE_USOS} minutes"),
+            )
+            self._conexion.commit()
+
+    def estado_de(self, usuario_id: int) -> tuple[int, bool, bool] | None:
+        """(generacion, vetado, en_espera) del usuario, o None si no existe.
+        Todo de una vez: es lo que se mira en cada petición con sesión."""
+        with self._candado:
+            fila = self._conexion.execute(
+                "SELECT generacion, vetado, en_espera FROM usuarios WHERE id = ?",
+                (usuario_id,),
+            ).fetchone()
+        return (int(fila[0]), bool(fila[1]), bool(fila[2])) if fila else None
+
+    def aceptar(self, usuario: str) -> bool:
+        """Saca la cuenta de la espera. Devuelve si existía."""
+        with self._candado:
+            cursor = self._conexion.execute(
+                "UPDATE usuarios SET en_espera = 0 WHERE usuario = ?", (usuario,))
+            self._conexion.commit()
+        return cursor.rowcount == 1
+
+    def rechazar(self, usuario: str) -> bool:
+        """Borra una cuenta **en espera**. Una aceptada no se toca nunca por
+        aquí: para echar a alguien que ya usa el servidor está el veto, que
+        no tira nada. Devuelve si se borró."""
+        with self._candado:
+            self._conexion.execute(
+                "DELETE FROM libros WHERE usuario_id IN"
+                " (SELECT id FROM usuarios WHERE usuario = ? AND en_espera = 1)",
+                (usuario,))
+            cursor = self._conexion.execute(
+                "DELETE FROM usuarios WHERE usuario = ? AND en_espera = 1", (usuario,))
+            self._conexion.commit()
+        return cursor.rowcount == 1
+
+    def vetar(self, usuario: str, vetado: bool) -> bool:
+        """Veta al usuario (o le quita el veto). Devuelve si existía.
+
+        Se guarda el momento, no un sí o un no: así se sabe desde cuándo. Su
+        libro no se toca: vetar es cerrarle la puerta, no tirar sus cosas.
+        """
+        with self._candado:
+            cursor = self._conexion.execute(
+                "UPDATE usuarios SET vetado = CASE WHEN ? THEN"
+                " COALESCE(vetado, datetime('now')) ELSE NULL END"
+                " WHERE usuario = ?",
+                (1 if vetado else 0, usuario),
+            )
+            self._conexion.commit()
+        return cursor.rowcount == 1
+
+    def resumen_usuarios(self) -> list[dict]:
+        """Quién tiene cuenta, cuándo la creó, cuándo la usó y cuánto subió.
+
+        «subidas» es la revisión del libro: sube en uno con cada grabación.
+        «tamano» son los bytes del libro. Lo de dentro no sale de aquí.
+        Primero los que esperan a ser aceptados, para que se vean; luego
+        los que lo usaron hace menos, y los que nunca, al final.
+        """
+        with self._candado:
+            filas = self._conexion.execute(
+                "SELECT u.usuario, u.creado, u.ultimo_uso,"
+                " COALESCE(l.revision, 0),"
+                " COALESCE(length(CAST(l.datos AS BLOB)), 0), u.vetado, u.en_espera,"
+                " u.correo"
+                " FROM usuarios u LEFT JOIN libros l ON l.usuario_id = u.id"
+                " ORDER BY u.en_espera DESC, u.ultimo_uso DESC NULLS LAST, u.usuario"
+            ).fetchall()
+        return [
+            {
+                "usuario": f[0],
+                "creado": _momento_sqlite(f[1]),
+                "ultimo_uso": _momento_sqlite(f[2]),
+                "subidas": int(f[3]),
+                "tamano": int(f[4]),
+                "vetado": _momento_sqlite(f[5]),
+                "en_espera": bool(f[6]),
+                "correo": f[7] or "",
+            }
+            for f in filas
+        ]
 
     def leer_libro(self, usuario_id: int) -> tuple[int, dict | None]:
         """(revision, libro). Si nunca subió nada: (0, None)."""
@@ -289,6 +410,22 @@ class AlmacenPostgres:
             ADD COLUMN IF NOT EXISTS generacion INTEGER NOT NULL DEFAULT 0
         """)
         self._ejecutar("""
+            ALTER TABLE usuarios
+            ADD COLUMN IF NOT EXISTS ultimo_uso TIMESTAMPTZ
+        """)
+        self._ejecutar("""
+            ALTER TABLE usuarios
+            ADD COLUMN IF NOT EXISTS vetado TIMESTAMPTZ
+        """)
+        self._ejecutar("""
+            ALTER TABLE usuarios
+            ADD COLUMN IF NOT EXISTS en_espera BOOLEAN NOT NULL DEFAULT false
+        """)
+        self._ejecutar("""
+            ALTER TABLE usuarios
+            ADD COLUMN IF NOT EXISTS correo TEXT NOT NULL DEFAULT ''
+        """)
+        self._ejecutar("""
             CREATE TABLE IF NOT EXISTS libros (
                 usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
                 revision    INTEGER NOT NULL,
@@ -314,12 +451,13 @@ class AlmacenPostgres:
             )
         """)
 
-    def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str) -> int:
+    def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str,
+                      en_espera: bool = False, correo: str = "") -> int:
         try:
             cursor = self._ejecutar(
-                "INSERT INTO usuarios (usuario, hash, sal) VALUES (%s, %s, %s)"
-                " RETURNING id",
-                (usuario, hash_contrasena, sal),
+                "INSERT INTO usuarios (usuario, hash, sal, en_espera, correo)"
+                " VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                (usuario, hash_contrasena, sal, en_espera, correo),
             )
         except psycopg.errors.UniqueViolation:
             raise UsuarioYaExiste(usuario)
@@ -358,6 +496,71 @@ class AlmacenPostgres:
         )
         fila = cursor.fetchone()
         return int(fila[0]) if fila else None
+
+    def apuntar_uso(self, usuario_id: int) -> None:
+        """Apunta que el usuario acaba de usar el servidor, como mucho una
+        vez cada MINUTOS_ENTRE_USOS."""
+        self._ejecutar(
+            "UPDATE usuarios SET ultimo_uso = now()"
+            " WHERE id = %s AND (ultimo_uso IS NULL"
+            " OR ultimo_uso < now() - make_interval(mins => %s))",
+            (usuario_id, MINUTOS_ENTRE_USOS),
+        )
+
+    def estado_de(self, usuario_id: int) -> tuple[int, bool, bool] | None:
+        cursor = self._ejecutar(
+            "SELECT generacion, vetado, en_espera FROM usuarios WHERE id = %s",
+            (usuario_id,))
+        fila = cursor.fetchone()
+        return (int(fila[0]), fila[1] is not None, bool(fila[2])) if fila else None
+
+    def aceptar(self, usuario: str) -> bool:
+        cursor = self._ejecutar(
+            "UPDATE usuarios SET en_espera = false WHERE usuario = %s", (usuario,))
+        return cursor.rowcount == 1
+
+    def rechazar(self, usuario: str) -> bool:
+        """Borra una cuenta en espera; ver la versión de SQLite."""
+        self._ejecutar(
+            "DELETE FROM libros WHERE usuario_id IN"
+            " (SELECT id FROM usuarios WHERE usuario = %s AND en_espera)",
+            (usuario,))
+        cursor = self._ejecutar(
+            "DELETE FROM usuarios WHERE usuario = %s AND en_espera", (usuario,))
+        return cursor.rowcount == 1
+
+    def vetar(self, usuario: str, vetado: bool) -> bool:
+        """Veta al usuario o le quita el veto; ver la versión de SQLite."""
+        cursor = self._ejecutar(
+            "UPDATE usuarios SET vetado = CASE WHEN %s THEN"
+            " COALESCE(vetado, now()) ELSE NULL END"
+            " WHERE usuario = %s",
+            (vetado, usuario),
+        )
+        return cursor.rowcount == 1
+
+    def resumen_usuarios(self) -> list[dict]:
+        """Quién tiene cuenta y cuánto lo usa; ver la versión de SQLite."""
+        cursor = self._ejecutar(
+            "SELECT u.usuario, u.creado, u.ultimo_uso,"
+            " COALESCE(l.revision, 0),"
+            " COALESCE(octet_length(l.datos::text), 0), u.vetado, u.en_espera, u.correo"
+            " FROM usuarios u LEFT JOIN libros l ON l.usuario_id = u.id"
+            " ORDER BY u.en_espera DESC, u.ultimo_uso DESC NULLS LAST, u.usuario"
+        )
+        return [
+            {
+                "usuario": f[0],
+                "creado": f[1],
+                "ultimo_uso": f[2],
+                "subidas": int(f[3]),
+                "tamano": int(f[4]),
+                "vetado": f[5],
+                "en_espera": bool(f[6]),
+                "correo": f[7] or "",
+            }
+            for f in cursor.fetchall()
+        ]
 
     def leer_libro(self, usuario_id: int) -> tuple[int, dict | None]:
         cursor = self._ejecutar(

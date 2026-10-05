@@ -478,6 +478,70 @@ class PruebaEmpujar(ConCarpeta):
         self.assertEqual(avisos[0][0], "caducada")
 
 
+# --- cuenta en espera de que la acepten ----------------------------------------------
+
+class PruebaCuentaEnEspera(ConCarpeta):
+    """El servidor acepta las cuentas a mano: hasta entonces contesta 403 al
+    libro. No es un error ni una sesión caducada: se guarda aquí y se espera."""
+
+    EN_ESPERA = (403, {"detail": "falta que la acepte"})
+
+    def test_al_crearla_se_sabe_que_espera(self):
+        sinc, _ = self.nueva((201, {"token": "t", "usuario": "ana", "en_espera": True}))
+        sinc.registrar("ana", "contrasena1", "http://servidor:8000")
+        self.assertTrue(sinc.en_espera)
+        self.assertEqual(sinc.estado_actual(), modulo.MENSAJE_EN_ESPERA)
+
+    def test_el_correo_viaja_al_crear_la_cuenta(self):
+        sinc, servidor = self.nueva((201, {"token": "t", "usuario": "ana"}))
+        sinc.registrar("ana", "contrasena1", "http://servidor:8000", "codigo",
+                       correo=" ana@correo.es ")
+        self.assertEqual(servidor.peticiones[0]["cuerpo"]["correo"], "ana@correo.es")
+
+    def test_sin_el_campo_es_que_no_espera(self):
+        # Un servidor que no acepta a mano (o uno de antes) no manda nada.
+        sinc, _ = self.nueva((200, {"token": "t", "usuario": "ana"}))
+        sinc.entrar("ana", "contrasena1", "http://servidor:8000")
+        self.assertFalse(sinc.en_espera)
+
+    def test_subir_no_caduca_la_sesion_ni_pierde_el_pendiente(self):
+        self.escribir_datos()
+        sinc, _ = self.con_sesion(self.EN_ESPERA)
+        sinc.marcar_pendiente()
+        self.assertFalse(sinc.empujar())
+        self.assertFalse(sinc.caducada)
+        self.assertTrue(sinc.en_espera)
+        self.assertTrue(self.sesion_grabada()["pendiente"])
+        self.assertIn(("estado", modulo.MENSAJE_EN_ESPERA, ""), self.avisos_de(sinc))
+
+    def test_se_avisa_una_vez_no_en_cada_reintento(self):
+        self.escribir_datos()
+        sinc, _ = self.con_sesion(self.EN_ESPERA, self.EN_ESPERA)
+        sinc.marcar_pendiente()
+        sinc.empujar()
+        sinc.empujar()
+        avisos = [a for a in self.avisos_de(sinc) if a[0] == "estado"]
+        self.assertEqual(len(avisos), 1)
+
+    def test_bajar_deja_seguir_a_la_ventana(self):
+        sinc, _ = self.con_sesion(self.EN_ESPERA)
+        sinc.descargar()
+        self.assertTrue(sinc.en_espera)
+        # Que no se quede esperando al servidor para apuntar los recibos.
+        self.assertIn(("comprobado",), self.avisos_de(sinc))
+
+    def test_aceptada_se_sube_sola(self):
+        self.escribir_datos()
+        sinc, servidor = self.con_sesion(self.EN_ESPERA, (200, {"revision": 1}), revision=0)
+        sinc.marcar_pendiente()
+        self.assertFalse(sinc.empujar())
+        # ... el administrador la acepta, y en el siguiente reintento:
+        self.assertTrue(sinc.empujar())
+        self.assertFalse(sinc.en_espera)
+        self.assertFalse(self.sesion_grabada()["pendiente"])
+        self.assertEqual(servidor.peticiones[1]["metodo"], "PUT")
+
+
 # --- descargar al arrancar --------------------------------------------------------
 
 class PruebaDescargar(ConCarpeta):

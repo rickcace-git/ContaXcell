@@ -27,6 +27,7 @@ class VistaAjustes:
         self._abajo(raiz)
         if app.sincronia is not None:
             self._cuenta(raiz)
+            self._app_movil(raiz)
 
     # --- el banco ---------------------------------------------------------
 
@@ -302,6 +303,37 @@ class VistaAjustes:
                        "conexión. Sin internet todo sigue funcionando igual; lo que "
                        "cambies se sube al volver.").pack(anchor="w", pady=(10, 0))
 
+    def _app_movil(self, padre) -> None:
+        """El QR para bajarse la app del móvil desde el servidor de la cuenta."""
+        tarjeta = widgets.Tarjeta(padre, "La app del móvil")
+        tarjeta.pack(fill="x", pady=(16, 0))
+        fila = ttk.Frame(tarjeta.cuerpo, style="Tarjeta.TFrame")
+        fila.pack(fill="x")
+        self.etiqueta_qr = ttk.Label(fila, style="Tarjeta.TLabel")
+        self.etiqueta_qr.pack(side="left")
+        lado = ttk.Frame(fila, style="Tarjeta.TFrame")
+        lado.pack(side="left", fill="both", expand=True, padx=(18, 0))
+        ttk.Label(lado, style="Tarjeta.TLabel", justify="left", wraplength=560,
+                  text="Escanea el código con la cámara del móvil para descargar "
+                       "ContaXcell para Android. Al abrir el archivo, el móvil "
+                       "pedirá permiso para instalar apps de fuera de la tienda: "
+                       "es normal, la app no está en Google Play.").pack(anchor="w")
+        self.etiqueta_direccion_app = ttk.Label(lado, style="Tarjeta.Suave.TLabel",
+                                                justify="left", wraplength=560)
+        self.etiqueta_direccion_app.pack(anchor="w", pady=(8, 0))
+        ttk.Button(lado, text="Copiar la dirección",
+                   command=self._copiar_direccion_app).pack(anchor="w", pady=(8, 0))
+        self._direccion_qr = None
+
+    def _direccion_app(self) -> str:
+        from ..sincronia import direccion_app_movil
+        return direccion_app_movil(self.app.sincronia.sesion["servidor"])
+
+    def _copiar_direccion_app(self) -> None:
+        self.app.clipboard_clear()
+        self.app.clipboard_append(self._direccion_app())
+        self.app.estado("Dirección copiada.", "bien")
+
     def _refrescar_cuenta(self) -> None:
         sincronia = self.app.sincronia
         if sincronia is None or not hasattr(self, "etiqueta_cuenta"):
@@ -313,6 +345,13 @@ class VistaAjustes:
         else:
             self.etiqueta_cuenta.configure(text="Sin cuenta en este ordenador.")
         self.etiqueta_sincronia.configure(text=sincronia.estado_actual())
+        # El QR solo se rehace si cambia el servidor: hacerlo cuesta un poco.
+        direccion = self._direccion_app()
+        if direccion != self._direccion_qr:
+            self._direccion_qr = direccion
+            self._imagen_qr = widgets.imagen_qr(self.etiqueta_qr, direccion)
+            self.etiqueta_qr.configure(image=self._imagen_qr)
+            self.etiqueta_direccion_app.configure(text=direccion)
         # Cambiar la contraseña necesita cuenta y servidor: sin sesión no hay
         # a quién pedírselo, así que el botón se queda apagado.
         self.boton_contrasena.configure(

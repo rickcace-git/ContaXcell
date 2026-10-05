@@ -21,8 +21,6 @@ import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.Password
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.AlertDialog
@@ -75,7 +73,6 @@ fun SettingsScreen(
     var editCategory by remember { mutableStateOf<CategorySettingsUi?>(null) }
     var createCategory by remember { mutableStateOf(false) }
     var deleteCategory by remember { mutableStateOf<CategorySettingsUi?>(null) }
-    var importConfirm by remember { mutableStateOf(false) }
     var restoreConfirm by remember { mutableStateOf(false) }
     var signOutConfirm by remember { mutableStateOf(false) }
     var passwordDialog by remember { mutableStateOf(false) }
@@ -116,12 +113,12 @@ fun SettingsScreen(
                 if (maxWidth >= 720.dp) {
                     Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         AppearanceCard(theme, amountsHidden, onAction, Modifier.weight(1f))
-                        DataCard(state, onImport = { importConfirm = true }, onRestore = { restoreConfirm = true }, onAction, Modifier.weight(1f))
+                        DataCard(state, onRestore = { restoreConfirm = true }, onAction, Modifier.weight(1f))
                     }
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         AppearanceCard(theme, amountsHidden, onAction)
-                        DataCard(state, onImport = { importConfirm = true }, onRestore = { restoreConfirm = true }, onAction)
+                        DataCard(state, onRestore = { restoreConfirm = true }, onAction)
                     }
                 }
             }
@@ -168,7 +165,6 @@ fun SettingsScreen(
     if (createCategory) CategoryEditor(null, { createCategory = false }) { onAction(AppAction.SaveCategory(null, it)); createCategory = false }
     editCategory?.let { category -> CategoryEditor(category, { editCategory = null }) { onAction(AppAction.SaveCategory(category.id, it)); editCategory = null } }
     deleteCategory?.let { category -> ConfirmDeleteDialog("\u00bfBorrar ${category.name}?", if (category.uses > 0) "Tiene ${category.uses} movimientos. Se conservar\u00e1n, pero quedar\u00e1n sin categor\u00eda." else "No tiene movimientos.", { deleteCategory = null }) { onAction(AppAction.DeleteCategory(category.id)); deleteCategory = null } }
-    if (importConfirm) ConfirmationDialog("\u00bfImportar desde Excel?", "La contabilidad actual se sustituir\u00e1. Antes se guardar\u00e1 una copia autom\u00e1tica.", "Elegir Excel", { importConfirm = false }) { onAction(AppAction.ImportExcel); importConfirm = false }
     if (restoreConfirm) ConfirmationDialog("\u00bfRestaurar una copia?", "Antes de sustituir los datos se guardar\u00e1 una copia del estado actual.", "Elegir copia", { restoreConfirm = false }) { onAction(AppAction.RestoreBackup); restoreConfirm = false }
     if (signOutConfirm) ConfirmationDialog("\u00bfCerrar la sesi\u00f3n?", "Tus datos se quedan en este m\u00f3vil y en el servidor.", "Cerrar sesi\u00f3n", { signOutConfirm = false }) { onAction(AppAction.SignOut); signOutConfirm = false }
     if (passwordDialog) PasswordDialog({ passwordDialog = false }) { current, new -> onAction(AppAction.ChangePassword(current, new)); passwordDialog = false }
@@ -214,13 +210,8 @@ private fun AppearanceCard(theme: ThemePreference, amountsHidden: Boolean, onAct
 }
 
 @Composable
-private fun DataCard(state: SettingsUiState, onImport: () -> Unit, onRestore: () -> Unit, onAction: (AppAction) -> Unit, modifier: Modifier = Modifier) {
-    SectionCard("Tus datos", modifier, supporting = "Puedes salir a Excel siempre que quieras.") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onImport, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.FileDownload, null); Text("Importar") }
-            Button(onClick = { onAction(AppAction.ExportExcel) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.FileUpload, null); Text("Exportar") }
-        }
-        Spacer(Modifier.height(8.dp))
+private fun DataCard(state: SettingsUiState, onRestore: () -> Unit, onAction: (AppAction) -> Unit, modifier: Modifier = Modifier) {
+    SectionCard("Tus datos", modifier, supporting = "Las copias de seguridad son la forma de llevarlos a otro sitio.") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { onAction(AppAction.SaveBackup) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Backup, null); Text("Copia") }
             OutlinedButton(onClick = onRestore, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Restore, null); Text("Restaurar") }

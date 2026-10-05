@@ -10,17 +10,50 @@ android {
     compileSdk = 35
 
     defaultConfig {
+        // El servidor con el que viene la app, igual que el .exe del escritorio:
+        // de la variable CONTAXCELL_SERVIDOR (en GitHub, un secreto) o, en
+        // local, del escritorio/.env. No va en el repositorio, que es público.
+        // Sin ninguna de las dos, localhost, que es lo que vale para probar.
+        val servidor = System.getenv("CONTAXCELL_SERVIDOR")?.trim()?.takeIf(String::isNotEmpty)
+            ?: rootProject.file("../escritorio/.env").takeIf { it.exists() }?.readLines()
+                ?.firstOrNull { it.trim().startsWith("CONTAXCELL_SERVIDOR=") }
+                ?.substringAfter("=")?.trim()?.takeIf(String::isNotEmpty)
+            ?: "http://localhost:8000"
+        buildConfigField("String", "SERVIDOR_POR_DEFECTO", "\"$servidor\"")
         applicationId = "com.contaxcell.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // En GitHub, cada compilación sube el número: así se ve en Ajustes si el
+        // móvil tiene el APK más reciente, y cada uno se instala encima del anterior.
+        val compilacion = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = compilacion
+        versionName = "1.0.$compilacion"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
 
+    // Firma fija para el APK que genera GitHub (.github/workflows/android.yml).
+    // Sin ella, cada compilación firmaría con una clave distinta y el móvil no
+    // dejaría instalar una versión encima de otra. La clave nunca va en el
+    // repositorio: llega por dos secretos de GitHub. Sin ellos (compilando en
+    // local), se usa la clave de depuración de siempre.
+    val almacenFirma = System.getenv("CONTAXCELL_KEYSTORE")
+    val claveFirma = System.getenv("CONTAXCELL_KEYSTORE_PASSWORD")
+    val hayFirmaFija = !almacenFirma.isNullOrBlank() && !claveFirma.isNullOrBlank()
+    if (hayFirmaFija) {
+        signingConfigs.create("fija") {
+            storeFile = file(almacenFirma!!)
+            storePassword = claveFirma
+            keyAlias = "contaxcell"
+            keyPassword = claveFirma
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hayFirmaFija) signingConfig = signingConfigs.getByName("fija")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -52,7 +85,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("org.apache.poi:poi-ooxml:5.3.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

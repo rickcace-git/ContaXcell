@@ -30,9 +30,12 @@ from pruebas.test_sincronia import ServidorFalso  # noqa: E402
 def libro_del_dia_9() -> Libro:
     libro = Libro.vacio()
     libro.ajustes.saldo_inicial = 1000.0
+    # Termina en septiembre para que solo quede por apuntar el recibo del 5
+    # de septiembre, se pasen las pruebas el día que se pasen. Sin `hasta`,
+    # desde el 5 de octubre salía uno más y las pruebas fallaban solas.
     libro.periodicos = [Periodico(nombre="Alquiler", categoria="Vivienda y Suministros",
                                   importe=700.0, periodo=MENSUAL, desde="2026-01-05",
-                                  apuntado_hasta="2026-08-05", id="p1")]
+                                  hasta="2026-09-30", apuntado_hasta="2026-08-05", id="p1")]
     libro.movimientos = [Movimiento(fecha="2026-09-09", descripcion="Pan",
                                     categoria="Comida", importe=2.0, id="m9")]
     return libro

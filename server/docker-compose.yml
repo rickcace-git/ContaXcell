@@ -37,6 +37,8 @@ services:
       CONTAXCELL_SECRETO: ${CONTAXCELL_SECRETO:?falta CONTAXCELL_SECRETO en el archivo .env}
       # Opcional: si se pone, para crear una cuenta hay que traer el código.
       CONTAXCELL_CODIGO_REGISTRO: ${CONTAXCELL_CODIGO_REGISTRO:-}
+      # Opcional: con 1, las cuentas nuevas esperan a `./usuarios aceptar`.
+      CONTAXCELL_ACEPTAR_CUENTAS: ${CONTAXCELL_ACEPTAR_CUENTAS:-}
     depends_on:
       db:
         condition: service_healthy
@@ -53,6 +55,8 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Lo que se puede descargar (la app del móvil). Solo lectura.
+      - ./descargas:/srv/descargas:ro
       - datos_caddy:/data
       - config_caddy:/config
     environment:

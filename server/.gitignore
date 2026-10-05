@@ -5,3 +5,6 @@ venv/
 
 # Los secretos de cada máquina. Nunca a git.
 .env
+
+# El APK que se sirve para descargar: se sube a mano a la máquina.
+descargas/

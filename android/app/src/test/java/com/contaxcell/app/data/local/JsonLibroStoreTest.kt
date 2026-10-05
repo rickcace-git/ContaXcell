@@ -97,4 +97,13 @@ class JsonLibroStoreTest {
         assertTrue(old.cotizaciones.isEmpty())
         assertEquals("", old.ajustes.preciosAlDia)
     }
+
+    @Test fun `initial units survive a round trip with the desktop field name`() {
+        store.save(Libro(activos = listOf(Activo("Fondo", aportacionInicial = 1_000.0, titulosIniciales = 7.1234567))))
+        assertTrue(store.dataFile.readText().contains("\"titulos_iniciales\""))
+        assertEquals(7.123457, store.load().libro.activos.single().titulosIniciales, 0.0)
+
+        store.dataFile.writeText("""{"version":1,"activos":[{"nombre":"Viejo","aportacion_inicial":10}]}""")
+        assertEquals(0.0, store.load().libro.activos.single().titulosIniciales, 0.0)
+    }
 }

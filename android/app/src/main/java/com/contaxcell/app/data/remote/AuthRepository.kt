@@ -2,6 +2,7 @@ package com.contaxcell.app.data.remote
 
 import com.contaxcell.app.data.sync.SessionStore
 import com.contaxcell.app.data.sync.SyncSession
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -39,7 +40,8 @@ class AuthRepository(
         password: String,
         serverUrl: String = "",
         invitationCode: String = "",
-    ): SyncSession = authenticate(username, password, serverUrl, true, invitationCode)
+        email: String = "",
+    ): SyncSession = authenticate(username, password, serverUrl, true, invitationCode, email)
 
     suspend fun login(
         username: String,
@@ -59,6 +61,7 @@ class AuthRepository(
         when (response.statusCode) {
             200 -> Unit
             401 -> {
+                com.contaxcell.app.data.sync.SyncDiagnostics.expired("Cambiar contraseña", response.detail(), session.token)
                 sessions.write(session.copy(expired = true))
                 fail("La sesión ha caducado. Entra de nuevo y vuelve a intentarlo.", AuthenticationException.Kind.SESSION_EXPIRED)
             }
@@ -81,6 +84,7 @@ class AuthRepository(
         requestedServerUrl: String,
         registering: Boolean,
         invitationCode: String,
+        email: String = "",
     ): SyncSession {
         val username = rawUsername.trim()
         if (username.isBlank() || password.isBlank()) {
@@ -91,7 +95,7 @@ class AuthRepository(
             requestedServerUrl.ifBlank { old.serverUrl },
         )
         val response = callOrOffline {
-            if (registering) api.register(server, username, password, invitationCode)
+            if (registering) api.register(server, username, password, invitationCode, email)
             else api.login(server, username, password)
         }
         when (response.statusCode) {
@@ -120,6 +124,8 @@ class AuthRepository(
             lastRevision = if (old.username == normalizedUser) old.lastRevision else 0,
             pending = if (old.username == normalizedUser) old.pending else false,
             expired = false,
+            // Servidor que acepta las cuentas a mano: entra, pero no guarda nada hasta entonces.
+            awaitingApproval = body["en_espera"]?.jsonPrimitive?.booleanOrNull == true,
         ).also { sessions.write(it) }
     }
 

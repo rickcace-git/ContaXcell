@@ -21,7 +21,13 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 /** The exact transport surface exposed by contaserver. */
 interface ContaXcellApi {
     suspend fun health(serverUrl: String): HttpResult
-    suspend fun register(serverUrl: String, username: String, password: String, invitationCode: String = ""): HttpResult
+    suspend fun register(
+        serverUrl: String,
+        username: String,
+        password: String,
+        invitationCode: String = "",
+        email: String = "",
+    ): HttpResult
     suspend fun login(serverUrl: String, username: String, password: String): HttpResult
     suspend fun changePassword(serverUrl: String, token: String, currentPassword: String, newPassword: String): HttpResult
     suspend fun downloadBook(serverUrl: String, token: String): HttpResult
@@ -66,6 +72,7 @@ class OkHttpContaXcellApi(
         username: String,
         password: String,
         invitationCode: String,
+        email: String,
     ): HttpResult = request(
         serverUrl,
         "/api/cuentas/registro",
@@ -75,6 +82,10 @@ class OkHttpContaXcellApi(
             put("contrasena", JsonPrimitive(password))
             invitationCode.trim().takeIf(String::isNotEmpty)?.let {
                 put("codigo", JsonPrimitive(it))
+            }
+            // Para poder restablecer la contraseña algún día.
+            email.trim().takeIf(String::isNotEmpty)?.let {
+                put("correo", JsonPrimitive(it))
             }
         },
     )

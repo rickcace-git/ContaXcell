@@ -14,12 +14,6 @@ import com.contaxcell.app.ui.ContaXcellApp
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
-    private val importExcel = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { contentResolver.openInputStream(it)?.use(viewModel::importExcel) }
-    }
-    private val exportExcel = registerForActivityResult(ActivityResultContracts.CreateDocument(EXCEL_MIME)) { uri ->
-        uri?.let { contentResolver.openOutputStream(it)?.use(viewModel::exportExcel) }
-    }
     private val importTradeRepublic = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { contentResolver.openInputStream(it)?.use(viewModel::importTradeRepublic) }
     }
@@ -32,8 +26,6 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(viewModel) {
                 viewModel.effects.collect { effect ->
                     when (effect) {
-                        AppEffect.ChooseExcelImport -> importExcel.launch(arrayOf(EXCEL_MIME, LEGACY_EXCEL_MIME))
-                        is AppEffect.ChooseExcelExport -> exportExcel.launch(effect.suggestedName)
                         AppEffect.ChooseTradeRepublicPdf -> importTradeRepublic.launch(arrayOf(PDF_MIME))
                     }
                 }
@@ -43,8 +35,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
-        const val EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        const val LEGACY_EXCEL_MIME = "application/vnd.ms-excel"
         const val PDF_MIME = "application/pdf"
     }
 }

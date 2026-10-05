@@ -1,7 +1,38 @@
-# El portero de Internet. Caddy escucha en el dominio que diga
-# CONTAXCELL_DOMINIO (del archivo .env), saca y renueva el certificado él solo
-# y pasa todo a la API, que vive en la red interna de compose y no se asoma a
-# la calle. Lo que llega de fuera va cifrado; lo de aquí dentro no sale.
+# El portero de Internet. Caddy escucha en la dirección que diga
+# CONTAXCELL_DOMINIO (del archivo .env), que puede ser un dominio o una IP a
+# secas. Saca y renueva el certificado él solo y pasa todo a la API, que vive
+# en la red interna de compose y no se asoma a la calle. Lo que llega de fuera
+# va cifrado; lo de aquí dentro no sale.
+#
+# El perfil «shortlived» de Let's Encrypt es lo que permite un certificado
+# para una IP: dura unos seis días y Caddy lo renueva mucho antes de que
+# caduque. Sin él, a una IP Caddy le pondría un certificado hecho por él
+# mismo, y ni la app ni el móvil se lo creerían. Con un dominio vale igual.
+#
+# Y el default_sni de aquí abajo, por lo mismo: quien llama a una IP no dice a
+# qué dirección viene (no manda «SNI»), y sin él Caddy no sabría qué
+# certificado enseñar y cortaría la conexión.
+{
+	default_sni {$CONTAXCELL_DOMINIO}
+}
+
 {$CONTAXCELL_DOMINIO} {
-	reverse_proxy api:8000
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+	}
+	# La app del móvil, para descargarla con el QR de Ajustes y de la guía:
+	# https://<servidor>/descargas/ContaXcell.apk. Los archivos viven en la
+	# carpeta server/descargas de la máquina, que no va a git: se suben a mano.
+	handle_path /descargas/* {
+		root * /srv/descargas
+		@apk path *.apk
+		header @apk Content-Type application/vnd.android.package-archive
+		file_server
+	}
+
+	handle {
+		reverse_proxy api:8000
+	}
 }

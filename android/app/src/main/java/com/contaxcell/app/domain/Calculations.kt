@@ -169,6 +169,9 @@ data class ResumenPeriodicos(
     val inversion: Double = 0.0,
 ) { val total get() = encendidos + apagados + terminados }
 
+/** Id con el que la aportación inicial sale entre las compras: no es un movimiento. */
+const val COMPRA_INICIAL = "__inicial__"
+
 data class Compra(
     val id: String,
     val fecha: String,
@@ -373,8 +376,10 @@ object Calculos {
         val assets = libro.activos.map { asset ->
             val bank = DomainNumbers.money(contributions.filter { it.activo == asset.nombre }.sumOf { it.importe })
             val free = DomainNumbers.money(libro.aportacionesGratis.filter { it.activo == asset.nombre }.sumOf { it.importe })
+            // Los títulos de la aportación inicial cuentan igual que los demás.
             val titles = DomainNumbers.titles(
-                contributions.filter { it.activo == asset.nombre }.sumOf { it.titulos } +
+                asset.titulosIniciales +
+                    contributions.filter { it.activo == asset.nombre }.sumOf { it.titulos } +
                     libro.aportacionesGratis.filter { it.activo == asset.nombre }.sumOf { it.titulos },
             )
             var unvalued = asset.ultimaValoracion.isEmpty() && asset.valorMercado == 0.0
@@ -652,6 +657,15 @@ object Calculos {
             }
             .sortedWith(compareByDescending<Compra> { it.fecha }.thenByDescending { it.id })
             .toList()
+            // La aportación inicial va la última: es lo más antiguo, aunque no tenga fecha.
+            .let { purchases ->
+                val initial = libro.activo(nombreActivo)
+                if (initial == null || initial.titulosIniciales <= 0) purchases
+                else purchases + Compra(
+                    COMPRA_INICIAL, "", "Aportación inicial", initial.aportacionInicial,
+                    initial.titulosIniciales, price, quoteToday = currentQuote,
+                )
+            }
     }
 
     fun porCategoria(cartera: Cartera): List<GrupoCartera> {

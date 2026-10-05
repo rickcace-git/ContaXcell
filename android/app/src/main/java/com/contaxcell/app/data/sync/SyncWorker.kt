@@ -15,6 +15,10 @@ import com.contaxcell.app.data.local.JsonLibroStore
 import com.contaxcell.app.data.remote.OkHttpContaXcellApi
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withContext
 
 /** Installed by the application composition root; keeps WorkManager independent from a DI framework. */
@@ -52,6 +56,8 @@ class SyncWorker(
             SyncResult.Current,
             SyncResult.NoSession,
             SyncResult.SessionExpired,
+            // Esperando a que la acepten: el periódico volverá a probar solo.
+            SyncResult.AwaitingApproval,
             is SyncResult.Uploaded,
             is SyncResult.Downloaded -> Result.success()
             SyncResult.Offline -> Result.retry()
@@ -91,6 +97,18 @@ object SyncScheduler {
             request,
         )
     }
+
+    /**
+     * Avisa cada vez que termina una subida inmediata. El trabajador no habla
+     * con la pantalla, así que sin esto el aviso se quedaba en «Pendiente»
+     * aunque el libro ya estuviera en el servidor. Se distingue por el id de
+     * cada trabajo: dos subidas buenas seguidas son dos avisos, no uno.
+     */
+    fun immediateFinished(context: Context): Flow<Unit> =
+        WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(IMMEDIATE_WORK)
+            .mapNotNull { infos -> infos.firstOrNull { it.state.isFinished }?.id }
+            .distinctUntilChanged()
+            .map { }
 
     fun cancel(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_WORK)
