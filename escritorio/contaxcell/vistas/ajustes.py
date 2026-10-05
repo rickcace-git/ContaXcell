@@ -586,8 +586,4 @@ class VentanaContrasena(tk.Toplevel):
         return self.cambiada
 
     def _centrar(self) -> None:
-        padre = self.master
-        ancho, alto = self.winfo_width(), self.winfo_height()
-        x = padre.winfo_rootx() + (padre.winfo_width() - ancho) // 2
-        y = padre.winfo_rooty() + (padre.winfo_height() - alto) // 3
-        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        widgets.centrar_sobre(self, self.master)

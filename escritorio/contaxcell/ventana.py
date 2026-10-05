@@ -773,7 +773,8 @@ def _consejo(widget: tk.Widget, texto: str) -> None:
                  padx=8, pady=4).pack(padx=1, pady=1)
         x = widget.winfo_rootx() + widget.winfo_width() // 2 - 80
         y = widget.winfo_rooty() + widget.winfo_height() + 6
-        globo.wm_geometry(f"+{max(0, x)}+{y}")
+        # Dentro de la pantalla del botón, que puede no ser la principal.
+        widgets.colocar(globo, x, y, referencia=(widget.winfo_rootx(), widget.winfo_rooty()))
         estado["ventana"] = globo
 
     def entrar(_evento=None):

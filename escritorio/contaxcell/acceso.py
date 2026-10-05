@@ -413,13 +413,14 @@ class PedirCodigo(tk.Toplevel):
 
 
 def _centrar_sobre(ventana: tk.Toplevel, padre) -> None:
-    ancho, alto = ventana.winfo_width(), ventana.winfo_height()
     if padre is not None and padre.winfo_viewable():
-        x = padre.winfo_rootx() + (padre.winfo_width() - ancho) // 2
-        y = padre.winfo_rooty() + (padre.winfo_height() - alto) // 3
-    else:
-        x = (ventana.winfo_screenwidth() - ancho) // 2
-        y = (ventana.winfo_screenheight() - alto) // 3
+        # Sobre la ventana de detrás, en su pantalla (no siempre la principal).
+        widgets.centrar_sobre(ventana, padre)
+        return
+    # Al arrancar no hay nada detrás: en medio de la pantalla principal.
+    ancho, alto = ventana.winfo_width(), ventana.winfo_height()
+    x = (ventana.winfo_screenwidth() - ancho) // 2
+    y = (ventana.winfo_screenheight() - alto) // 3
     ventana.geometry(f"+{max(0, x)}+{max(0, y)}")
 
 
