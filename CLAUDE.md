@@ -43,6 +43,10 @@ escritorio/          la aplicación (Python + tkinter, nada que instalar)
     iconos.py        iconos de pestañas y guía, dibujados en Python (sin
                      Pillow ni imágenes). Pestaña nueva → su dibujo aquí
     qr.py            códigos QR sin librerías (el de descargar la app)
+    actualizar.py    el .exe se actualiza solo desde el servidor, si se
+                     acepta. Solo instala lo firmado (firma.py, RSA sin
+                     librerías) con la llave cuya mitad pública es
+                     llave_publica.py
     guia.py          la guía de uso (Ayuda ▸ Guía de uso, F1): un apartado
                      por pestaña. Si cambias cómo se usa algo, cámbialo aquí
     vistas/          una pestaña por archivo
@@ -154,12 +158,15 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      398 pruebas, ~5 s (test_dialogos y
+python -m unittest discover -s pruebas      417 pruebas, ~5 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
 python pruebas/ver.py --pestana resumen --captura foto.png
 python empaquetar.py                        genera el .exe y el .zip
+python publicar.py "novedades"              lo fabrica, lo firma y lo sube: les
+                                            llega solo. Antes, subir VERSION en
+                                            ventana.py
 
 cd server
 docker compose up -d                        levantar el servidor (solo en local)
@@ -172,6 +179,12 @@ python -m unittest discover -s pruebas     104 pruebas (SQLite, sin red)
 real, que está en `%APPDATA%\ContaXcell\`.
 
 ## Cosas que morder con cuidado
+
+- **La llave de firmar actualizaciones** vive en
+  `~/.contaxcell/llave-actualizaciones.json` del ordenador de Ricardo y en
+  ningún otro sitio: ni en git ni en el servidor. Es lo que impide colar un
+  programa falso a todos. Si se pierde, no se puede publicar más y hay que
+  repartir a mano una versión con llave nueva. Nunca regenerarla sin más.
 
 - **Los secretos van en `server/.env`**, que está en el `.gitignore`. Nunca en
   `docker-compose.yml`. Antes de cualquier `git push`, revisar el diff.
