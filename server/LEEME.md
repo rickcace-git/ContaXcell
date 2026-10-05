@@ -221,6 +221,13 @@ en el volumen.
 
 ## Quién tiene cuenta y quién lo usa
 
+**Lo más fácil: `menu`.** Al entrar en la máquina por ssh sale un recordatorio,
+y `menu` enseña con números todo lo de este apartado (ver, aceptar, rechazar,
+vetar…) y si el servidor está bien; pregunta el nombre cuando hace falta.
+`./usuarios ayuda` lista las órdenes sueltas. El recordatorio y los atajos
+`menu` y `usuarios` van al final del `~/.bashrc` de la máquina (solo en las
+sesiones de verdad: las de `publicar.py` no los ven).
+
 Desde la máquina, en la carpeta `server/`:
 
 ```

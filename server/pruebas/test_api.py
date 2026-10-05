@@ -952,6 +952,14 @@ class PruebaRechazarTodas(unittest.TestCase):
         self.assertEqual(ejecutar(self.almacen, ["rechazar-todas"], self.ahora, sin_teclado)[0], 1)
         self.assertEqual(len(self.nombres()), 4)
 
+    def test_la_ayuda_dice_todas_las_ordenes_y_el_menu(self):
+        from contaserver.usuarios import ejecutar
+        for pedir in ("ayuda", "--help", "-h"):
+            codigo, texto = ejecutar(self.almacen, [pedir], self.ahora)
+            self.assertEqual(codigo, 0)
+            for orden in ("aceptar", "rechazar", "rechazar-todas", "vetar", "readmitir", "menu"):
+                self.assertIn(orden, texto)
+
     def test_si_no_hay_ninguna_lo_dice(self):
         from contaserver.usuarios import ejecutar
         for i in range(3):

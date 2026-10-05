@@ -1,0 +1,47 @@
+#!/bin/bash
+# El menú del administrador: lo de ./usuarios y poco más, con números, para
+# no tener que acordarse de nada (y escribir poco desde el móvil).
+#   cd ~/server && ./menu        o, simplemente,   menu
+cd "$(dirname "$0")" || exit 1
+
+pedir_nombre() {
+    read -r -p "  Nombre de usuario: " nombre
+    [ -n "$nombre" ]
+}
+
+while true; do
+    echo
+    echo "  ContaXcell — ¿qué quieres hacer?"
+    echo
+    echo "   1) Ver usuarios"
+    echo "   2) Aceptar a alguien que espera"
+    echo "   3) Rechazar a alguien que espera"
+    echo "   4) Rechazar TODAS las que esperan"
+    echo "   5) Vetar a alguien"
+    echo "   6) Quitarle el veto a alguien"
+    echo "   7) ¿Está el servidor bien?"
+    echo "   0) Salir"
+    echo
+    read -r -p "  Número: " opcion || exit 0
+    echo
+    case "$opcion" in
+        1) ./usuarios ;;
+        2) pedir_nombre && ./usuarios aceptar "$nombre" ;;
+        3) pedir_nombre && ./usuarios rechazar "$nombre" ;;
+        4) ./usuarios rechazar-todas ;;
+        5) pedir_nombre && ./usuarios vetar "$nombre" ;;
+        6) pedir_nombre && ./usuarios readmitir "$nombre" ;;
+        7)
+            docker compose --profile https ps --format "  {{.Service}}: {{.Status}}"
+            if curl -s -m 10 http://127.0.0.1:8000/api/salud | grep -q bien; then
+                echo "  La API contesta: bien."
+            else
+                echo "  La API NO contesta. Prueba: docker compose --profile https up -d"
+            fi
+            echo "  Disco: $(df -h / | awk 'NR==2 {print $5 " usado, quedan " $4}')"
+            echo "  Última copia de la base de datos: $(ls -t ~/copias/*.sql 2>/dev/null | head -1 | xargs -r basename)"
+            ;;
+        0|q|salir) exit 0 ;;
+        *) echo "  Escribe un número del 0 al 7." ;;
+    esac
+done

@@ -148,7 +148,8 @@ USO = ("Uso:  ./usuarios                    la tabla de usuarios\n"
        "      ./usuarios rechazar NOMBRE    borrar una cuenta en espera\n"
        "      ./usuarios rechazar-todas     borrar de golpe todas las que esperan\n"
        "      ./usuarios vetar NOMBRE       que no pueda entrar ni sincronizar\n"
-       "      ./usuarios readmitir NOMBRE   quitarle el veto")
+       "      ./usuarios readmitir NOMBRE   quitarle el veto\n"
+       "      ./usuarios ayuda              esto mismo")
 
 
 def ejecutar(almacen, argumentos: list[str], ahora: datetime,
@@ -159,6 +160,8 @@ def ejecutar(almacen, argumentos: list[str], ahora: datetime,
     if not argumentos:
         return 0, informe(almacen.resumen_usuarios(), ahora)
     orden = argumentos[0]
+    if orden in ("ayuda", "-h", "--help"):
+        return 0, USO + "\n\nO, más fácil, con números: menu"
     if orden == "rechazar-todas" and len(argumentos) == 1:
         return _rechazar_todas(almacen, preguntar)
     if orden not in ("aceptar", "rechazar", "vetar", "readmitir") or len(argumentos) != 2:
