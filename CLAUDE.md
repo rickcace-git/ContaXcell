@@ -164,7 +164,7 @@ cd server
 docker compose up -d                        levantar el servidor (solo en local)
 docker compose --profile https up -d        producción: Caddy con certificado delante
 docker compose logs -f api                  ver las peticiones llegar
-python -m unittest discover -s pruebas      75 pruebas (SQLite, sin red)
+python -m unittest discover -s pruebas      85 pruebas (SQLite, sin red)
 ```
 
 `pruebas/ver.py` usa una carpeta de datos aparte: nunca toca la contabilidad

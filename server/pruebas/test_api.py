@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -621,10 +622,131 @@ class PruebaBaseDeAntes(unittest.TestCase):
             # Y abrirla otra vez no se atraganca al ver que la columna ya está.
             otra_vez = AlmacenSQLite(ruta)
             self.assertEqual(otra_vez.generacion_de(1), 0)
+            # La del último uso también llega, vacía: nadie la ha usado aún.
+            otra_vez.apuntar_uso(1)
+            self.assertIsNotNone(otra_vez.resumen_usuarios()[0]["ultimo_uso"])
             # Cerramos a mano, que el archivo está en una carpeta de usar y
             # tirar y en Windows no se borra con la base abierta.
             almacen._conexion.close()
             otra_vez._conexion.close()
+
+
+class PruebaQuienLoUsa(unittest.TestCase):
+    """El `./usuarios` del administrador: quién tiene cuenta y quién la usa."""
+
+    def setUp(self):
+        self.almacen = AlmacenSQLite()
+        self.cliente = TestClient(crear_aplicacion(
+            almacen=self.almacen, secreto=SECRETO_DE_PRUEBA, cliente_precios=None,
+        ))
+
+    def resumen(self, usuario: str) -> dict:
+        return next(f for f in self.almacen.resumen_usuarios() if f["usuario"] == usuario)
+
+    def poner_ultimo_uso(self, usuario: str, hace: str) -> None:
+        self.almacen._conexion.execute(
+            "UPDATE usuarios SET ultimo_uso = datetime('now', ?) WHERE usuario = ?",
+            (hace, usuario),
+        )
+        self.almacen._conexion.commit()
+
+    def test_registrarse_no_es_usarlo_pero_sincronizar_si(self):
+        token = registrar(self.cliente, "ana")
+        self.assertIsNone(self.resumen("ana")["ultimo_uso"])
+        self.cliente.get("/api/libro", headers={"Authorization": f"Bearer {token}"})
+        self.assertIsNotNone(self.resumen("ana")["ultimo_uso"])
+
+    def test_entrar_con_contrasena_cuenta_como_uso(self):
+        registrar(self.cliente, "ana", "contrasena1")
+        self.cliente.post("/api/cuentas/entrar",
+                          json={"usuario": "ana", "contrasena": "contrasena1"})
+        self.assertIsNotNone(self.resumen("ana")["ultimo_uso"])
+
+    def test_no_escribe_en_cada_peticion(self):
+        token = registrar(self.cliente, "ana")
+        cabeceras = {"Authorization": f"Bearer {token}"}
+        # Hace un minuto: todavía vale, no se toca.
+        self.poner_ultimo_uso("ana", "-1 minutes")
+        antes = self.resumen("ana")["ultimo_uso"]
+        self.cliente.get("/api/libro", headers=cabeceras)
+        self.assertEqual(self.resumen("ana")["ultimo_uso"], antes)
+        # Hace una hora: ya toca apuntarlo otra vez.
+        self.poner_ultimo_uso("ana", "-60 minutes")
+        antes = self.resumen("ana")["ultimo_uso"]
+        self.cliente.get("/api/libro", headers=cabeceras)
+        self.assertGreater(self.resumen("ana")["ultimo_uso"], antes)
+
+    def test_cuenta_las_subidas_y_el_tamano_pero_no_ensena_el_libro(self):
+        token = registrar(self.cliente, "ana")
+        registrar(self.cliente, "bea")
+        cabeceras = {"Authorization": f"Bearer {token}"}
+        for base in (0, 1, 2):
+            self.cliente.put("/api/libro", headers=cabeceras,
+                             json={"revision_base": base, "libro": UN_LIBRO})
+        ana = self.resumen("ana")
+        self.assertEqual(ana["subidas"], 3)
+        self.assertGreater(ana["tamano"], 0)
+        self.assertEqual(set(ana), {"usuario", "creado", "ultimo_uso", "subidas", "tamano"})
+        # Quien nunca subió nada sale igual, con ceros.
+        self.assertEqual((self.resumen("bea")["subidas"], self.resumen("bea")["tamano"]), (0, 0))
+
+    def test_los_que_lo_usan_salen_primero(self):
+        for nombre in ("ana", "bea", "carlos"):
+            registrar(self.cliente, nombre)
+        self.poner_ultimo_uso("ana", "-3 days")
+        self.poner_ultimo_uso("carlos", "-1 hours")
+        orden = [f["usuario"] for f in self.almacen.resumen_usuarios()]
+        self.assertEqual(orden, ["carlos", "ana", "bea"])
+
+
+class PruebaInformeDeUsuarios(unittest.TestCase):
+    """Lo que se lee en la terminal. La hora es de España."""
+
+    # Mediodía en España (10:00 UTC en octubre, horario de verano).
+    AHORA = datetime(2026, 10, 5, 10, 0, tzinfo=timezone.utc)
+
+    def fila(self, usuario, ultimo_uso=None, subidas=0, tamano=0):
+        return {"usuario": usuario, "creado": datetime(2026, 10, 1, tzinfo=timezone.utc),
+                "ultimo_uso": ultimo_uso, "subidas": subidas, "tamano": tamano}
+
+    def test_cuando(self):
+        from contaserver.usuarios import cuando
+        self.assertEqual(cuando(None, self.AHORA), "nunca")
+        self.assertEqual(cuando(datetime(2026, 10, 5, 7, 41, tzinfo=timezone.utc), self.AHORA), "hoy 09:41")
+        self.assertEqual(cuando(datetime(2026, 10, 4, 20, 10, tzinfo=timezone.utc), self.AHORA), "ayer 22:10")
+        self.assertEqual(cuando(datetime(2026, 10, 2, 9, 0, tzinfo=timezone.utc), self.AHORA), "hace 3 días")
+        self.assertEqual(cuando(datetime(2026, 5, 2, 9, 0, tzinfo=timezone.utc), self.AHORA), "2026-05-02")
+        # Las 23:30 UTC del día 4 ya son el día 5 en España: es «hoy».
+        self.assertEqual(cuando(datetime(2026, 10, 4, 23, 30, tzinfo=timezone.utc), self.AHORA), "hoy 01:30")
+
+    def test_tamano(self):
+        from contaserver.usuarios import tamano
+        self.assertEqual(tamano(0), "—")
+        self.assertEqual(tamano(512), "512 B")
+        self.assertEqual(tamano(48 * 1024), "48 KB")
+        self.assertEqual(tamano(int(1.5 * 1024 * 1024)), "1,5 MB")
+
+    def test_cuenta_los_registrados_y_los_activos(self):
+        from contaserver.usuarios import informe
+        texto = informe([
+            self.fila("ana", self.AHORA - timedelta(hours=2), 152, 48 * 1024),
+            self.fila("bea", self.AHORA - timedelta(days=20), 3, 900),
+            self.fila("carlos"),
+        ], self.AHORA)
+        self.assertTrue(texto.startswith(
+            "3 usuarios registrados · 1 activo en los últimos 7 días"))
+        self.assertIn("ÚLTIMO USO", texto)
+        self.assertIn("nunca", texto)
+        self.assertIn("152", texto)
+
+    def test_uno_solo_va_en_singular(self):
+        from contaserver.usuarios import informe
+        texto = informe([self.fila("ana", self.AHORA)], self.AHORA)
+        self.assertTrue(texto.startswith("1 usuario registrado · 1 activo"))
+
+    def test_sin_nadie(self):
+        from contaserver.usuarios import informe
+        self.assertEqual(informe([], self.AHORA), "Todavía no hay nadie registrado.")
 
 
 class PruebaAtomicidad(unittest.TestCase):

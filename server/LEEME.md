@@ -152,7 +152,7 @@ los datos no sobreviven a un reinicio. Vale para trastear, no para usar.
 
 En Internet el tráfico va cifrado y punto: por ahí pasan las contraseñas. El
 compose trae un **Caddy** que saca el certificado de Let's Encrypt él solo y
-lo renueva sin que nadie se acuerde. Lo único que hace falta es un dominio.
+lo renueva sin que nadie se acuerde. Vale con un dominio o con la IP a secas.
 
 1. Una máquina pequeña con Docker llega de sobra (una `t3.micro` va bien).
    Instalar Docker con el plugin de compose:
@@ -165,9 +165,11 @@ lo renueva sin que nadie se acuerde. Lo único que hace falta es un dominio.
 2. Copiar la carpeta `server/` a la máquina (con `scp -r` o clonando el
    repositorio).
 
-3. **Apuntar un dominio a la máquina**: un registro `A` con la IP pública de
-   la instancia (conviene que sea una IP elástica, para que no cambie al
-   reiniciar). Sin dominio no hay certificado.
+3. **Darle una IP elástica** a la instancia, para que no cambie al
+   reiniciar. Con eso basta: Let's Encrypt también da certificado a una IP
+   (uno de seis días, que Caddy renueva solo). Si además tienes un dominio,
+   apúntalo a esa IP con un registro `A`: así una mudanza futura no obliga a
+   repartir el programa otra vez.
 
 4. Rellenar el `.env` (`cp .env.ejemplo .env`):
 
@@ -176,7 +178,8 @@ lo renueva sin que nadie se acuerde. Lo único que hace falta es un dominio.
      sesiones y **tiene que tener 32 caracteres o más**; si es más corto el
      servidor no arranca y dice por qué. Si no se pone nada, arranca con uno
      aleatorio pero avisa: cada reinicio cerraría la sesión de todo el mundo.
-   - `CONTAXCELL_DOMINIO`: el dominio del paso anterior.
+   - `CONTAXCELL_DOMINIO`: el dominio del paso anterior, o la IP elástica
+     tal cual (`203.0.113.10`, sin `https://`).
    - `CONTAXCELL_CODIGO_REGISTRO`: algo inventado, para que nadie que dé con
      la dirección se cree una cuenta. Se lo pasas a quien tenga que entrar.
 
@@ -207,10 +210,38 @@ lo renueva sin que nadie se acuerde. Lo único que hace falta es un dominio.
    curl https://EL-DOMINIO/api/salud
    ```
 
+Si `curl` da un error de TLS con la IP a secas, mira el `default_sni` del
+`Caddyfile`: quien llama a una IP no dice a qué dirección va, y sin esa línea
+Caddy no sabe qué certificado enseñar y corta.
+
 Con `restart: unless-stopped` los contenedores vuelven a levantarse solos si
 la máquina se reinicia. Para actualizar el servidor: copiar el código nuevo y
 `docker compose --profile https up -d --build`; los datos no se tocan, viven
 en el volumen.
+
+## Quién tiene cuenta y quién lo usa
+
+Desde la máquina, en la carpeta `server/`:
+
+```
+./usuarios
+```
+
+```
+3 usuarios registrados · 2 activos en los últimos 7 días
+
+USUARIO   CREADO       ÚLTIMO USO    SUBIDAS   LIBRO
+ricardo   2026-10-05   hoy 09:41         152   48 KB
+ana       2026-10-06   hace 3 días        12    9 KB
+luis      2026-10-06   nunca               0       —
+```
+
+El último uso se apunta al entrar con contraseña y con cada petición con
+sesión, como mucho una vez cada cinco minutos. «Subidas» son las veces que ha
+guardado su libro. De lo que hay dentro de cada libro no se enseña nada.
+
+No hay ruta en la API para esto, a propósito: solo lo ve quien entra en la
+máquina con la llave, y así no hay una puerta más que guardar.
 
 ## Copias de seguridad de la base de datos
 
@@ -233,8 +264,10 @@ docker compose exec -T db psql -U contaxcell contaxcell < copia-2026-08-24.sql
 Una línea en el cron de la máquina lo deja hecho cada noche:
 
 ```
-0 4 * * * cd /home/ubuntu/server && docker compose exec -T db pg_dump -U contaxcell contaxcell > /home/ubuntu/copias/contaxcell-$(date +\%F).sql
+0 4 * * * cd /home/ubuntu/server && docker compose exec -T db pg_dump -U contaxcell contaxcell > /home/ubuntu/copias/contaxcell-$(date +\%F).sql && find /home/ubuntu/copias -name "*.sql" -mtime +30 -delete
 ```
+
+(La parte del `find` borra las de más de un mes, para que el disco no se llene.)
 
 Conviene llevarse las copias fuera de la máquina de vez en cuando (a un S3,
 o simplemente un `scp` al ordenador de casa). Una copia que vive en el mismo
@@ -249,11 +282,13 @@ server/
 │   ├── almacen.py        guardar y leer: SQLite (pruebas) y Postgres (producción)
 │   ├── seguridad.py      contraseñas (scrypt) y fichas de sesión (HMAC)
 │   ├── limites.py        contar intentos para frenar a quien prueba a lo bruto
+│   ├── usuarios.py       la tabla de `./usuarios`: quién tiene cuenta y quién lo usa
 │   └── precios.py        cotizaciones: proveedor y caché de un día
 ├── pruebas/              sin red y sin Docker, con SQLite en memoria
 ├── Dockerfile            la imagen de la API
 ├── Caddyfile             el HTTPS de delante (perfil `https`)
-└── docker-compose.yml    la API, su Postgres y el Caddy
+├── docker-compose.yml    la API, su Postgres y el Caddy
+└── usuarios              atajo para la tabla de usuarios
 ```
 
 La separación que importa: `aplicacion.py` no sabe qué base de datos tiene

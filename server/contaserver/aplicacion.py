@@ -133,6 +133,8 @@ def crear_aplicacion(
         # ficha (o si el usuario ya no está), aquí se cae.
         if almacen.generacion_de(usuario_id) != generacion:
             raise HTTPException(401, "La ficha de sesión no vale o ha caducado.")
+        # Para el `./usuarios` del administrador: quién usa el servidor.
+        almacen.apuntar_uso(usuario_id)
         return usuario_id
 
     def apuntar_fallo(usuario: str, ip: str) -> None:
@@ -203,6 +205,7 @@ def crear_aplicacion(
         # Al acertar, la cuenta empieza de cero: los despistes de antes no se
         # le siguen guardando a quien sí sabe su contraseña.
         fallos_por_cuenta.olvida(usuario)
+        almacen.apuntar_uso(usuario_id)
         return {
             "token": seguridad.crear_ficha(secreto, usuario_id, generacion),
             "usuario": usuario,

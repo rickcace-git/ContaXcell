@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from datetime import datetime, timezone
 
 # psycopg solo hace falta en producción. Las pruebas y cualquier máquina sin
 # él siguen funcionando con SQLite, así que el import no puede ser mortal.
@@ -41,6 +42,20 @@ except ImportError:  # pragma: no cover - en las pruebas no está instalado
 
 class UsuarioYaExiste(Exception):
     """Alguien intenta registrarse con un nombre que ya está cogido."""
+
+
+# El último uso de cada usuario se apunta como mucho una vez cada tanto: para
+# saber quién usa el servidor basta con eso, y así no se escribe en la base
+# con cada petición que llega.
+MINUTOS_ENTRE_USOS = 5
+
+
+def _momento_sqlite(texto: str | None) -> datetime | None:
+    """Las fechas de SQLite son texto en UTC; aquí pasan a fecha con su zona,
+    que es como las devuelve Postgres."""
+    if not texto:
+        return None
+    return datetime.fromisoformat(texto).replace(tzinfo=timezone.utc)
 
 
 # --- SQLite: para las pruebas y para probar en local sin Docker --------------
@@ -62,7 +77,8 @@ class AlmacenSQLite:
                     hash       TEXT NOT NULL,
                     sal        TEXT NOT NULL,
                     generacion INTEGER NOT NULL DEFAULT 0,
-                    creado     TEXT NOT NULL DEFAULT (datetime('now'))
+                    creado     TEXT NOT NULL DEFAULT (datetime('now')),
+                    ultimo_uso TEXT
                 );
                 CREATE TABLE IF NOT EXISTS libros (
                     usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
@@ -85,15 +101,16 @@ class AlmacenSQLite:
                 );
             """)
             # Para una base que ya existía de antes: el CREATE de arriba no la
-            # toca, así que la columna nueva hay que añadirla aparte. Si ya
-            # está, SQLite protesta y no pasa nada.
-            try:
-                self._conexion.execute(
-                    "ALTER TABLE usuarios ADD COLUMN generacion"
-                    " INTEGER NOT NULL DEFAULT 0"
-                )
-            except sqlite3.OperationalError:
-                pass
+            # toca, así que las columnas nuevas hay que añadirlas aparte. Si
+            # ya están, SQLite protesta y no pasa nada.
+            for columna in ("generacion INTEGER NOT NULL DEFAULT 0",
+                            "ultimo_uso TEXT"):
+                try:
+                    self._conexion.execute(
+                        f"ALTER TABLE usuarios ADD COLUMN {columna}"
+                    )
+                except sqlite3.OperationalError:
+                    pass
             self._conexion.commit()
 
     def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str) -> int:
@@ -156,6 +173,47 @@ class AlmacenSQLite:
                 (usuario_id,),
             ).fetchone()
         return int(fila[0]) if fila else None
+
+    def apuntar_uso(self, usuario_id: int) -> None:
+        """Apunta que el usuario acaba de usar el servidor.
+
+        Solo escribe si la marca anterior tiene más de MINUTOS_ENTRE_USOS:
+        quien sincroniza diez veces seguidas no deja diez escrituras.
+        """
+        with self._candado:
+            self._conexion.execute(
+                "UPDATE usuarios SET ultimo_uso = datetime('now')"
+                " WHERE id = ? AND (ultimo_uso IS NULL"
+                " OR ultimo_uso < datetime('now', ?))",
+                (usuario_id, f"-{MINUTOS_ENTRE_USOS} minutes"),
+            )
+            self._conexion.commit()
+
+    def resumen_usuarios(self) -> list[dict]:
+        """Quién tiene cuenta, cuándo la creó, cuándo la usó y cuánto subió.
+
+        «subidas» es la revisión del libro: sube en uno con cada grabación.
+        «tamano» son los bytes del libro. Lo de dentro no sale de aquí.
+        Primero los que lo usaron hace menos; los que nunca, al final.
+        """
+        with self._candado:
+            filas = self._conexion.execute(
+                "SELECT u.usuario, u.creado, u.ultimo_uso,"
+                " COALESCE(l.revision, 0),"
+                " COALESCE(length(CAST(l.datos AS BLOB)), 0)"
+                " FROM usuarios u LEFT JOIN libros l ON l.usuario_id = u.id"
+                " ORDER BY u.ultimo_uso DESC NULLS LAST, u.usuario"
+            ).fetchall()
+        return [
+            {
+                "usuario": f[0],
+                "creado": _momento_sqlite(f[1]),
+                "ultimo_uso": _momento_sqlite(f[2]),
+                "subidas": int(f[3]),
+                "tamano": int(f[4]),
+            }
+            for f in filas
+        ]
 
     def leer_libro(self, usuario_id: int) -> tuple[int, dict | None]:
         """(revision, libro). Si nunca subió nada: (0, None)."""
@@ -289,6 +347,10 @@ class AlmacenPostgres:
             ADD COLUMN IF NOT EXISTS generacion INTEGER NOT NULL DEFAULT 0
         """)
         self._ejecutar("""
+            ALTER TABLE usuarios
+            ADD COLUMN IF NOT EXISTS ultimo_uso TIMESTAMPTZ
+        """)
+        self._ejecutar("""
             CREATE TABLE IF NOT EXISTS libros (
                 usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
                 revision    INTEGER NOT NULL,
@@ -358,6 +420,36 @@ class AlmacenPostgres:
         )
         fila = cursor.fetchone()
         return int(fila[0]) if fila else None
+
+    def apuntar_uso(self, usuario_id: int) -> None:
+        """Apunta que el usuario acaba de usar el servidor, como mucho una
+        vez cada MINUTOS_ENTRE_USOS."""
+        self._ejecutar(
+            "UPDATE usuarios SET ultimo_uso = now()"
+            " WHERE id = %s AND (ultimo_uso IS NULL"
+            " OR ultimo_uso < now() - make_interval(mins => %s))",
+            (usuario_id, MINUTOS_ENTRE_USOS),
+        )
+
+    def resumen_usuarios(self) -> list[dict]:
+        """Quién tiene cuenta y cuánto lo usa; ver la versión de SQLite."""
+        cursor = self._ejecutar(
+            "SELECT u.usuario, u.creado, u.ultimo_uso,"
+            " COALESCE(l.revision, 0),"
+            " COALESCE(octet_length(l.datos::text), 0)"
+            " FROM usuarios u LEFT JOIN libros l ON l.usuario_id = u.id"
+            " ORDER BY u.ultimo_uso DESC NULLS LAST, u.usuario"
+        )
+        return [
+            {
+                "usuario": f[0],
+                "creado": f[1],
+                "ultimo_uso": f[2],
+                "subidas": int(f[3]),
+                "tamano": int(f[4]),
+            }
+            for f in cursor.fetchall()
+        ]
 
     def leer_libro(self, usuario_id: int) -> tuple[int, dict | None]:
         cursor = self._ejecutar(
