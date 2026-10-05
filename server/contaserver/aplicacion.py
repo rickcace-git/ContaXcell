@@ -69,6 +69,11 @@ AVISO_DEMASIADOS = "Demasiados intentos. Espera un rato y prueba de nuevo."
 # Lo que lee en su app quien ha sido vetado con `./usuarios vetar`.
 AVISO_VETADO = ("Esta cuenta está bloqueada en el servidor. Habla con quien "
                 "administra ContaXcell.")
+# Y quien acaba de crear la cuenta en un servidor que acepta a mano. Va con
+# 403 en el libro: las apps lo distinguen del 401 y siguen guardando en local.
+AVISO_EN_ESPERA = ("Tu cuenta está creada, pero falta que la acepte quien "
+                   "administra ContaXcell. Mientras, todo se guarda en este "
+                   "aparato y se subirá solo cuando te acepte.")
 
 
 # Marca para distinguir «no me han dicho nada» de «me han dicho que sin
@@ -84,14 +89,20 @@ def crear_aplicacion(
     limite_entrar: tuple[int, float] | None = None,
     limite_registro: tuple[int, float] | None = None,
     cliente_precios=_SIN_DECIR,
+    aceptar_a_mano: bool | None = None,
 ) -> FastAPI:
     """Monta la aplicación con el almacén que le den.
 
     Las pruebas pasan un ``AlmacenSQLite`` en memoria, un secreto fijo y, si
     les interesa, límites de intentos más bajos o un cliente de precios de
     mentira, y así corren sin red. En producción no se pasa nada: se lee
-    CONTAXCELL_BASE_DATOS, CONTAXCELL_SECRETO y CONTAXCELL_CODIGO_REGISTRO
-    del entorno.
+    CONTAXCELL_BASE_DATOS, CONTAXCELL_SECRETO, CONTAXCELL_CODIGO_REGISTRO y
+    CONTAXCELL_ACEPTAR_CUENTAS del entorno.
+
+    Con ``aceptar_a_mano``, las cuentas nuevas nacen en espera: pueden entrar
+    pero no guardar nada hasta que el administrador las acepte con
+    ``./usuarios aceptar``. Así, aunque el código de invitación corra de
+    mano en mano, nadie se queda sin que lo vea alguien.
     """
     if almacen is None:
         almacen = _almacen_desde_entorno()
@@ -108,6 +119,9 @@ def crear_aplicacion(
     if codigo_registro is None:
         codigo_registro = os.environ.get("CONTAXCELL_CODIGO_REGISTRO", "")
     codigo_registro = codigo_registro.strip()
+    if aceptar_a_mano is None:
+        valor = os.environ.get("CONTAXCELL_ACEPTAR_CUENTAS", "").strip().lower()
+        aceptar_a_mano = valor in ("1", "si", "sí", "true")
 
     # Tres contadores: los fallos por IP, los fallos por cuenta y los
     # registros por IP. Separados a propósito: quien falla mucho contra una
@@ -131,18 +145,23 @@ def crear_aplicacion(
         if validada is None:
             raise HTTPException(401, "La ficha de sesión no vale o ha caducado.")
         usuario_id, generacion = validada
+        estado = almacen.estado_de(usuario_id)
         # La generación que trae la ficha tiene que ser la que el usuario
         # tiene ahora mismo. Si cambió la contraseña después de emitirse esta
         # ficha (o si el usuario ya no está), aquí se cae.
-        if almacen.generacion_de(usuario_id) != generacion:
+        if estado is None or estado[0] != generacion:
             raise HTTPException(401, "La ficha de sesión no vale o ha caducado.")
+        _generacion, vetado, en_espera = estado
         # Vetado: la sesión que tuviera abierta deja de valer al momento. Va
         # como 401, que las apps ya entienden como «vuelve a entrar»; y al
         # volver a entrar se encuentran con el 403 y este mismo motivo.
-        if almacen.esta_vetado(usuario_id):
+        if vetado:
             raise HTTPException(401, AVISO_VETADO)
-        # Para el `./usuarios` del administrador: quién usa el servidor.
+        # Para el `./usuarios` del administrador: quién usa el servidor. Va
+        # antes de la espera, para que se vea que el nuevo ya lo ha intentado.
         almacen.apuntar_uso(usuario_id)
+        if en_espera:
+            raise HTTPException(403, AVISO_EN_ESPERA)
         return usuario_id
 
     def apuntar_fallo(usuario: str, ip: str) -> None:
@@ -176,13 +195,18 @@ def crear_aplicacion(
         sal = seguridad.nueva_sal()
         hash_contrasena = seguridad.amasar_contrasena(contrasena, sal)
         try:
-            usuario_id = almacen.crear_usuario(usuario, hash_contrasena, sal)
+            usuario_id = almacen.crear_usuario(usuario, hash_contrasena, sal,
+                                               en_espera=aceptar_a_mano)
         except modulo_almacen.UsuarioYaExiste:
             raise HTTPException(409, "Ese nombre de usuario ya está cogido.")
+        if aceptar_a_mano:
+            registro_log.warning(
+                "Cuenta nueva en espera de aceptar: usuario=%r ip=%s", usuario, ip)
         generacion = almacen.generacion_de(usuario_id) or 0
         return {
             "token": seguridad.crear_ficha(secreto, usuario_id, generacion),
             "usuario": usuario,
+            "en_espera": aceptar_a_mano,
         }
 
     @app.post("/api/cuentas/entrar")
@@ -215,13 +239,15 @@ def crear_aplicacion(
         fallos_por_cuenta.olvida(usuario)
         # El veto se mira después de la contraseña, a propósito: a quien está
         # probando contraseñas no se le dice si la cuenta está vetada.
-        if almacen.esta_vetado(usuario_id):
+        _gen, vetado, en_espera = almacen.estado_de(usuario_id) or (0, False, False)
+        if vetado:
             registro_log.warning("Entrada de un usuario vetado: usuario=%r ip=%s", usuario, ip)
             raise HTTPException(403, AVISO_VETADO)
         almacen.apuntar_uso(usuario_id)
         return {
             "token": seguridad.crear_ficha(secreto, usuario_id, generacion),
             "usuario": usuario,
+            "en_espera": en_espera,
         }
 
     @app.post("/api/cuentas/contrasena")

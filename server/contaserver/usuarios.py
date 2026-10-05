@@ -5,6 +5,12 @@ Se mira desde la propia máquina, entrando por ssh:
     ./usuarios                                      (en la carpeta server/)
     docker compose exec api python -m contaserver.usuarios   (lo mismo, a mano)
 
+Si el servidor acepta las cuentas a mano (CONTAXCELL_ACEPTAR_CUENTAS=1), las
+nuevas salen las primeras, marcadas «EN ESPERA», y se deciden aquí:
+
+    ./usuarios aceptar NOMBRE      ya puede sincronizar; lo suyo se sube solo
+    ./usuarios rechazar NOMBRE     se borra la cuenta en espera
+
 Y desde aquí se veta a alguien, o se le quita el veto:
 
     ./usuarios vetar NOMBRE        no puede entrar ni sincronizar, al momento
@@ -83,19 +89,23 @@ def informe(filas: list[dict], ahora: datetime) -> str:
         if f["ultimo_uso"] and ahora - f["ultimo_uso"] < timedelta(days=DIAS_ACTIVO)
     )
     vetados = sum(1 for f in filas if f.get("vetado"))
+    esperando = sum(1 for f in filas if f.get("en_espera"))
     cabecera = (
         f"{total} usuario{'s' if total != 1 else ''} "
         f"registrado{'s' if total != 1 else ''} · "
         f"{activos} activo{'s' if activos != 1 else ''} "
         f"en los últimos {DIAS_ACTIVO} días"
     )
+    if esperando:
+        cabecera += f" · {esperando} en espera"
     if vetados:
         cabecera += f" · {vetados} vetado{'s' if vetados != 1 else ''}"
 
     titulos = ("USUARIO", "CREADO", "ÚLTIMO USO", "SUBIDAS", "LIBRO")
     renglones = [
         (
-            f["usuario"] + ("  (VETADO)" if f.get("vetado") else ""),
+            f["usuario"] + ("  (EN ESPERA)" if f.get("en_espera") else "")
+            + ("  (VETADO)" if f.get("vetado") else ""),
             f["creado"].astimezone(ZONA).strftime("%Y-%m-%d") if f["creado"] else "—",
             cuando(f["ultimo_uso"], ahora),
             str(f["subidas"]),
@@ -120,6 +130,8 @@ def informe(filas: list[dict], ahora: datetime) -> str:
         *(linea(r) for r in renglones),
         "",
         "SUBIDAS: las veces que ha guardado su libro en el servidor.",
+        *(["EN ESPERA: ./usuarios aceptar NOMBRE  o  ./usuarios rechazar NOMBRE"]
+          if esperando else []),
     ])
 
 
@@ -130,6 +142,8 @@ def nombre_normalizado(nombre: str) -> str:
 
 
 USO = ("Uso:  ./usuarios                    la tabla de usuarios\n"
+       "      ./usuarios aceptar NOMBRE     dejar entrar a una cuenta en espera\n"
+       "      ./usuarios rechazar NOMBRE    borrar una cuenta en espera\n"
        "      ./usuarios vetar NOMBRE       que no pueda entrar ni sincronizar\n"
        "      ./usuarios readmitir NOMBRE   quitarle el veto")
 
@@ -140,15 +154,37 @@ def ejecutar(almacen, argumentos: list[str], ahora: datetime) -> tuple[int, str]
     if not argumentos:
         return 0, informe(almacen.resumen_usuarios(), ahora)
     orden = argumentos[0]
-    if orden not in ("vetar", "readmitir") or len(argumentos) != 2:
+    if orden not in ("aceptar", "rechazar", "vetar", "readmitir") or len(argumentos) != 2:
         return 2, USO
     nombre = nombre_normalizado(argumentos[1])
+    if orden in ("aceptar", "rechazar"):
+        return _decidir(almacen, orden, nombre)
     if not almacen.vetar(nombre, orden == "vetar"):
         return 1, f"No hay ningún usuario «{nombre}». Mira los nombres con ./usuarios"
     if orden == "vetar":
         return 0, (f"«{nombre}» queda vetado: ya no puede entrar ni sincronizar.\n"
                    f"Su libro sigue guardado. Para deshacerlo: ./usuarios readmitir {nombre}")
     return 0, f"«{nombre}» vuelve a poder entrar. Tendrá que poner su contraseña otra vez."
+
+
+def _decidir(almacen, orden: str, nombre: str) -> tuple[int, str]:
+    """Aceptar o rechazar una cuenta en espera."""
+    fila = next((f for f in almacen.resumen_usuarios() if f["usuario"] == nombre), None)
+    if fila is None:
+        return 1, f"No hay ningún usuario «{nombre}». Mira los nombres con ./usuarios"
+    if orden == "aceptar":
+        if not fila["en_espera"]:
+            return 0, f"«{nombre}» ya estaba aceptado."
+        almacen.aceptar(nombre)
+        return 0, (f"«{nombre}» aceptado: ya puede sincronizar. Lo que tenga en su "
+                   "aparato se subirá solo la próxima vez que su app mire.")
+    if not fila["en_espera"]:
+        # Rechazar borra la cuenta: solo para las que nunca han guardado nada.
+        return 1, (f"«{nombre}» ya está aceptado y no se rechaza, que eso borraría "
+                   f"su cuenta. Para echarlo: ./usuarios vetar {nombre}")
+    almacen.rechazar(nombre)
+    return 0, (f"«{nombre}» rechazado: su cuenta en espera se ha borrado. Si vuelve "
+               f"a crearla una y otra vez, mejor ./usuarios vetar {nombre}.")
 
 
 def main() -> int:

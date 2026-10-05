@@ -686,7 +686,8 @@ class PruebaQuienLoUsa(unittest.TestCase):
         ana = self.resumen("ana")
         self.assertEqual(ana["subidas"], 3)
         self.assertGreater(ana["tamano"], 0)
-        self.assertEqual(set(ana), {"usuario", "creado", "ultimo_uso", "subidas", "tamano", "vetado"})
+        self.assertEqual(set(ana), {"usuario", "creado", "ultimo_uso", "subidas", "tamano",
+                                    "vetado", "en_espera"})
         # Quien nunca subió nada sale igual, con ceros.
         self.assertEqual((self.resumen("bea")["subidas"], self.resumen("bea")["tamano"]), (0, 0))
 
@@ -780,6 +781,90 @@ class PruebaVeto(unittest.TestCase):
         self.assertEqual(ejecutar(self.almacen, ["vetar", "nadie"], ahora)[0], 1)
         self.assertEqual(ejecutar(self.almacen, ["borrar", "ana"], ahora)[0], 2)
         self.assertEqual(ejecutar(self.almacen, ["vetar"], ahora)[0], 2)
+
+
+class PruebaAceptarAMano(unittest.TestCase):
+    """Con CONTAXCELL_ACEPTAR_CUENTAS, el código no basta: hay que aceptarla."""
+
+    def setUp(self):
+        self.almacen = AlmacenSQLite()
+        self.cliente = TestClient(crear_aplicacion(
+            almacen=self.almacen, secreto=SECRETO_DE_PRUEBA, cliente_precios=None,
+            aceptar_a_mano=True,
+        ))
+
+    def registro(self, usuario="ana"):
+        respuesta = self.cliente.post("/api/cuentas/registro",
+                                      json={"usuario": usuario, "contrasena": "contrasena1"})
+        self.assertEqual(respuesta.status_code, 201, respuesta.text)
+        return respuesta.json()
+
+    def test_la_cuenta_nueva_nace_en_espera_y_lo_dice(self):
+        cuerpo = self.registro()
+        self.assertTrue(cuerpo["en_espera"])
+        self.assertTrue(cuerpo["token"])  # entra, pero no guarda nada todavía
+        cabeceras = {"Authorization": f"Bearer {cuerpo['token']}"}
+        for respuesta in (self.cliente.get("/api/libro", headers=cabeceras),
+                          self.cliente.put("/api/libro", headers=cabeceras,
+                                           json={"revision_base": 0, "libro": UN_LIBRO}),
+                          self.cliente.get("/api/precios/buscar?q=msci", headers=cabeceras)):
+            self.assertEqual(respuesta.status_code, 403)
+            self.assertIn("falta que la acepte", respuesta.json()["detail"])
+
+    def test_al_entrar_tambien_se_sabe(self):
+        self.registro()
+        respuesta = self.cliente.post("/api/cuentas/entrar",
+                                      json={"usuario": "ana", "contrasena": "contrasena1"})
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.json()["en_espera"])
+
+    def test_aceptada_sube_con_la_misma_sesion(self):
+        token = self.registro()["token"]
+        self.assertTrue(self.almacen.aceptar("ana"))
+        cabeceras = {"Authorization": f"Bearer {token}"}
+        respuesta = self.cliente.put("/api/libro", headers=cabeceras,
+                                     json={"revision_base": 0, "libro": UN_LIBRO})
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_quien_ya_estaba_no_espera(self):
+        # Las cuentas de antes de encender esto entran como siempre.
+        self.almacen.crear_usuario("vieja", "h", "s")
+        self.assertFalse(self.almacen.resumen_usuarios()[0]["en_espera"])
+
+    def test_en_la_tabla_salen_las_primeras(self):
+        self.almacen.crear_usuario("vieja", "h", "s")
+        self.almacen.apuntar_uso(1)
+        self.registro("nueva")
+        orden = [f["usuario"] for f in self.almacen.resumen_usuarios()]
+        self.assertEqual(orden, ["nueva", "vieja"])
+
+    def test_rechazar_borra_solo_las_que_esperan(self):
+        self.registro("ana")
+        self.almacen.crear_usuario("vieja", "h", "s")
+        self.assertFalse(self.almacen.rechazar("vieja"))
+        self.assertTrue(self.almacen.rechazar("ana"))
+        self.assertEqual([f["usuario"] for f in self.almacen.resumen_usuarios()], ["vieja"])
+
+    def test_la_orden_de_la_terminal(self):
+        from contaserver.usuarios import ejecutar
+        ahora = datetime.now(timezone.utc)
+        self.registro("ana")
+        self.registro("bea")
+        self.almacen.crear_usuario("vieja", "h", "s")
+        texto = ejecutar(self.almacen, [], ahora)[1]
+        self.assertIn("· 2 en espera", texto)
+        self.assertIn("ana  (EN ESPERA)", texto)
+        self.assertIn("./usuarios aceptar NOMBRE", texto)
+        self.assertEqual(ejecutar(self.almacen, ["aceptar", "ANA"], ahora)[0], 0)
+        self.assertIn("ya estaba aceptado", ejecutar(self.almacen, ["aceptar", "ana"], ahora)[1])
+        codigo, texto = ejecutar(self.almacen, ["rechazar", "vieja"], ahora)
+        self.assertEqual(codigo, 1)
+        self.assertIn("vetar", texto)
+        self.assertEqual(ejecutar(self.almacen, ["rechazar", "bea"], ahora)[0], 0)
+        self.assertEqual(ejecutar(self.almacen, ["aceptar", "nadie"], ahora)[0], 1)
+        texto = ejecutar(self.almacen, [], ahora)[1]
+        self.assertNotIn("EN ESPERA", texto)
+        self.assertNotIn("bea", texto)
 
 
 class PruebaInformeDeUsuarios(unittest.TestCase):

@@ -243,6 +243,24 @@ guardado su libro. De lo que hay dentro de cada libro no se enseña nada.
 No hay ruta en la API para esto, a propósito: solo lo ve quien entra en la
 máquina con la llave, y así no hay una puerta más que guardar.
 
+### Aceptar las cuentas a mano
+
+Con `CONTAXCELL_ACEPTAR_CUENTAS=1` en el `.env`, el código de invitación ya no
+basta: quien se registra entra, pero su cuenta queda **en espera** y el
+servidor no le guarda nada (contesta 403 al libro y a los precios) hasta que
+la aceptes. Su app se lo explica y sigue guardando en su aparato; el día que
+la aceptas, lo suyo se sube solo, sin que tenga que volver a entrar.
+
+```
+./usuarios                     las que esperan salen las primeras, marcadas
+./usuarios aceptar NOMBRE      ya puede sincronizar
+./usuarios rechazar NOMBRE     se borra la cuenta en espera
+```
+
+Rechazar solo vale para las que esperan: a una cuenta aceptada no se la borra
+por aquí, que para eso está el veto. Las cuentas que ya existían al encender
+esto quedan aceptadas. Desde el móvil se hace igual, con una app de ssh.
+
 ### Vetar a alguien
 
 ```

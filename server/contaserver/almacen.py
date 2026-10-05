@@ -79,7 +79,8 @@ class AlmacenSQLite:
                     generacion INTEGER NOT NULL DEFAULT 0,
                     creado     TEXT NOT NULL DEFAULT (datetime('now')),
                     ultimo_uso TEXT,
-                    vetado     TEXT
+                    vetado     TEXT,
+                    en_espera  INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE TABLE IF NOT EXISTS libros (
                     usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
@@ -105,7 +106,8 @@ class AlmacenSQLite:
             # toca, así que las columnas nuevas hay que añadirlas aparte. Si
             # ya están, SQLite protesta y no pasa nada.
             for columna in ("generacion INTEGER NOT NULL DEFAULT 0",
-                            "ultimo_uso TEXT", "vetado TEXT"):
+                            "ultimo_uso TEXT", "vetado TEXT",
+                            "en_espera INTEGER NOT NULL DEFAULT 0"):
                 try:
                     self._conexion.execute(
                         f"ALTER TABLE usuarios ADD COLUMN {columna}"
@@ -114,12 +116,16 @@ class AlmacenSQLite:
                     pass
             self._conexion.commit()
 
-    def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str) -> int:
+    def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str,
+                      en_espera: bool = False) -> int:
+        """Con `en_espera`, la cuenta existe pero no guarda nada hasta que el
+        administrador la acepte (`./usuarios aceptar`)."""
         with self._candado:
             try:
                 cursor = self._conexion.execute(
-                    "INSERT INTO usuarios (usuario, hash, sal) VALUES (?, ?, ?)",
-                    (usuario, hash_contrasena, sal),
+                    "INSERT INTO usuarios (usuario, hash, sal, en_espera)"
+                    " VALUES (?, ?, ?, ?)",
+                    (usuario, hash_contrasena, sal, 1 if en_espera else 0),
                 )
                 self._conexion.commit()
             except sqlite3.IntegrityError:
@@ -190,12 +196,37 @@ class AlmacenSQLite:
             )
             self._conexion.commit()
 
-    def esta_vetado(self, usuario_id: int) -> bool:
+    def estado_de(self, usuario_id: int) -> tuple[int, bool, bool] | None:
+        """(generacion, vetado, en_espera) del usuario, o None si no existe.
+        Todo de una vez: es lo que se mira en cada petición con sesión."""
         with self._candado:
             fila = self._conexion.execute(
-                "SELECT vetado FROM usuarios WHERE id = ?", (usuario_id,),
+                "SELECT generacion, vetado, en_espera FROM usuarios WHERE id = ?",
+                (usuario_id,),
             ).fetchone()
-        return bool(fila and fila[0])
+        return (int(fila[0]), bool(fila[1]), bool(fila[2])) if fila else None
+
+    def aceptar(self, usuario: str) -> bool:
+        """Saca la cuenta de la espera. Devuelve si existía."""
+        with self._candado:
+            cursor = self._conexion.execute(
+                "UPDATE usuarios SET en_espera = 0 WHERE usuario = ?", (usuario,))
+            self._conexion.commit()
+        return cursor.rowcount == 1
+
+    def rechazar(self, usuario: str) -> bool:
+        """Borra una cuenta **en espera**. Una aceptada no se toca nunca por
+        aquí: para echar a alguien que ya usa el servidor está el veto, que
+        no tira nada. Devuelve si se borró."""
+        with self._candado:
+            self._conexion.execute(
+                "DELETE FROM libros WHERE usuario_id IN"
+                " (SELECT id FROM usuarios WHERE usuario = ? AND en_espera = 1)",
+                (usuario,))
+            cursor = self._conexion.execute(
+                "DELETE FROM usuarios WHERE usuario = ? AND en_espera = 1", (usuario,))
+            self._conexion.commit()
+        return cursor.rowcount == 1
 
     def vetar(self, usuario: str, vetado: bool) -> bool:
         """Veta al usuario (o le quita el veto). Devuelve si existía.
@@ -218,15 +249,16 @@ class AlmacenSQLite:
 
         «subidas» es la revisión del libro: sube en uno con cada grabación.
         «tamano» son los bytes del libro. Lo de dentro no sale de aquí.
-        Primero los que lo usaron hace menos; los que nunca, al final.
+        Primero los que esperan a ser aceptados, para que se vean; luego
+        los que lo usaron hace menos, y los que nunca, al final.
         """
         with self._candado:
             filas = self._conexion.execute(
                 "SELECT u.usuario, u.creado, u.ultimo_uso,"
                 " COALESCE(l.revision, 0),"
-                " COALESCE(length(CAST(l.datos AS BLOB)), 0), u.vetado"
+                " COALESCE(length(CAST(l.datos AS BLOB)), 0), u.vetado, u.en_espera"
                 " FROM usuarios u LEFT JOIN libros l ON l.usuario_id = u.id"
-                " ORDER BY u.ultimo_uso DESC NULLS LAST, u.usuario"
+                " ORDER BY u.en_espera DESC, u.ultimo_uso DESC NULLS LAST, u.usuario"
             ).fetchall()
         return [
             {
@@ -236,6 +268,7 @@ class AlmacenSQLite:
                 "subidas": int(f[3]),
                 "tamano": int(f[4]),
                 "vetado": _momento_sqlite(f[5]),
+                "en_espera": bool(f[6]),
             }
             for f in filas
         ]
@@ -380,6 +413,10 @@ class AlmacenPostgres:
             ADD COLUMN IF NOT EXISTS vetado TIMESTAMPTZ
         """)
         self._ejecutar("""
+            ALTER TABLE usuarios
+            ADD COLUMN IF NOT EXISTS en_espera BOOLEAN NOT NULL DEFAULT false
+        """)
+        self._ejecutar("""
             CREATE TABLE IF NOT EXISTS libros (
                 usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
                 revision    INTEGER NOT NULL,
@@ -405,12 +442,13 @@ class AlmacenPostgres:
             )
         """)
 
-    def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str) -> int:
+    def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str,
+                      en_espera: bool = False) -> int:
         try:
             cursor = self._ejecutar(
-                "INSERT INTO usuarios (usuario, hash, sal) VALUES (%s, %s, %s)"
-                " RETURNING id",
-                (usuario, hash_contrasena, sal),
+                "INSERT INTO usuarios (usuario, hash, sal, en_espera)"
+                " VALUES (%s, %s, %s, %s) RETURNING id",
+                (usuario, hash_contrasena, sal, en_espera),
             )
         except psycopg.errors.UniqueViolation:
             raise UsuarioYaExiste(usuario)
@@ -460,11 +498,27 @@ class AlmacenPostgres:
             (usuario_id, MINUTOS_ENTRE_USOS),
         )
 
-    def esta_vetado(self, usuario_id: int) -> bool:
+    def estado_de(self, usuario_id: int) -> tuple[int, bool, bool] | None:
         cursor = self._ejecutar(
-            "SELECT vetado FROM usuarios WHERE id = %s", (usuario_id,))
+            "SELECT generacion, vetado, en_espera FROM usuarios WHERE id = %s",
+            (usuario_id,))
         fila = cursor.fetchone()
-        return bool(fila and fila[0])
+        return (int(fila[0]), fila[1] is not None, bool(fila[2])) if fila else None
+
+    def aceptar(self, usuario: str) -> bool:
+        cursor = self._ejecutar(
+            "UPDATE usuarios SET en_espera = false WHERE usuario = %s", (usuario,))
+        return cursor.rowcount == 1
+
+    def rechazar(self, usuario: str) -> bool:
+        """Borra una cuenta en espera; ver la versión de SQLite."""
+        self._ejecutar(
+            "DELETE FROM libros WHERE usuario_id IN"
+            " (SELECT id FROM usuarios WHERE usuario = %s AND en_espera)",
+            (usuario,))
+        cursor = self._ejecutar(
+            "DELETE FROM usuarios WHERE usuario = %s AND en_espera", (usuario,))
+        return cursor.rowcount == 1
 
     def vetar(self, usuario: str, vetado: bool) -> bool:
         """Veta al usuario o le quita el veto; ver la versión de SQLite."""
@@ -481,9 +535,9 @@ class AlmacenPostgres:
         cursor = self._ejecutar(
             "SELECT u.usuario, u.creado, u.ultimo_uso,"
             " COALESCE(l.revision, 0),"
-            " COALESCE(octet_length(l.datos::text), 0), u.vetado"
+            " COALESCE(octet_length(l.datos::text), 0), u.vetado, u.en_espera"
             " FROM usuarios u LEFT JOIN libros l ON l.usuario_id = u.id"
-            " ORDER BY u.ultimo_uso DESC NULLS LAST, u.usuario"
+            " ORDER BY u.en_espera DESC, u.ultimo_uso DESC NULLS LAST, u.usuario"
         )
         return [
             {
@@ -493,6 +547,7 @@ class AlmacenPostgres:
                 "subidas": int(f[3]),
                 "tamano": int(f[4]),
                 "vetado": f[5],
+                "en_espera": bool(f[6]),
             }
             for f in cursor.fetchall()
         ]
