@@ -43,6 +43,23 @@ class AuthRepositoryTest {
     }
 
     @Test
+    fun registeringOnAServerThatApprovesByHandRemembersTheWait() = runTest {
+        val api = AuthFakeApi().apply {
+            registerResponse = HttpResult(201, buildJsonObject {
+                put("token", JsonPrimitive("t"))
+                put("usuario", JsonPrimitive("ana"))
+                put("en_espera", JsonPrimitive(true))
+            })
+        }
+        val sessions = AuthMemorySessions()
+
+        val session = AuthRepository(api, sessions).register("ana", "contrasena1", "https://sync.example")
+
+        assertTrue(session.awaitingApproval)
+        assertTrue(sessions.value.awaitingApproval)
+    }
+
+    @Test
     fun invitationErrorIsTypedForSimplifiedUiRetry() = runTest {
         val api = AuthFakeApi().apply {
             registerResponse = HttpResult(403, buildJsonObject { put("detail", JsonPrimitive("Hace falta código")) })

@@ -2,6 +2,7 @@ package com.contaxcell.app.data.remote
 
 import com.contaxcell.app.data.sync.SessionStore
 import com.contaxcell.app.data.sync.SyncSession
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -121,6 +122,8 @@ class AuthRepository(
             lastRevision = if (old.username == normalizedUser) old.lastRevision else 0,
             pending = if (old.username == normalizedUser) old.pending else false,
             expired = false,
+            // Servidor que acepta las cuentas a mano: entra, pero no guarda nada hasta entonces.
+            awaitingApproval = body["en_espera"]?.jsonPrimitive?.booleanOrNull == true,
         ).also { sessions.write(it) }
     }
 

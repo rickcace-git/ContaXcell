@@ -34,6 +34,7 @@ sealed interface SyncEvent {
     data object Synced : SyncEvent
     data object Offline : SyncEvent
     data object SessionExpired : SyncEvent
+    data object AwaitingApproval : SyncEvent
     data class ConflictBackedUp(val location: String?) : SyncEvent
     data class Downloaded(val revision: Int, val localWasUnlinked: Boolean) : SyncEvent
     data class UnexpectedServerResponse(val statusCode: Int) : SyncEvent
@@ -44,6 +45,8 @@ sealed interface SyncResult {
     data object NoSession : SyncResult
     data object Offline : SyncResult
     data object SessionExpired : SyncResult
+    /** El servidor acepta las cuentas a mano y esta aún no lo está. Lo local sigue pendiente. */
+    data object AwaitingApproval : SyncResult
     data class Uploaded(val revision: Int, val stillPending: Boolean) : SyncResult
     data class Downloaded(val revision: Int, val localWasUnlinked: Boolean) : SyncResult
     data class Failed(val statusCode: Int? = null) : SyncResult
@@ -96,6 +99,7 @@ class SyncEngine(
     fun statusText(session: SyncSession): String = when {
         !session.isSignedIn -> "Sin cuenta."
         session.expired -> "Sesión caducada: entra de nuevo para seguir sincronizando."
+        session.awaitingApproval -> AWAITING_APPROVAL_TEXT
         session.pending -> "Hay cambios pendientes de subir. Se subirán al volver la conexión."
         else -> "Al día con el servidor."
     }
@@ -123,7 +127,7 @@ class SyncEngine(
                         ?: return unexpected(response.statusCode)
                     val changedWhileUploading = editGeneration.get() != generationAtStart
                     sessions.update {
-                        it.copy(lastRevision = revision, pending = changedWhileUploading)
+                        it.copy(lastRevision = revision, pending = changedWhileUploading, awaitingApproval = false)
                     }
                     events.emit(SyncEvent.Synced)
                     return SyncResult.Uploaded(revision, changedWhileUploading)
@@ -141,6 +145,7 @@ class SyncEngine(
                     baseRevision = revision
                 }
                 401 -> return expireSession("Subir", response.detail(), initial.token)
+                403 -> return awaitApproval()
                 else -> return unexpected(response.statusCode)
             }
         }
@@ -159,7 +164,9 @@ class SyncEngine(
             return SyncResult.Offline
         }
         if (response.statusCode == 401) return expireSession("Descargar", response.detail(), session.token)
+        if (response.statusCode == 403) return awaitApproval()
         if (response.statusCode != 200) return unexpected(response.statusCode)
+        if (session.awaitingApproval) sessions.update { it.copy(awaitingApproval = false) }
         val body = response.objectBody ?: return unexpected(response.statusCode)
         val revision = body["revision"]?.jsonPrimitive?.intOrNull
             ?: return unexpected(response.statusCode)
@@ -210,12 +217,25 @@ class SyncEngine(
         return SyncResult.SessionExpired
     }
 
+    /**
+     * La cuenta espera a que la acepte el administrador. No es un error ni una sesión
+     * caducada: el pendiente se queda puesto y, el día que la acepte, se sube sola.
+     */
+    private suspend fun awaitApproval(): SyncResult.AwaitingApproval {
+        sessions.update { it.copy(awaitingApproval = true) }
+        events.emit(SyncEvent.AwaitingApproval)
+        return SyncResult.AwaitingApproval
+    }
+
     private suspend fun unexpected(status: Int): SyncResult.Failed {
         events.emit(SyncEvent.UnexpectedServerResponse(status))
         return SyncResult.Failed(status)
     }
 
-    private companion object {
-        const val MAX_CONFLICT_RETRIES = 3
+    companion object {
+        private const val MAX_CONFLICT_RETRIES = 3
+        const val AWAITING_APPROVAL_TEXT =
+            "Tu cuenta espera a que la acepte quien administra ContaXcell. " +
+                "Mientras, todo se guarda en el teléfono y se subirá solo cuando te acepte."
     }
 }

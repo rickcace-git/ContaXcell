@@ -448,7 +448,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 else authRepository.login(user, password, server)
             }.onSuccess { session ->
                 auth = AuthUiState.SignedIn(session.username, session.serverUrl)
-                message = UiMessage(if (register) "Cuenta creada" else "Sesión iniciada", MessageKind.Success)
+                message = if (session.awaitingApproval) {
+                    UiMessage(SyncEngine.AWAITING_APPROVAL_TEXT, MessageKind.Warning)
+                } else {
+                    UiMessage(if (register) "Cuenta creada" else "Sesión iniciada", MessageKind.Success)
+                }
                 updateSyncUi()
                 refresh()
                 syncNow()
@@ -475,6 +479,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 SyncResult.NoSession -> Unit
                 SyncResult.Offline -> syncUi = SyncUiState(SyncStatus.Offline, "Sin conexión · cambios a salvo")
                 SyncResult.SessionExpired -> syncUi = sesionCaducada()
+                SyncResult.AwaitingApproval -> syncUi = esperandoAceptacion()
                 is SyncResult.Failed -> syncUi = SyncUiState(SyncStatus.Error, "No se ha podido sincronizar")
             }
             updateSyncUi(keepError = true)
@@ -1096,6 +1101,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 SyncEvent.Synced -> syncUi = SyncUiState(SyncStatus.Synced, "Al día")
                 SyncEvent.Offline -> syncUi = SyncUiState(SyncStatus.Offline, "Sin conexión · cambios a salvo")
                 SyncEvent.SessionExpired -> syncUi = sesionCaducada()
+                SyncEvent.AwaitingApproval -> syncUi = esperandoAceptacion()
                 is SyncEvent.ConflictBackedUp -> message = UiMessage("Había cambios de otro dispositivo; se ha guardado una copia.", MessageKind.Warning)
                 is SyncEvent.Downloaded -> {
                     book = withContext(Dispatchers.IO) { store.load().libro }
@@ -1112,12 +1118,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return SyncUiState(SyncStatus.Error, "Sesión caducada")
     }
 
+    private fun esperandoAceptacion() =
+        SyncUiState(SyncStatus.Pending, "Esperando a que te acepten · a salvo en el teléfono")
+
     private suspend fun updateSyncUi(keepError: Boolean = false) {
         if (keepError && syncUi.status in setOf(SyncStatus.Error, SyncStatus.Offline)) return
         val session = sessions.read()
         syncUi = when {
             !session.isSignedIn -> SyncUiState(SyncStatus.Offline, "Solo en este dispositivo")
             session.expired -> sesionCaducada()
+            session.awaitingApproval -> esperandoAceptacion()
             session.pending -> SyncUiState(SyncStatus.Pending, "Pendiente · a salvo en el teléfono")
             else -> SyncUiState(SyncStatus.Synced, "Al día")
         }

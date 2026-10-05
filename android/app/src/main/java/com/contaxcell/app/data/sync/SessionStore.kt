@@ -11,6 +11,8 @@ data class SyncSession(
     val lastRevision: Int = 0,
     val pending: Boolean = false,
     val expired: Boolean = false,
+    /** La cuenta existe pero el administrador aún no la ha aceptado (403 al libro). */
+    val awaitingApproval: Boolean = false,
 ) {
     val isSignedIn: Boolean get() = token.isNotBlank()
 
@@ -66,6 +68,7 @@ class SharedPreferencesSessionStore(context: Context) : SessionStore {
         lastRevision = preferences.getInt(KEY_REVISION, 0).coerceAtLeast(0),
         pending = preferences.getBoolean(KEY_PENDING, false),
         expired = preferences.getBoolean(KEY_EXPIRED, false),
+        awaitingApproval = preferences.getBoolean(KEY_AWAITING, false),
     )
 
     private fun writeUnlocked(session: SyncSession) {
@@ -76,6 +79,7 @@ class SharedPreferencesSessionStore(context: Context) : SessionStore {
             .putInt(KEY_REVISION, session.lastRevision.coerceAtLeast(0))
             .putBoolean(KEY_PENDING, session.pending)
             .putBoolean(KEY_EXPIRED, session.expired)
+            .putBoolean(KEY_AWAITING, session.awaitingApproval)
             .commit()
     }
 
@@ -87,5 +91,6 @@ class SharedPreferencesSessionStore(context: Context) : SessionStore {
         const val KEY_REVISION = "last_revision"
         const val KEY_PENDING = "pending"
         const val KEY_EXPIRED = "expired"
+        const val KEY_AWAITING = "awaiting_approval"
     }
 }

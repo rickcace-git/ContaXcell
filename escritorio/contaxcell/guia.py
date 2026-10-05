@@ -220,6 +220,10 @@ Con una cuenta, tu contabilidad se guarda también en tu servidor y la puedes ll
 • Si no hay internet, sigues apuntando igual. Lo pendiente se sube cuando vuelve la conexión.
 • Al abrir el programa, se trae lo que hayas cambiado en otro sitio.
 
+## Al crear la cuenta
+Pide usuario, contraseña y el código de invitación que te haya dado quien administra ContaXcell. El ojo junto a la contraseña la enseña, para comprobarla antes de crearla.
+Es posible que tu cuenta tenga que esperar a que la acepten. Mientras tanto usas el programa igual y todo se guarda en este ordenador; el día que te acepten, se sube solo, sin hacer nada.
+
 ## En Ajustes ▸ Tu cuenta
 • «Cambiar la contraseña…»: este ordenador sigue dentro, pero en los demás habrá que volver a entrar.
 • «Cerrar sesión»: tus datos se quedan en este ordenador.

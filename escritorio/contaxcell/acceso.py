@@ -11,8 +11,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from . import iconos, tema, widgets
-from .sincronia import ErrorDeSincronia, FaltaCodigo, Sincronia
+from . import dialogos, iconos, tema, widgets
+from .sincronia import MENSAJE_EN_ESPERA, ErrorDeSincronia, FaltaCodigo, Sincronia
 
 # Lo que puede devolver la ventana.
 DENTRO = "dentro"
@@ -188,6 +188,11 @@ class VentanaAcceso(tk.Toplevel):
             self.error.configure(text=str(error))
             self.bell()
             return
+        if self.sincronia.en_espera:
+            # Ha entrado, pero el servidor no le guardará nada hasta que lo
+            # acepten: mejor saberlo ahora que creer que ya está sincronizado.
+            dialogos.avisar(self, "Cuenta creada. Falta que te acepten.",
+                            MENSAJE_EN_ESPERA)
         self.resultado = DENTRO
         self.destroy()
 

@@ -56,6 +56,8 @@ class SyncWorker(
             SyncResult.Current,
             SyncResult.NoSession,
             SyncResult.SessionExpired,
+            // Esperando a que la acepten: el periódico volverá a probar solo.
+            SyncResult.AwaitingApproval,
             is SyncResult.Uploaded,
             is SyncResult.Downloaded -> Result.success()
             SyncResult.Offline -> Result.retry()

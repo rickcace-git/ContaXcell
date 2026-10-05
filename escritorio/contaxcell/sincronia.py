@@ -106,6 +106,9 @@ MENSAJE_CADUCADA = ("La sesión ha caducado. Entra de nuevo desde Ajustes; "
                     "mientras tanto todo sigue funcionando sin conexión.")
 MENSAJE_DEMASIADOS_INTENTOS = ("Demasiados intentos seguidos. El servidor ha "
                                "pedido esperar un rato antes de volver a probar.")
+MENSAJE_EN_ESPERA = ("Tu cuenta espera a que la acepte quien administra "
+                     "ContaXcell. Mientras, todo se guarda en este ordenador "
+                     "y se subirá solo cuando te acepte.")
 MENSAJE_FALTA_CODIGO = ("Este servidor solo deja crear cuentas con un código de "
                         "invitación. Pídeselo a quien lo administra y escríbelo "
                         "abajo.")
@@ -170,6 +173,11 @@ class Sincronia:
 
         self.sesion = self._sesion_vacia()
         self.caducada = False
+        # La cuenta existe pero el administrador todavía no la ha aceptado: el
+        # servidor contesta 403 al libro. No es un error: se sigue guardando
+        # aquí y se reintenta, y el día que la acepte se sube sola.
+        self.en_espera = False
+        self._en_espera_avisado = False
         # Cuenta cuántas veces se ha marcado algo pendiente. Sirve para no
         # dar por subido un cambio que llegó mientras la subida ya volaba.
         self._generacion = 0
@@ -315,6 +323,9 @@ class Sincronia:
             self.sesion["token"] = str(datos["token"])
             self._guardar_sesion()
         self.caducada = False
+        self.en_espera = bool(datos.get("en_espera"))
+        # La ventana de acceso ya lo cuenta en grande: abajo no hace falta más.
+        self._en_espera_avisado = self.en_espera
         self._despertador.set()
 
     def cambiar_contrasena(self, actual: str, nueva: str) -> None:
@@ -420,6 +431,8 @@ class Sincronia:
             return "Sin cuenta."
         if self.caducada:
             return "Sesión caducada: hay que entrar de nuevo para seguir subiendo."
+        if self.en_espera:
+            return MENSAJE_EN_ESPERA
         if self.sesion["pendiente"]:
             return "Hay cambios pendientes de subir. Se subirán solos al haber conexión."
         return "Al día con el servidor."
@@ -496,9 +509,13 @@ class Sincronia:
         if codigo == 401:
             self._caducar()
             return False
+        if codigo == 403:
+            self._esperar_aceptacion()
+            return False
         if codigo != 200 or not isinstance(datos, dict):
             return False
         self._sin_conexion_avisado = False
+        self.en_espera = False
 
         revision = int(datos.get("revision") or 0)
         libro = datos.get("libro")
@@ -571,6 +588,7 @@ class Sincronia:
                         self.sesion["pendiente"] = False
                     self._guardar_sesion()
                 self._sin_conexion_avisado = False
+                self.en_espera = False
                 self.avisos.put(("estado", "Sincronizado.", "bien"))
                 return True
 
@@ -593,6 +611,10 @@ class Sincronia:
                 self._caducar()
                 return False
 
+            if codigo == 403:
+                self._esperar_aceptacion()
+                return False
+
             return False  # Respuesta rara: mejor reintentar más tarde.
         return False
 
@@ -605,6 +627,15 @@ class Sincronia:
             self._sin_conexion_avisado = True
             self.avisos.put(("estado", MENSAJE_SIN_CONEXION, ""))
         # Sin servidor no hay nada que esperar: que la ventana siga.
+        self._dar_por_comprobado()
+
+    def _esperar_aceptacion(self) -> None:
+        """El servidor dice que la cuenta aún no está aceptada. Se avisa una
+        vez y se sigue como sin conexión: guardando aquí y reintentando."""
+        self.en_espera = True
+        if not self._en_espera_avisado:
+            self._en_espera_avisado = True
+            self.avisos.put(("estado", MENSAJE_EN_ESPERA, ""))
         self._dar_por_comprobado()
 
     def _caducar(self) -> None:

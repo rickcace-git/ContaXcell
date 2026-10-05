@@ -104,6 +104,48 @@ class SyncEngineTest {
         assertTrue(sessions.read().pending)
     }
 
+    @Test
+    fun accountAwaitingApprovalKeepsPendingAndDoesNotExpire() = runTest {
+        val api = FakeApi(uploadResponses = ArrayDeque(listOf(HttpResult(403))))
+        val sessions = MemorySessions(SyncSession("https://example.test", "ana", "token", 0, pending = true))
+
+        val result = SyncEngine(api, sessions, MemoryBooks(Libro.empty()), json = json).push()
+
+        assertEquals(SyncResult.AwaitingApproval, result)
+        assertTrue(sessions.read().awaitingApproval)
+        assertTrue(sessions.read().pending)
+        assertFalse(sessions.read().expired)
+    }
+
+    @Test
+    fun onceApprovedThePendingBookUploadsAndTheWaitIsOver() = runTest {
+        val api = FakeApi(
+            uploadResponses = ArrayDeque(
+                listOf(HttpResult(403), HttpResult(200, buildJsonObject { put("revision", JsonPrimitive(1)) })),
+            ),
+        )
+        val sessions = MemorySessions(SyncSession("https://example.test", "ana", "token", 0, pending = true))
+        val engine = SyncEngine(api, sessions, MemoryBooks(Libro.empty()), json = json)
+
+        engine.push()
+        val result = engine.push()
+
+        assertEquals(SyncResult.Uploaded(1, false), result)
+        assertFalse(sessions.read().awaitingApproval)
+        assertFalse(sessions.read().pending)
+    }
+
+    @Test
+    fun downloadingWhileAwaitingApprovalSaysSo() = runTest {
+        val api = FakeApi(downloadResponse = HttpResult(403))
+        val sessions = MemorySessions(SyncSession("https://example.test", "ana", "token", 0))
+
+        val result = SyncEngine(api, sessions, MemoryBooks(Libro.empty()), json = json).pull()
+
+        assertEquals(SyncResult.AwaitingApproval, result)
+        assertEquals(SyncEngine.AWAITING_APPROVAL_TEXT, SyncEngine(api, sessions, MemoryBooks(null), json = json).statusText(sessions.read()))
+    }
+
     private fun bookEnvelope(revision: Int, book: Libro) = buildJsonObject {
         put("revision", JsonPrimitive(revision))
         put("libro", json.encodeToJsonElement(Libro.serializer(), book))
