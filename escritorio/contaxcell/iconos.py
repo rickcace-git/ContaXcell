@@ -1,4 +1,5 @@
-"""Los iconos de las pestañas y de la guía, dibujados aquí mismo.
+"""Los iconos de las pestañas y de la guía (y el ojo de la contraseña),
+dibujados aquí mismo.
 
 Igual que el icono de la aplicación (`recursos/hacer_icono.py`), sin Pillow ni
 archivos de imagen: cada icono es una lista de trazos sobre una cuadrícula de
@@ -76,6 +77,16 @@ DIBUJOS: dict[str, tuple[tuple, ...]] = {
     ),
     "cuenta": (
         ("aro", 12, 8.5, 3.8), ("arco", 12, 21.5, 7.5, 195, 345),
+    ),
+    # Solo en la ventana de entrada: enseñar u ocultar la contraseña. Los dos
+    # párpados son trozos de un aro grande que se cruzan en los lagrimales.
+    "ojo": (
+        ("arco", 12, 21, 13.45, 222, 318), ("arco", 12, 3, 13.45, 42, 138),
+        ("punto", 12, 12, 3),
+    ),
+    "ojo_tachado": (
+        ("arco", 12, 21, 13.45, 222, 318), ("arco", 12, 3, 13.45, 42, 138),
+        ("punto", 12, 12, 3), ("linea", 4, 4, 20, 20),
     ),
 }
 

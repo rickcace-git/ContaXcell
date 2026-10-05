@@ -11,7 +11,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from . import tema, widgets
+from . import iconos, tema, widgets
 from .sincronia import ErrorDeSincronia, FaltaCodigo, Sincronia
 
 # Lo que puede devolver la ventana.
@@ -57,8 +57,21 @@ class VentanaAcceso(tk.Toplevel):
 
         widgets.etiqueta_campo(zona, "Contraseña")
         self.var_contrasena = tk.StringVar()
-        ttk.Entry(zona, textvariable=self.var_contrasena, width=34,
-                  show="•").pack(fill="x")
+        fila_contrasena = ttk.Frame(zona, style="Tarjeta.TFrame")
+        fila_contrasena.pack(fill="x")
+        self.campo_contrasena = ttk.Entry(fila_contrasena, textvariable=self.var_contrasena,
+                                          width=34, show="•")
+        self.campo_contrasena.pack(side="left", fill="x", expand=True)
+        # El ojo de siempre: para comprobar lo escrito antes de crear la cuenta,
+        # que una letra de más ahí obliga a pedir ayuda luego para entrar.
+        # Hay que guardar las imágenes: si Python las tira, el botón queda vacío.
+        self._ojos = {visible: iconos.imagen(self, "ojo_tachado" if visible else "ojo",
+                                             18, widgets.PALETA.suave)
+                      for visible in (False, True)}
+        self.boton_ojo = ttk.Button(fila_contrasena, image=self._ojos[False],
+                                    style="Enlace.TButton", cursor="hand2",
+                                    command=self._alternar_contrasena)
+        self.boton_ojo.pack(side="left", padx=(4, 0))
 
         # El código de invitación no lo piden todos los servidores, así que se
         # queda escondido hasta que el servidor lo reclame. El hueco vacío no
@@ -115,6 +128,14 @@ class VentanaAcceso(tk.Toplevel):
         self.bind("<Escape>", lambda _e: self._cerrar())
         self.protocol("WM_DELETE_WINDOW", self._cerrar)
         campo_usuario.focus_set()
+
+    def contrasena_visible(self) -> bool:
+        return not self.campo_contrasena.cget("show")
+
+    def _alternar_contrasena(self) -> None:
+        visible = not self.contrasena_visible()
+        self.campo_contrasena.configure(show="" if visible else "•")
+        self.boton_ojo.configure(image=self._ojos[visible])
 
     def _ensenar_servidor(self) -> None:
         self.enlace_servidor.pack_forget()
