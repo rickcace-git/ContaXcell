@@ -146,16 +146,21 @@ def nombre_normalizado(nombre: str) -> str:
 USO = ("Uso:  ./usuarios                    la tabla de usuarios\n"
        "      ./usuarios aceptar NOMBRE     dejar entrar a una cuenta en espera\n"
        "      ./usuarios rechazar NOMBRE    borrar una cuenta en espera\n"
+       "      ./usuarios rechazar-todas     borrar de golpe todas las que esperan\n"
        "      ./usuarios vetar NOMBRE       que no pueda entrar ni sincronizar\n"
        "      ./usuarios readmitir NOMBRE   quitarle el veto")
 
 
-def ejecutar(almacen, argumentos: list[str], ahora: datetime) -> tuple[int, str]:
+def ejecutar(almacen, argumentos: list[str], ahora: datetime,
+             preguntar=input) -> tuple[int, str]:
     """Hace lo pedido y devuelve (código de salida, lo que hay que decir).
-    Separado de `main` para poder probarlo sin Postgres."""
+    Separado de `main` para poder probarlo sin Postgres (y sin teclado:
+    `preguntar` es quien contesta las confirmaciones)."""
     if not argumentos:
         return 0, informe(almacen.resumen_usuarios(), ahora)
     orden = argumentos[0]
+    if orden == "rechazar-todas" and len(argumentos) == 1:
+        return _rechazar_todas(almacen, preguntar)
     if orden not in ("aceptar", "rechazar", "vetar", "readmitir") or len(argumentos) != 2:
         return 2, USO
     nombre = nombre_normalizado(argumentos[1])
@@ -167,6 +172,26 @@ def ejecutar(almacen, argumentos: list[str], ahora: datetime) -> tuple[int, str]
         return 0, (f"«{nombre}» queda vetado: ya no puede entrar ni sincronizar.\n"
                    f"Su libro sigue guardado. Para deshacerlo: ./usuarios readmitir {nombre}")
     return 0, f"«{nombre}» vuelve a poder entrar. Tendrá que poner su contraseña otra vez."
+
+
+def _rechazar_todas(almacen, preguntar) -> tuple[int, str]:
+    """Para cuando alguien se ha puesto a crear cuentas basura: borra todas
+    las que esperan, de una vez, enseñándolas antes y preguntando. Las
+    aceptadas no se tocan, que `rechazar` no puede con ellas."""
+    esperando = [f for f in almacen.resumen_usuarios() if f["en_espera"]]
+    if not esperando:
+        return 0, "No hay ninguna cuenta en espera."
+    lista = "\n".join(f"  {f['usuario']}  {f.get('correo') or ''}".rstrip() for f in esperando)
+    print(f"Están en espera {len(esperando)}:\n{lista}\n")
+    try:
+        respuesta = preguntar("¿Borrarlas todas? Escribe «si» para seguir: ")
+    except EOFError:
+        respuesta = ""
+    if respuesta.strip().lower() not in ("si", "sí"):
+        return 1, "No se ha borrado nada."
+    borradas = sum(1 for f in esperando if almacen.rechazar(f["usuario"]))
+    return 0, (f"Borradas {borradas} cuentas en espera. Si siguen apareciendo, cambia el "
+               "código de invitación (CONTAXCELL_CODIGO_REGISTRO en el .env).")
 
 
 def _decidir(almacen, orden: str, nombre: str) -> tuple[int, str]:

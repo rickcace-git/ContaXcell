@@ -912,6 +912,55 @@ class PruebaAceptarAMano(unittest.TestCase):
         self.assertNotIn("bea", texto)
 
 
+class PruebaRechazarTodas(unittest.TestCase):
+    """`./usuarios rechazar-todas`: para cuando alguien crea cuentas basura."""
+
+    def setUp(self):
+        self.almacen = AlmacenSQLite()
+        self.ahora = datetime.now(timezone.utc)
+        self.almacen.crear_usuario("buena", "h", "s")
+        for i in range(3):
+            self.almacen.crear_usuario(f"basura{i}", "h", "s", en_espera=True, correo=f"b{i}@x.es")
+
+    def nombres(self):
+        return sorted(f["usuario"] for f in self.almacen.resumen_usuarios())
+
+    def test_con_un_si_borra_las_que_esperan_y_solo_esas(self):
+        from contaserver.usuarios import ejecutar
+        preguntas = []
+        codigo, texto = ejecutar(self.almacen, ["rechazar-todas"], self.ahora,
+                                 preguntar=lambda p: preguntas.append(p) or "si")
+        self.assertEqual(codigo, 0)
+        self.assertIn("Borradas 3", texto)
+        self.assertEqual(self.nombres(), ["buena"])
+        self.assertEqual(len(preguntas), 1)
+
+    def test_sin_el_si_no_borra_nada(self):
+        from contaserver.usuarios import ejecutar
+        for respuesta in ("", "no", "s"):
+            with self.subTest(respuesta):
+                codigo, texto = ejecutar(self.almacen, ["rechazar-todas"], self.ahora,
+                                         preguntar=lambda _p, r=respuesta: r)
+                self.assertEqual(codigo, 1)
+                self.assertEqual(len(self.nombres()), 4)
+
+    def test_sin_teclado_no_borra_nada(self):
+        from contaserver.usuarios import ejecutar
+
+        def sin_teclado(_p):
+            raise EOFError
+        self.assertEqual(ejecutar(self.almacen, ["rechazar-todas"], self.ahora, sin_teclado)[0], 1)
+        self.assertEqual(len(self.nombres()), 4)
+
+    def test_si_no_hay_ninguna_lo_dice(self):
+        from contaserver.usuarios import ejecutar
+        for i in range(3):
+            self.almacen.rechazar(f"basura{i}")
+        codigo, texto = ejecutar(self.almacen, ["rechazar-todas"], self.ahora,
+                                 preguntar=lambda _p: self.fail("no tenía que preguntar"))
+        self.assertEqual((codigo, texto), (0, "No hay ninguna cuenta en espera."))
+
+
 class PruebaInformeDeUsuarios(unittest.TestCase):
     """Lo que se lee en la terminal. La hora es de España."""
 

@@ -255,7 +255,12 @@ la aceptas, lo suyo se sube solo, sin que tenga que volver a entrar.
 ./usuarios                     las que esperan salen las primeras, marcadas
 ./usuarios aceptar NOMBRE      ya puede sincronizar
 ./usuarios rechazar NOMBRE     se borra la cuenta en espera
+./usuarios rechazar-todas      todas las que esperan de golpe (enseña la lista y pregunta)
 ```
+
+Si alguien se pone a crear cuentas basura con el código, `rechazar-todas` las
+quita y cambiar `CONTAXCELL_CODIGO_REGISTRO` en el `.env` (y reiniciar la API)
+cierra la puerta. Cada una solo es una línea en la tabla: no guardan nada.
 
 Rechazar solo vale para las que esperan: a una cuenta aceptada no se la borra
 por aquí, que para eso está el veto. Las cuentas que ya existían al encender
