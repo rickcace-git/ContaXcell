@@ -478,8 +478,13 @@ fun MonthlyBarChart(months: List<MonthSummaryUi>, modifier: Modifier = Modifier)
 }
 
 @Composable
-fun PortfolioLineChart(history: List<com.contaxcell.app.ui.PortfolioHistoryUi>, modifier: Modifier = Modifier) {
-    if (history.size < 2) return
+fun PortfolioLineChart(valuations: List<com.contaxcell.app.ui.PortfolioHistoryUi>, modifier: Modifier = Modifier) {
+    if (valuations.size < 2) return
+    // La lista llega con la valoración más nueva primero, que es como la
+    // quiere la tabla de debajo. El gráfico va al revés: lo viejo a la
+    // izquierda. Pintada tal cual, una cartera que sube parecía que bajaba.
+    // Las fechas son 'AAAA-MM-DD' y se ordenan bien como texto.
+    val history = valuations.sortedBy { it.date }
     val marketColor = MaterialTheme.colorScheme.primary
     val contributedColor = MaterialTheme.colorScheme.onSurfaceVariant
     val gridColor = MaterialTheme.colorScheme.outlineVariant

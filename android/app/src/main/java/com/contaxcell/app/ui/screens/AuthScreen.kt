@@ -23,6 +23,8 @@ import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -43,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.contaxcell.app.ui.AppAction
 import com.contaxcell.app.ui.AuthUiState
@@ -53,6 +56,7 @@ fun AuthScreen(state: AuthUiState.Gate, onAction: (AppAction) -> Unit) {
     var showServer by rememberSaveable { mutableStateOf(false) }
     var user by rememberSaveable(state.defaultUser) { mutableStateOf(state.defaultUser) }
     var password by rememberSaveable { mutableStateOf("") }
+    var showPassword by rememberSaveable { mutableStateOf(false) }
     var server by rememberSaveable(state.defaultServer) { mutableStateOf(state.defaultServer) }
     var inviteCode by rememberSaveable { mutableStateOf("") }
 
@@ -135,7 +139,9 @@ fun AuthScreen(state: AuthUiState.Gate, onAction: (AppAction) -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Contrase\u00f1a") },
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    // El ojo: para comprobar lo escrito antes de entrar o de
+                    // crear la cuenta, que en el móvil es fácil colar una letra.
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = ImeAction.Done,
@@ -143,6 +149,14 @@ fun AuthScreen(state: AuthUiState.Gate, onAction: (AppAction) -> Unit) {
                     keyboardActions = KeyboardActions(onDone = { submit() }),
                     enabled = !state.busy,
                     leadingIcon = { Icon(Icons.Outlined.Lock, contentDescription = null) },
+                    trailingIcon = {
+                        IconButton(onClick = { showPassword = !showPassword }) {
+                            Icon(
+                                if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                contentDescription = if (showPassword) "Ocultar la contraseña" else "Mostrar la contraseña",
+                            )
+                        }
+                    },
                 )
                 if (registering && state.inviteRequired) {
                     Spacer(Modifier.height(10.dp))
