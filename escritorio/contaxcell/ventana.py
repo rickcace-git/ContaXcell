@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -21,7 +22,7 @@ from .almacen import Almacen, carpeta_de_recursos
 from .modelo import Libro, hoy
 
 # Súbela antes de cada `python publicar.py`: es lo que compara el actualizador.
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 ARCHIVO_VENTANA = "ventana.json"
 # Cuánto se espera como mucho al hilo de sincronía antes de apuntar los
 # recibos por cuenta propia. Una petición se rinde a los diez segundos, así
@@ -705,11 +706,17 @@ class Aplicacion(tk.Tk):
         try:
             guardado = json.loads(self._ruta_geometria().read_text(encoding="utf-8"))
             geometria = guardado.get("geometria", "")
-            if geometria:
+            # Donde se cerró, si esa pantalla sigue ahí. Se mira la barra del
+            # título: es lo que hace falta ver para poder mover la ventana.
+            sitio = re.fullmatch(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", geometria)
+            if sitio and widgets.hay_pantalla_en(int(sitio[3]) + 60, int(sitio[4]) + 15):
                 self.geometry(geometria)
-            if guardado.get("maximizada"):
+                if guardado.get("maximizada"):
+                    self.state("zoomed")
+                return
+            if not geometria and guardado.get("maximizada"):
                 self.state("zoomed")
-            return
+                return
         except (OSError, ValueError):
             pass
 

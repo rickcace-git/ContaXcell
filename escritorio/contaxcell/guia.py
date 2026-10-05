@@ -339,6 +339,10 @@ class Guia(tk.Toplevel):
         self.bind("<Escape>", lambda _e: self.destroy())
 
         self.ir_a(clave)
+        # Centrada sobre el programa y en su misma pantalla, como todas las
+        # ventanas que abre. Sin esto, Windows la ponía donde le parecía, a
+        # veces en la otra pantalla.
+        widgets.centrar_sobre(self, padre)
 
     def ir_a(self, clave: str) -> None:
         clave = apartado(clave).clave

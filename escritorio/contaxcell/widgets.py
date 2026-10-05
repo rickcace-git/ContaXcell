@@ -64,6 +64,24 @@ def area_de_pantalla(maestro, x: int, y: int) -> tuple[int, int, int, int]:
     return 0, 0, maestro.winfo_screenwidth(), maestro.winfo_screenheight()
 
 
+def hay_pantalla_en(x: int, y: int) -> bool:
+    """Si ese punto cae en alguna pantalla. Sirve para no abrir la ventana
+    donde se cerró si esa pantalla ya no está (el portátil sin el monitor de
+    la oficina): se abriría fuera de la vista. Fuera de Windows, sí."""
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        user32.MonitorFromPoint.restype = ctypes.c_void_p
+        # 0 = MONITOR_DEFAULTTONULL: si no cae en ninguna, no inventa ninguna.
+        return bool(user32.MonitorFromPoint(wintypes.POINT(int(x), int(y)), 0))
+    except (AttributeError, OSError, ValueError):
+        return True
+
+
 def dentro_de_pantalla(area: tuple[int, int, int, int], x: int, y: int,
                        ancho: int, alto: int) -> tuple[int, int]:
     """Mueve (x, y) lo justo para que una ventana de ese tamaño quepa entera
