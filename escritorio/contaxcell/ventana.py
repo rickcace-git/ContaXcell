@@ -22,7 +22,7 @@ from .almacen import Almacen, carpeta_de_recursos
 from .modelo import Libro, hoy
 
 # Súbela antes de cada `python publicar.py`: es lo que compara el actualizador.
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 ARCHIVO_VENTANA = "ventana.json"
 # Cuánto se espera como mucho al hilo de sincronía antes de apuntar los
 # recibos por cuenta propia. Una petición se rinde a los diez segundos, así
