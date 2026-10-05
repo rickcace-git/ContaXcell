@@ -430,11 +430,8 @@ def _pista(control: ttk.Entry, variable: tk.StringVar, texto: str) -> None:
 
 
 def _centrar(ventana: tk.Toplevel) -> None:
-    padre = ventana.master
-    ancho, alto = ventana.winfo_width(), ventana.winfo_height()
-    x = padre.winfo_rootx() + (padre.winfo_width() - ancho) // 2
-    y = padre.winfo_rooty() + (padre.winfo_height() - alto) // 3
-    ventana.geometry(f"+{max(0, x)}+{max(0, y)}")
+    # En la pantalla de la ventana de detrás, que puede no ser la principal.
+    widgets.centrar_sobre(ventana, ventana.master)
 
 
 # --- confirmaciones --------------------------------------------------------

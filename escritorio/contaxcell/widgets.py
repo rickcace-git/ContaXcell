@@ -7,6 +7,7 @@ construyen aquí una vez y las vistas se limitan a usarlas.
 from __future__ import annotations
 
 import calendar
+import sys
 import tkinter as tk
 from datetime import date
 from tkinter import ttk
@@ -22,6 +23,95 @@ FUENTES: Fuentes | None = None
 def usar(paleta: Paleta, fuentes: Fuentes) -> None:
     global PALETA, FUENTES
     PALETA, FUENTES = paleta, fuentes
+
+
+# --- dónde cabe una ventanita ------------------------------------------------
+#
+# tkinter solo sabe medir la pantalla principal (`winfo_screenwidth`). Con dos
+# pantallas, recortar contra ella mandaba el calendario y los diálogos a la
+# principal aunque la ventana estuviera en la otra: si la otra está a la
+# derecha, «se salía» por la derecha; si está a la izquierda, sus posiciones
+# son negativas y el `max(0, x)` la devolvía al cero. Hay que preguntar a
+# Windows por el monitor en el que cae cada punto.
+
+def area_de_pantalla(maestro, x: int, y: int) -> tuple[int, int, int, int]:
+    """(izquierda, arriba, derecha, abajo) del sitio útil (sin la barra de
+    tareas) del monitor en el que cae el punto. Fuera de Windows, o si algo
+    falla, la pantalla principal entera."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class _Monitor(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                            ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+            user32 = ctypes.windll.user32
+            user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+            user32.MonitorFromPoint.restype = ctypes.c_void_p
+            user32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_Monitor)]
+            # 2 = MONITOR_DEFAULTTONEAREST: si el punto cae entre pantallas,
+            # la más cercana.
+            monitor = user32.MonitorFromPoint(wintypes.POINT(int(x), int(y)), 2)
+            info = _Monitor()
+            info.cbSize = ctypes.sizeof(_Monitor)
+            if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+                r = info.rcWork
+                return r.left, r.top, r.right, r.bottom
+        except (AttributeError, OSError, ValueError):
+            pass
+    return 0, 0, maestro.winfo_screenwidth(), maestro.winfo_screenheight()
+
+
+def hay_pantalla_en(x: int, y: int) -> bool:
+    """Si ese punto cae en alguna pantalla. Sirve para no abrir la ventana
+    donde se cerró si esa pantalla ya no está (el portátil sin el monitor de
+    la oficina): se abriría fuera de la vista. Fuera de Windows, sí."""
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        user32.MonitorFromPoint.restype = ctypes.c_void_p
+        # 0 = MONITOR_DEFAULTTONULL: si no cae en ninguna, no inventa ninguna.
+        return bool(user32.MonitorFromPoint(wintypes.POINT(int(x), int(y)), 0))
+    except (AttributeError, OSError, ValueError):
+        return True
+
+
+def dentro_de_pantalla(area: tuple[int, int, int, int], x: int, y: int,
+                       ancho: int, alto: int) -> tuple[int, int]:
+    """Mueve (x, y) lo justo para que una ventana de ese tamaño quepa entera
+    en el área. Si no cabe, que se vea al menos la esquina de arriba."""
+    izquierda, arriba, derecha, abajo = area
+    x = max(izquierda, min(x, derecha - ancho - 8))
+    y = max(arriba, min(y, abajo - alto))
+    return x, y
+
+
+def colocar(ventana: tk.Toplevel, x: int, y: int, referencia: tuple[int, int] | None = None) -> None:
+    """Pone la ventana en (x, y) sin salirse del monitor de `referencia` (por
+    defecto, el del propio punto). Admite posiciones negativas, que son las de
+    una pantalla a la izquierda de la principal."""
+    ventana.update_idletasks()
+    rx, ry = referencia if referencia is not None else (x, y)
+    x, y = dentro_de_pantalla(area_de_pantalla(ventana, rx, ry), x, y,
+                              ventana.winfo_width(), ventana.winfo_height())
+    ventana.wm_geometry(f"+{x}+{y}")
+
+
+def centrar_sobre(ventana: tk.Toplevel, padre) -> None:
+    """Centrada sobre su ventana padre, en el monitor donde está el padre."""
+    ventana.update_idletasks()
+    ancho, alto = ventana.winfo_width(), ventana.winfo_height()
+    x = padre.winfo_rootx() + (padre.winfo_width() - ancho) // 2
+    y = padre.winfo_rooty() + (padre.winfo_height() - alto) // 3
+    centro = (padre.winfo_rootx() + padre.winfo_width() // 2,
+              padre.winfo_rooty() + padre.winfo_height() // 2)
+    colocar(ventana, x, y, referencia=centro)
 
 
 # --- contenedores ----------------------------------------------------------
@@ -768,14 +858,16 @@ class Calendario(tk.Toplevel):
                 pass
 
     def abrir_junto_a(self, widget: tk.Widget) -> None:
-        """Lo coloca debajo del campo, sin salirse de la pantalla."""
+        """Lo coloca debajo del campo, sin salirse de la pantalla en la que
+        está el campo (que no tiene por qué ser la principal)."""
         self.update_idletasks()
-        x = widget.winfo_rootx()
-        y = widget.winfo_rooty() + widget.winfo_height() + 2
-        if y + self.winfo_height() > self.winfo_screenheight():
-            y = widget.winfo_rooty() - self.winfo_height() - 2
-        x = min(x, self.winfo_screenwidth() - self.winfo_width() - 8)
-        self.wm_geometry(f"+{max(0, x)}+{max(0, y)}")
+        campo = (widget.winfo_rootx(), widget.winfo_rooty())
+        x = campo[0]
+        y = campo[1] + widget.winfo_height() + 2
+        _arriba, abajo = area_de_pantalla(self, *campo)[1::2]
+        if y + self.winfo_height() > abajo:
+            y = campo[1] - self.winfo_height() - 2  # no cabe debajo: encima
+        colocar(self, x, y, referencia=campo)
         try:
             self.agarraba = self.grab_current()
             self.grab_set()

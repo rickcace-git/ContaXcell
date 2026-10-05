@@ -339,6 +339,20 @@ class Guia(tk.Toplevel):
         self.bind("<Escape>", lambda _e: self.destroy())
 
         self.ir_a(clave)
+        self._colocar_a_la_derecha(padre)
+
+    def _colocar_a_la_derecha(self, padre) -> None:
+        """En la pantalla del programa (sin esto, Windows la ponía donde le
+        parecía, a veces en la otra) y pegada a su lado derecho: es para
+        leerla mientras se usa el programa, así que cuanto menos tape, mejor.
+        De alto, a la altura del programa."""
+        self.update_idletasks()
+        centro = (padre.winfo_rootx() + padre.winfo_width() // 2,
+                  padre.winfo_rooty() + padre.winfo_height() // 2)
+        _izquierda, _arriba, derecha, _abajo = widgets.area_de_pantalla(self, *centro)
+        x = derecha - self.winfo_width() - 16
+        y = padre.winfo_rooty() + (padre.winfo_height() - self.winfo_height()) // 3
+        widgets.colocar(self, x, y, referencia=centro)
 
     def ir_a(self, clave: str) -> None:
         clave = apartado(clave).clave
