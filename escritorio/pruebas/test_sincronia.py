@@ -492,6 +492,12 @@ class PruebaCuentaEnEspera(ConCarpeta):
         self.assertTrue(sinc.en_espera)
         self.assertEqual(sinc.estado_actual(), modulo.MENSAJE_EN_ESPERA)
 
+    def test_el_correo_viaja_al_crear_la_cuenta(self):
+        sinc, servidor = self.nueva((201, {"token": "t", "usuario": "ana"}))
+        sinc.registrar("ana", "contrasena1", "http://servidor:8000", "codigo",
+                       correo=" ana@correo.es ")
+        self.assertEqual(servidor.peticiones[0]["cuerpo"]["correo"], "ana@correo.es")
+
     def test_sin_el_campo_es_que_no_espera(self):
         # Un servidor que no acepta a mano (o uno de antes) no manda nada.
         sinc, _ = self.nueva((200, {"token": "t", "usuario": "ana"}))

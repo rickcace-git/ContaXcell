@@ -221,7 +221,8 @@ Con una cuenta, tu contabilidad se guarda también en tu servidor y la puedes ll
 • Al abrir el programa, se trae lo que hayas cambiado en otro sitio.
 
 ## Al crear la cuenta
-Pide usuario, contraseña y el código de invitación que te haya dado quien administra ContaXcell. El ojo junto a la contraseña la enseña, para comprobarla antes de crearla.
+Al abrir el programa por primera vez, elige «Crear cuenta». Pide usuario, correo electrónico y la contraseña dos veces; el ojo junto a cada una la enseña, para comprobarla. Luego sale una ventanita para el código de invitación que te haya dado quien administra ContaXcell.
+Apúntate bien la contraseña: por ahora no hay forma de recuperarla. El correo se guarda para poder hacerlo más adelante.
 Es posible que tu cuenta tenga que esperar a que la acepten. Mientras tanto usas el programa igual y todo se guarda en este ordenador; el día que te acepten, se sube solo, sin hacer nada.
 
 ## En Ajustes ▸ Tu cuenta
@@ -267,8 +268,12 @@ class Guia(tk.Toplevel):
     derecha. No es modal: se puede dejar abierta al lado mientras se usa el
     programa, que es para lo que sirve una guía."""
 
-    def __init__(self, padre, clave: str = "empezar"):
+    def __init__(self, padre, clave: str = "empezar", direccion_app: str | None = None):
         super().__init__(padre)
+        # La dirección de descarga de la app del móvil: si la hay, el apartado
+        # de la cuenta acaba con su QR. Sin cuenta, no hay servidor del que bajarla.
+        self.direccion_app = direccion_app
+        self._imagen_qr = None
         self.title("Guía de uso de ContaXcell")
         self.configure(background=widgets.PALETA.fondo)
         self.geometry("860x600")
@@ -362,9 +367,21 @@ class Guia(tk.Toplevel):
         self.texto.insert("end", a.titulo + "\n", "cabecera")
         for tipo, contenido in trozos(a.texto):
             self.texto.insert("end", contenido + "\n", tipo)
+        if a.clave == "cuenta" and self.direccion_app:
+            self._pintar_qr()
         # Solo lectura: que no se pueda escribir encima de la guía.
         self.texto.configure(state="disabled")
         self.texto.yview_moveto(0)
+
+    def _pintar_qr(self) -> None:
+        if self._imagen_qr is None:
+            self._imagen_qr = widgets.imagen_qr(self, self.direccion_app)
+        self.texto.insert("end", "Descarga la app del móvil\n", "titulo")
+        self.texto.insert("end", "Escanea el código con la cámara del móvil. Al abrir "
+                                 "el archivo, el móvil pedirá permiso para instalar "
+                                 "apps de fuera de la tienda: es normal.\n", "parrafo")
+        self.texto.image_create("end", image=self._imagen_qr)
+        self.texto.insert("end", "\n" + self.direccion_app + "\n", "parrafo")
 
     def mostrar(self) -> None:
         self.update_idletasks()

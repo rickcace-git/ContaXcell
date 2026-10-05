@@ -92,6 +92,15 @@ def servidor_de_fabrica() -> str:
     return SERVIDOR_DE_CASA
 
 
+# Dónde sirve el servidor la app del móvil (lo sirve el Caddy de delante, desde
+# la carpeta server/descargas). El QR de Ajustes y de la guía apunta aquí.
+RUTA_APP_MOVIL = "/descargas/ContaXcell.apk"
+
+
+def direccion_app_movil(servidor: str) -> str:
+    return servidor.rstrip("/") + RUTA_APP_MOVIL
+
+
 SEGUNDOS_DE_ESPERA = 10
 SEGUNDOS_ENTRE_REINTENTOS = 30
 # Cada cuánto se vuelve a mirar qué hay en el servidor. Sin esto, el segundo
@@ -253,17 +262,18 @@ class Sincronia:
     # --- entrar y salir -------------------------------------------------------
 
     def registrar(self, usuario: str, contrasena: str, servidor: str = "",
-                  codigo: str = "") -> None:
+                  codigo: str = "", correo: str = "") -> None:
         """Crea la cuenta. Algunos servidores piden un código de invitación;
-        si aquí no se pone, el propio servidor lo reclamará."""
+        si aquí no se pone, el propio servidor lo reclamará. El correo se
+        guarda en el servidor para poder restablecer la contraseña algún día."""
         self._acreditar("/api/cuentas/registro", usuario, contrasena, servidor,
-                        codigo=codigo)
+                        codigo=codigo, correo=correo)
 
     def entrar(self, usuario: str, contrasena: str, servidor: str = "") -> None:
         self._acreditar("/api/cuentas/entrar", usuario, contrasena, servidor)
 
     def _acreditar(self, ruta: str, usuario: str, contrasena: str, servidor: str,
-                   codigo: str = "") -> None:
+                   codigo: str = "", correo: str = "") -> None:
         """Pide el token y deja la sesión lista. Si se entra con un usuario
         distinto al de la sesión anterior, los datos locales se apartan a una
         copia y se empieza de cero, para no mezclar contabilidades."""
@@ -277,6 +287,8 @@ class Sincronia:
         # no piden invitación no tienen por qué recibir un campo vacío.
         if codigo.strip():
             cuerpo["codigo"] = codigo.strip()
+        if correo.strip():
+            cuerpo["correo"] = correo.strip()
 
         try:
             # Aquí «estado» es el código HTTP; «codigo», el de invitación.

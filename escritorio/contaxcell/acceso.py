@@ -4,11 +4,18 @@ Solo hace falta pasar por aquí una vez por ordenador. Después el token se
 queda guardado en la sesión y la aplicación abre directa, con o sin internet;
 la cuenta solo vuelve a pedirse si se cierra sesión o si el token caduca (y
 aun entonces se puede seguir sin conexión).
+
+Son tres pantallas en la misma ventana: la de inicio, que solo pregunta qué
+quieres hacer, la de iniciar sesión y la de crear cuenta. Crear cuenta pide
+además el correo y la contraseña dos veces, y el código de invitación va
+después, en una ventanita aparte: es lo último que falta, y así no se
+confunde con los datos de la cuenta.
 """
 
 from __future__ import annotations
 
 import tkinter as tk
+import unicodedata
 from tkinter import ttk
 
 from . import dialogos, iconos, tema, widgets
@@ -23,130 +30,245 @@ AVISO_TEXTO_CLARO = "Ojo: sin https la contraseña viaja en claro por la red."
 # Direcciones que son este mismo ordenador: ahí no hay red por la que espiar.
 MAQUINAS_DE_CASA = ("localhost", "127.0.0.1", "::1")
 
+# Las mismas medidas que pone el servidor (server/contaserver/aplicacion.py).
+# Se miran aquí antes de mandar nada para decirlo al momento y en su sitio.
+USUARIO_MINIMO, USUARIO_MAXIMO = 3, 30
+CONTRASENA_MINIMA, CONTRASENA_MAXIMA = 8, 128
+CORREO_MAXIMO = 254
+
+ANCHO_TEXTO = 340
+
+
+def correo_valido(correo: str) -> bool:
+    """Que tenga pinta de correo: algo, una arroba y un dominio con punto.
+    Que exista de verdad no se sabe hasta que se le escribe."""
+    correo = correo.strip()
+    usuario, arroba, dominio = correo.partition("@")
+    return (bool(arroba) and bool(usuario) and "." in dominio and "@" not in dominio
+            and not dominio.startswith(".") and not dominio.endswith(".")
+            and len(correo) <= CORREO_MAXIMO
+            and not any(c.isspace() or unicodedata.category(c).startswith("C")
+                        for c in correo))
+
+
+def fallo_cuenta_nueva(usuario: str, correo: str, contrasena: str, repetida: str) -> str:
+    """Lo primero que no cuadra al crear la cuenta, o cadena vacía si todo va
+    bien. Va en el orden de los campos, para que el aviso señale el de arriba."""
+    usuario = usuario.strip()
+    if not USUARIO_MINIMO <= len(usuario) <= USUARIO_MAXIMO:
+        return (f"El usuario tiene que tener entre {USUARIO_MINIMO} y "
+                f"{USUARIO_MAXIMO} caracteres.")
+    if not correo.strip():
+        return "Falta el correo electrónico."
+    if not correo_valido(correo):
+        return "El correo no parece válido. Revisa que esté bien escrito."
+    if len(contrasena) < CONTRASENA_MINIMA:
+        return f"La contraseña tiene que tener al menos {CONTRASENA_MINIMA} caracteres."
+    if len(contrasena) > CONTRASENA_MAXIMA:
+        return f"La contraseña no puede pasar de {CONTRASENA_MAXIMA} caracteres."
+    if contrasena != repetida:
+        return "Las dos contraseñas no son iguales."
+    return ""
+
 
 class VentanaAcceso(tk.Toplevel):
-    """Un formulario pequeño: usuario, contraseña y, plegada, la dirección
-    del servidor. `mostrar()` devuelve DENTRO, SIN_CONEXION o CANCELADO."""
+    """Inicio, iniciar sesión y crear cuenta, en una sola ventana.
+    `mostrar()` devuelve DENTRO, SIN_CONEXION o CANCELADO.
+
+    Si ya hubo sesión en este ordenador (la que ha caducado, por ejemplo),
+    se empieza directamente en «Iniciar sesión»: preguntar otra vez qué se
+    quiere hacer sería un paso de más."""
 
     def __init__(self, padre, sincronia: Sincronia, permitir_sin_conexion: bool):
         super().__init__(padre)
         self.sincronia = sincronia
         self.resultado = CANCELADO
+        self.permitir_sin_conexion = permitir_sin_conexion
 
         self.title("ContaXcell — Tu cuenta")
         self.resizable(False, False)
         self.configure(background=widgets.PALETA.tarjeta)
 
-        cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=22)
-        cuerpo.pack(fill="both", expand=True)
-        ttk.Label(cuerpo, text="Tu cuenta de ContaXcell",
-                  style="Tarjeta.Negrita.TLabel").pack(anchor="w")
-        ttk.Label(cuerpo, style="Tarjeta.Suave.TLabel", wraplength=340, justify="left",
-                  text="Con una cuenta, tu contabilidad se guarda también en el "
-                       "servidor y puedes seguirla desde otro ordenador. Solo se "
-                       "pide una vez: después la aplicación abre directa, haya "
-                       "internet o no.").pack(anchor="w", pady=(4, 10))
-
-        zona = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
-        zona.pack(fill="x")
-
-        widgets.etiqueta_campo(zona, "Usuario")
-        self.var_usuario = tk.StringVar(value=sincronia.sesion["usuario"])
-        campo_usuario = ttk.Entry(zona, textvariable=self.var_usuario, width=34)
-        campo_usuario.pack(fill="x")
-
-        widgets.etiqueta_campo(zona, "Contraseña")
-        self.var_contrasena = tk.StringVar()
-        fila_contrasena = ttk.Frame(zona, style="Tarjeta.TFrame")
-        fila_contrasena.pack(fill="x")
-        self.campo_contrasena = ttk.Entry(fila_contrasena, textvariable=self.var_contrasena,
-                                          width=34, show="•")
-        self.campo_contrasena.pack(side="left", fill="x", expand=True)
-        # El ojo de siempre: para comprobar lo escrito antes de crear la cuenta,
-        # que una letra de más ahí obliga a pedir ayuda luego para entrar.
         # Hay que guardar las imágenes: si Python las tira, el botón queda vacío.
         self._ojos = {visible: iconos.imagen(self, "ojo_tachado" if visible else "ojo",
                                              18, widgets.PALETA.suave)
                       for visible in (False, True)}
-        self.boton_ojo = ttk.Button(fila_contrasena, image=self._ojos[False],
-                                    style="Enlace.TButton", cursor="hand2",
-                                    command=self._alternar_contrasena)
-        self.boton_ojo.pack(side="left", padx=(4, 0))
 
-        # El código de invitación no lo piden todos los servidores, así que se
-        # queda escondido hasta que el servidor lo reclame. El hueco vacío no
-        # se ve y guarda el sitio, para que al aparecer salga donde toca.
-        hueco_codigo = ttk.Frame(zona, style="Tarjeta.TFrame")
-        hueco_codigo.pack(fill="x")
-        self.bloque_codigo = ttk.Frame(hueco_codigo, style="Tarjeta.TFrame")
-        widgets.etiqueta_campo(self.bloque_codigo, "Código de invitación")
-        self.var_codigo = tk.StringVar()
-        self.campo_codigo = ttk.Entry(self.bloque_codigo, textvariable=self.var_codigo,
-                                      width=34)
-        self.campo_codigo.pack(fill="x")
+        self.cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=22)
+        self.cuerpo.pack(fill="both", expand=True)
 
-        # El servidor va escondido tras un enlace: casi nadie lo cambia.
-        self.enlace_servidor = ttk.Button(zona, text="Cambiar el servidor…",
-                                          style="Enlace.TButton",
-                                          command=self._ensenar_servidor)
-        self.enlace_servidor.pack(anchor="w", pady=(8, 0))
-        self.bloque_servidor = ttk.Frame(zona, style="Tarjeta.TFrame")
-        widgets.etiqueta_campo(self.bloque_servidor, "Dirección del servidor")
+        # Lo que comparten las dos pantallas de formulario: el servidor y el
+        # aviso de https. Se escriben una vez y se pasan de una a otra.
         self.var_servidor = tk.StringVar(value=sincronia.sesion["servidor"])
-        ttk.Entry(self.bloque_servidor, textvariable=self.var_servidor,
-                  width=34).pack(fill="x")
+        self.var_usuario = tk.StringVar(value=sincronia.sesion["usuario"])
 
-        # Aviso, no error: si el servidor va por http y no es este mismo
-        # ordenador, la contraseña cruza la red a la vista de cualquiera. Se
-        # queda puesto mientras la dirección lo merezca, no unos segundos.
-        self.aviso = ttk.Label(cuerpo, text="", style="Tarjeta.Aviso.TLabel",
-                               wraplength=340, justify="left")
-        self._aviso_puesto = False
-
-        self.error = ttk.Label(cuerpo, text="", style="Tarjeta.Gasto.TLabel",
-                               wraplength=340, justify="left")
-        self.error.pack(anchor="w", pady=(8, 0))
-
+        self.pantallas = {
+            "inicio": self._pantalla_inicio(),
+            "entrar": self._pantalla_entrar(),
+            "crear": self._pantalla_crear(),
+        }
         self.var_servidor.trace_add("write", lambda *_a: self._revisar_cifrado())
-        self._revisar_cifrado()
 
-        pie = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
-        pie.pack(fill="x", pady=(12, 0))
-        self.boton_entrar = ttk.Button(pie, text="Entrar", style="Principal.TButton",
-                                       command=lambda: self._enviar(registro=False))
-        self.boton_entrar.pack(side="left")
-        self.boton_crear = ttk.Button(pie, text="Crear cuenta",
-                                      command=lambda: self._enviar(registro=True))
-        self.boton_crear.pack(side="left", padx=(8, 0))
-        if permitir_sin_conexion:
-            # Solo tiene sentido si ya se entró alguna vez: la primera vez no
-            # hay cuenta a la que atribuir los datos.
-            ttk.Button(pie, text="Seguir sin conexión", style="Enlace.TButton",
-                       command=self._sin_conexion).pack(side="right")
-
-        self.bind("<Return>", lambda _e: self._enviar(registro=False))
         self.bind("<Escape>", lambda _e: self._cerrar())
         self.protocol("WM_DELETE_WINDOW", self._cerrar)
-        campo_usuario.focus_set()
+        self.ir_a("entrar" if sincronia.hay_sesion() else "inicio")
 
-    def contrasena_visible(self) -> bool:
-        return not self.campo_contrasena.cget("show")
+    # --- las pantallas ----------------------------------------------------------
 
-    def _alternar_contrasena(self) -> None:
-        visible = not self.contrasena_visible()
-        self.campo_contrasena.configure(show="" if visible else "•")
-        self.boton_ojo.configure(image=self._ojos[visible])
+    def _pantalla_inicio(self) -> ttk.Frame:
+        marco = ttk.Frame(self.cuerpo, style="Tarjeta.TFrame")
+        ttk.Label(marco, text="Tu cuenta de ContaXcell",
+                  style="Tarjeta.Negrita.TLabel").pack(anchor="w")
+        ttk.Label(marco, style="Tarjeta.Suave.TLabel", wraplength=ANCHO_TEXTO,
+                  justify="left",
+                  text="Con una cuenta, tu contabilidad se guarda también en el "
+                       "servidor y puedes seguirla desde otro ordenador o desde "
+                       "el móvil. Solo se pide una vez: después la aplicación "
+                       "abre directa, haya internet o no.").pack(anchor="w", pady=(4, 16))
+        ttk.Button(marco, text="Iniciar sesión", style="Principal.TButton",
+                   command=lambda: self.ir_a("entrar")).pack(fill="x")
+        ttk.Label(marco, text="Ya tengo cuenta", style="Tarjeta.Suave.TLabel").pack(
+            anchor="w", pady=(2, 12))
+        ttk.Button(marco, text="Crear cuenta",
+                   command=lambda: self.ir_a("crear")).pack(fill="x")
+        ttk.Label(marco, text="Es la primera vez", style="Tarjeta.Suave.TLabel").pack(
+            anchor="w", pady=(2, 0))
+        if self.permitir_sin_conexion:
+            # Solo tiene sentido si ya se entró alguna vez: la primera vez no
+            # hay cuenta a la que atribuir los datos.
+            ttk.Button(marco, text="Seguir sin conexión", style="Enlace.TButton",
+                       command=self._sin_conexion).pack(anchor="e", pady=(12, 0))
+        return marco
 
-    def _ensenar_servidor(self) -> None:
-        self.enlace_servidor.pack_forget()
-        self.bloque_servidor.pack(fill="x")
+    def _pantalla_entrar(self) -> ttk.Frame:
+        marco = ttk.Frame(self.cuerpo, style="Tarjeta.TFrame")
+        ttk.Label(marco, text="Iniciar sesión", style="Tarjeta.Negrita.TLabel").pack(anchor="w")
+        zona = ttk.Frame(marco, style="Tarjeta.TFrame")
+        zona.pack(fill="x", pady=(6, 0))
+        widgets.etiqueta_campo(zona, "Usuario")
+        self.campo_usuario_entrar = ttk.Entry(zona, textvariable=self.var_usuario, width=34)
+        self.campo_usuario_entrar.pack(fill="x")
+        widgets.etiqueta_campo(zona, "Contraseña")
+        self.var_contrasena = tk.StringVar()
+        self.campo_contrasena = self._campo_contrasena(zona, self.var_contrasena)
+        self._bloque_servidor(marco, "entrar")
+        self.error_entrar = self._linea_error(marco)
 
-    def _ensenar_codigo(self) -> None:
-        """El servidor pide invitación: se saca el campo y se pone el cursor
-        dentro, que es lo único que falta para poder seguir."""
-        if not self.bloque_codigo.winfo_ismapped():
-            self.bloque_codigo.pack(fill="x")
-        self.campo_codigo.focus_set()
+        pie = ttk.Frame(marco, style="Tarjeta.TFrame")
+        pie.pack(fill="x", pady=(12, 0))
+        self.boton_entrar = ttk.Button(pie, text="Entrar", style="Principal.TButton",
+                                       command=self._entrar)
+        self.boton_entrar.pack(side="left")
+        self.boton_volver_entrar = ttk.Button(pie, text="Volver",
+                                              command=lambda: self.ir_a("inicio"))
+        self.boton_volver_entrar.pack(side="left", padx=(8, 0))
+        return marco
+
+    def _pantalla_crear(self) -> ttk.Frame:
+        marco = ttk.Frame(self.cuerpo, style="Tarjeta.TFrame")
+        ttk.Label(marco, text="Crear cuenta", style="Tarjeta.Negrita.TLabel").pack(anchor="w")
+        zona = ttk.Frame(marco, style="Tarjeta.TFrame")
+        zona.pack(fill="x", pady=(6, 0))
+        widgets.etiqueta_campo(zona, "Usuario")
+        self.var_usuario_nuevo = tk.StringVar()
+        self.campo_usuario_crear = ttk.Entry(zona, textvariable=self.var_usuario_nuevo, width=34)
+        self.campo_usuario_crear.pack(fill="x")
+        widgets.etiqueta_campo(zona, "Correo electrónico")
+        self.var_correo = tk.StringVar()
+        ttk.Entry(zona, textvariable=self.var_correo, width=34).pack(fill="x")
+        ttk.Label(zona, style="Tarjeta.Suave.TLabel", wraplength=ANCHO_TEXTO, justify="left",
+                  text="Por si algún día hay que restablecer la contraseña.").pack(anchor="w")
+        widgets.etiqueta_campo(zona, "Contraseña")
+        self.var_contrasena_nueva = tk.StringVar()
+        self.campo_contrasena_nueva = self._campo_contrasena(zona, self.var_contrasena_nueva)
+        widgets.etiqueta_campo(zona, "Repite la contraseña")
+        self.var_repetida = tk.StringVar()
+        self.campo_repetida = self._campo_contrasena(zona, self.var_repetida)
+        self._bloque_servidor(marco, "crear")
+        self.error_crear = self._linea_error(marco)
+
+        pie = ttk.Frame(marco, style="Tarjeta.TFrame")
+        pie.pack(fill="x", pady=(12, 0))
+        ttk.Button(pie, text="Crear cuenta", style="Principal.TButton",
+                   command=self._crear).pack(side="left")
+        ttk.Button(pie, text="Volver", command=lambda: self.ir_a("inicio")).pack(
+            side="left", padx=(8, 0))
+        return marco
+
+    # --- piezas que se repiten -------------------------------------------------------
+
+    def _campo_contrasena(self, padre, variable: tk.StringVar) -> ttk.Entry:
+        """Una casilla de contraseña con su ojo al lado, para comprobar lo
+        escrito: una letra de más al crear la cuenta obliga luego a pedir ayuda."""
+        fila = ttk.Frame(padre, style="Tarjeta.TFrame")
+        fila.pack(fill="x")
+        campo = ttk.Entry(fila, textvariable=variable, width=34, show="•")
+        campo.pack(side="left", fill="x", expand=True)
+        ojo = ttk.Button(fila, image=self._ojos[False], style="Enlace.TButton",
+                         cursor="hand2")
+        ojo.configure(command=lambda: self._alternar(campo, ojo))
+        ojo.pack(side="left", padx=(4, 0))
+        campo.ojo = ojo
+        return campo
+
+    def _alternar(self, campo: ttk.Entry, ojo: ttk.Button) -> None:
+        visible = not self.visible(campo)
+        campo.configure(show="" if visible else "•")
+        ojo.configure(image=self._ojos[visible])
+
+    @staticmethod
+    def visible(campo: ttk.Entry) -> bool:
+        return not campo.cget("show")
+
+    def _bloque_servidor(self, padre, pantalla: str) -> None:
+        """El servidor va escondido tras un enlace: casi nadie lo cambia. Y el
+        aviso de https, que se queda puesto mientras la dirección lo merezca."""
+        enlace = ttk.Button(padre, text="Cambiar el servidor…", style="Enlace.TButton")
+        enlace.pack(anchor="w", pady=(8, 0))
+        bloque = ttk.Frame(padre, style="Tarjeta.TFrame")
+        widgets.etiqueta_campo(bloque, "Dirección del servidor")
+        ttk.Entry(bloque, textvariable=self.var_servidor, width=34).pack(fill="x")
+
+        def ensenar():
+            # Donde estaba el enlace: justo antes de la línea de errores.
+            enlace.pack_forget()
+            bloque.pack(fill="x", before=getattr(self, f"error_{pantalla}"))
+        enlace.configure(command=ensenar)
+
+        # El aviso no se coloca hasta que haga falta: vacío dejaría un hueco.
+        aviso = ttk.Label(padre, text="", style="Tarjeta.Aviso.TLabel",
+                          wraplength=ANCHO_TEXTO, justify="left")
+        aviso.puesto = False
+        setattr(self, f"aviso_{pantalla}", aviso)
+
+    def _linea_error(self, padre) -> ttk.Label:
+        error = ttk.Label(padre, text="", style="Tarjeta.Gasto.TLabel",
+                          wraplength=ANCHO_TEXTO, justify="left")
+        error.pack(anchor="w", pady=(8, 0))
+        return error
+
+    # --- moverse entre pantallas ----------------------------------------------------
+
+    def ir_a(self, nombre: str) -> None:
+        for marco in self.pantallas.values():
+            marco.pack_forget()
+        self.pantallas[nombre].pack(fill="both", expand=True)
+        self.pantalla = nombre
+        self._revisar_cifrado()
+        # Intro hace lo de la pantalla en la que se está.
+        accion = {"entrar": self._entrar, "crear": self._crear}.get(nombre)
+        if accion is None:
+            self.unbind("<Return>")
+        else:
+            self.bind("<Return>", lambda _e: accion())
+        foco = {"entrar": (self.campo_contrasena if self.var_usuario.get()
+                           else self.campo_usuario_entrar),
+                "crear": self.campo_usuario_crear}.get(nombre)
+        if foco is not None:
+            foco.focus_set()
+        if self.winfo_ismapped():
+            self.update_idletasks()
+            self._centrar()
 
     def _revisar_cifrado(self) -> None:
         """Pone o quita el aviso según la dirección que haya escrita. Nunca
@@ -154,40 +276,61 @@ class VentanaAcceso(tk.Toplevel):
 
         Si está puesto o no se lleva a mano y no se le pregunta a tkinter:
         mientras se construye la ventana, `winfo_ismapped` contesta que no
-        a todo.
-        """
+        a todo."""
         texto = aviso_de_texto_claro(self.var_servidor.get())
-        self.aviso.configure(text=texto)
-        if texto and not self._aviso_puesto:
-            self.aviso.pack(anchor="w", pady=(8, 0), before=self.error)
-            self._aviso_puesto = True
-        elif not texto and self._aviso_puesto:
-            self.aviso.pack_forget()
-            self._aviso_puesto = False
+        for nombre in ("entrar", "crear"):
+            aviso = getattr(self, f"aviso_{nombre}")
+            aviso.configure(text=texto)
+            if texto and not aviso.puesto:
+                aviso.pack(anchor="w", pady=(8, 0), before=getattr(self, f"error_{nombre}"))
+            elif not texto and aviso.puesto:
+                aviso.pack_forget()
+            aviso.puesto = bool(texto)
 
-    def _enviar(self, registro: bool) -> None:
-        self.error.configure(text="Hablando con el servidor…")
+    # --- lo que hacen los botones -----------------------------------------------------
+
+    def _entrar(self) -> None:
+        self.error_entrar.configure(text="Hablando con el servidor…")
         self.update_idletasks()
         try:
-            if registro:
-                # El código solo pinta algo al crear la cuenta.
-                self.sincronia.registrar(self.var_usuario.get(),
-                                         self.var_contrasena.get(),
-                                         self.var_servidor.get(),
-                                         self.var_codigo.get())
-            else:
-                self.sincronia.entrar(self.var_usuario.get(),
-                                      self.var_contrasena.get(),
-                                      self.var_servidor.get())
+            self.sincronia.entrar(self.var_usuario.get(), self.var_contrasena.get(),
+                                  self.var_servidor.get())
+        except ErrorDeSincronia as error:
+            self.error_entrar.configure(text=str(error))
+            self.bell()
+            return
+        self._dentro()
+
+    def _crear(self) -> None:
+        fallo = fallo_cuenta_nueva(self.var_usuario_nuevo.get(), self.var_correo.get(),
+                                   self.var_contrasena_nueva.get(), self.var_repetida.get())
+        if fallo:
+            self.error_crear.configure(text=fallo)
+            self.bell()
+            return
+        self.error_crear.configure(text="")
+        codigo = PedirCodigo(self).mostrar()
+        if codigo is None:
+            return  # ha cancelado: se queda en el formulario con todo escrito
+        self.error_crear.configure(text="Hablando con el servidor…")
+        self.update_idletasks()
+        try:
+            self.sincronia.registrar(self.var_usuario_nuevo.get(),
+                                     self.var_contrasena_nueva.get(),
+                                     self.var_servidor.get(), codigo,
+                                     correo=self.var_correo.get())
         except FaltaCodigo as error:
-            self._ensenar_codigo()
-            self.error.configure(text=str(error))
+            self.error_crear.configure(
+                text=f"{error}\nPulsa «Crear cuenta» otra vez para escribirlo.")
             self.bell()
             return
         except ErrorDeSincronia as error:
-            self.error.configure(text=str(error))
+            self.error_crear.configure(text=str(error))
             self.bell()
             return
+        self._dentro()
+
+    def _dentro(self) -> None:
         if self.sincronia.en_espera:
             # Ha entrado, pero el servidor no le guardará nada hasta que lo
             # acepten: mejor saberlo ahora que creer que ya está sincronizado.
@@ -215,15 +358,69 @@ class VentanaAcceso(tk.Toplevel):
         return self.resultado
 
     def _centrar(self) -> None:
-        ancho, alto = self.winfo_width(), self.winfo_height()
-        padre = self.master
-        if padre is not None and padre.winfo_viewable():
-            x = padre.winfo_rootx() + (padre.winfo_width() - ancho) // 2
-            y = padre.winfo_rooty() + (padre.winfo_height() - alto) // 3
-        else:
-            x = (self.winfo_screenwidth() - ancho) // 2
-            y = (self.winfo_screenheight() - alto) // 3
-        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        _centrar_sobre(self, self.master)
+
+
+class PedirCodigo(tk.Toplevel):
+    """La ventanita del código de invitación, después de rellenar la cuenta.
+    `mostrar()` devuelve el código (puede ir vacío) o None si se cancela."""
+
+    def __init__(self, padre):
+        super().__init__(padre)
+        self.resultado = None
+        self.title("Código de invitación")
+        self.resizable(False, False)
+        self.transient(padre)
+        self.configure(background=widgets.PALETA.tarjeta)
+
+        cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=22)
+        cuerpo.pack(fill="both", expand=True)
+        ttk.Label(cuerpo, text="Código de invitación",
+                  style="Tarjeta.Negrita.TLabel").pack(anchor="w")
+        ttk.Label(cuerpo, style="Tarjeta.Suave.TLabel", wraplength=300, justify="left",
+                  text="Te lo da quien administra ContaXcell. Sin él, el servidor "
+                       "no deja crear cuentas.").pack(anchor="w", pady=(4, 10))
+        self.var_codigo = tk.StringVar()
+        self.campo = ttk.Entry(cuerpo, textvariable=self.var_codigo, width=30)
+        self.campo.pack(fill="x")
+        pie = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
+        pie.pack(fill="x", pady=(14, 0))
+        ttk.Button(pie, text="Crear la cuenta", style="Principal.TButton",
+                   command=self._aceptar).pack(side="left")
+        ttk.Button(pie, text="Cancelar", command=self.destroy).pack(side="left", padx=(8, 0))
+        self.bind("<Return>", lambda _e: self._aceptar())
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _aceptar(self) -> None:
+        self.resultado = self.var_codigo.get().strip()
+        self.destroy()
+
+    def mostrar(self) -> str | None:
+        self.update_idletasks()
+        _centrar_sobre(self, self.master)
+        self.campo.focus_set()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window()
+        # Al cerrarse, la ventana de la cuenta vuelve a llevar el mando.
+        try:
+            self.master.grab_set()
+        except tk.TclError:
+            pass
+        return self.resultado
+
+
+def _centrar_sobre(ventana: tk.Toplevel, padre) -> None:
+    ancho, alto = ventana.winfo_width(), ventana.winfo_height()
+    if padre is not None and padre.winfo_viewable():
+        x = padre.winfo_rootx() + (padre.winfo_width() - ancho) // 2
+        y = padre.winfo_rooty() + (padre.winfo_height() - alto) // 3
+    else:
+        x = (ventana.winfo_screenwidth() - ancho) // 2
+        y = (ventana.winfo_screenheight() - alto) // 3
+    ventana.geometry(f"+{max(0, x)}+{max(0, y)}")
 
 
 def aviso_de_texto_claro(direccion: str) -> str:

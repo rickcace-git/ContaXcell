@@ -344,10 +344,12 @@ class GraficoBarras(Grafico):
     """Barras agrupadas: ingresos, gastos e inversión de cada mes.
 
     Sin números en los ejes a propósito: para la cifra exacta está la tabla de
-    debajo, y aquí lo que interesa es la forma del año.
+    debajo, y aquí lo que interesa es la forma del año. Aun así, con el ratón
+    encima de una barra sale su cifra, para no tener que ir a buscarla.
     """
 
     def _pintar_datos(self, ancho: int, alto: int) -> None:
+        from .formato import euros
         etiquetas, series = self._datos
         maximo = max((max(valores) for _, _, valores in series if valores), default=0)
         if maximo <= 0:
@@ -365,17 +367,43 @@ class GraficoBarras(Grafico):
             total_ancho = len(series) * ancho_barra + (len(series) - 1) * hueco
             inicio = centro - total_ancho / 2
 
-            for posicion, (_nombre, color, valores) in enumerate(series):
+            for posicion, (nombre, color, valores) in enumerate(series):
                 valor = valores[indice] if indice < len(valores) else 0
                 if valor <= 0:
                     continue
                 altura = max(2, (valor / maximo) * (base - 6))
                 x1 = inicio + posicion * (ancho_barra + hueco)
-                self.create_rectangle(x1, base - altura, x1 + ancho_barra, base,
-                                      fill=color, outline="")
+                barra = self.create_rectangle(x1, base - altura, x1 + ancho_barra, base,
+                                              fill=color, outline="")
+                texto = f"{nombre} · {etiqueta}: {euros(valor)}"
+                self.tag_bind(barra, "<Enter>",
+                              lambda _e, x=x1 + ancho_barra / 2, y=base - altura, t=texto:
+                              self._ensenar_cifra(x, y, t))
+                self.tag_bind(barra, "<Leave>", lambda _e: self.delete("cifra"))
 
             self.create_text(centro, alto - 8, text=etiqueta, fill=PALETA.suave,
                              font=FUENTES.diminuta)
+
+    def _ensenar_cifra(self, x: float, y: float, texto: str) -> None:
+        """Una etiqueta encima de la barra, en colores invertidos para que se
+        lea sobre cualquier cosa. Se mete dentro del lienzo si no cabe."""
+        self.delete("cifra")
+        # «disabled»: la etiqueta no coge el ratón. Si lo cogiera, al quedar
+        # encima de una barra alta la barra perdería el ratón, la etiqueta se
+        # borraría y volvería a salir: un parpadeo sin fin.
+        letrero = self.create_text(0, 0, text=texto, fill=PALETA.tarjeta,
+                                   disabledfill=PALETA.tarjeta, state="disabled",
+                                   font=FUENTES.pequena, anchor="s", tags="cifra")
+        x1, y1, x2, y2 = self.bbox(letrero)
+        medio_ancho, alto_texto = (x2 - x1) / 2 + 6, y2 - y1
+        x = min(max(x, medio_ancho), self.winfo_width() - medio_ancho)
+        y = max(y - 6, alto_texto + 6)
+        self.coords(letrero, x, y)
+        fondo = self.create_rectangle(x - medio_ancho, y - alto_texto - 3,
+                                      x + medio_ancho, y + 3, fill=PALETA.texto,
+                                      disabledfill=PALETA.texto, state="disabled",
+                                      outline="", tags="cifra")
+        self.tag_lower(fondo, letrero)
 
 
 class GraficoLineas(Grafico):
@@ -442,6 +470,15 @@ class GraficoLineas(Grafico):
                 x, y = x_de(dia), y_de(val)
                 self.create_oval(x - 4, y - 4, x + 4, y + 4,
                                  fill=PALETA.acento, outline=PALETA.tarjeta, width=2)
+
+
+def imagen_qr(maestro, texto: str, tamano_modulo: int = 4) -> tk.PhotoImage:
+    """El QR de ese texto, listo para una etiqueta. Como con los iconos, hay
+    que guardar la referencia: si Python la tira, sale el hueco en blanco."""
+    import base64
+    from . import qr
+    return tk.PhotoImage(master=maestro, format="png",
+                         data=base64.b64encode(qr.png(texto, tamano_modulo)))
 
 
 class Leyenda(ttk.Frame):

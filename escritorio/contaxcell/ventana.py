@@ -217,7 +217,10 @@ class Aplicacion(tk.Tk):
         barra.add_cascade(label="Ver", menu=ver)
 
         ayuda = tk.Menu(barra, tearoff=0)
-        ayuda.add_command(label="Guía de uso\tF1", command=lambda: self.abrir_guia("empezar"))
+        # El atajo va en `accelerator`, que Windows pinta en su columna de la
+        # derecha. Con un tabulador dentro del texto salía pegado: «Guía de usoF1».
+        ayuda.add_command(label="Guía de uso", accelerator="F1",
+                          command=lambda: self.abrir_guia("empezar"))
         ayuda.add_separator()
         ayuda.add_command(label="Acerca de ContaXcell", command=self._acerca_de)
         barra.add_cascade(label="Ayuda", menu=ayuda)
@@ -541,7 +544,13 @@ class Aplicacion(tk.Tk):
         if abierta is not None and abierta.winfo_exists():
             abierta.ir_a(clave)
         else:
-            self._guia = guia.Guia(self, clave)
+            # Con cuenta, la guía enseña el QR para bajarse la app del móvil
+            # desde el servidor en el que se está.
+            direccion = None
+            if self.sincronia is not None:
+                from .sincronia import direccion_app_movil
+                direccion = direccion_app_movil(self.sincronia.sesion["servidor"])
+            self._guia = guia.Guia(self, clave, direccion_app=direccion)
         self._guia.mostrar()
 
     def _acerca_de(self) -> None:

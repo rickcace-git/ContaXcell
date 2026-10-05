@@ -42,6 +42,7 @@ escritorio/          la aplicación (Python + tkinter, nada que instalar)
     ventana.py       ventana principal y estado compartido
     iconos.py        iconos de pestañas y guía, dibujados en Python (sin
                      Pillow ni imágenes). Pestaña nueva → su dibujo aquí
+    qr.py            códigos QR sin librerías (el de descargar la app)
     guia.py          la guía de uso (Ayuda ▸ Guía de uso, F1): un apartado
                      por pestaña. Si cambias cómo se usa algo, cámbialo aquí
     vistas/          una pestaña por archivo
@@ -153,7 +154,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      384 pruebas, ~5 s (test_dialogos y
+python -m unittest discover -s pruebas      398 pruebas, ~5 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
@@ -164,7 +165,7 @@ cd server
 docker compose up -d                        levantar el servidor (solo en local)
 docker compose --profile https up -d        producción: Caddy con certificado delante
 docker compose logs -f api                  ver las peticiones llegar
-python -m unittest discover -s pruebas     100 pruebas (SQLite, sin red)
+python -m unittest discover -s pruebas     104 pruebas (SQLite, sin red)
 ```
 
 `pruebas/ver.py` usa una carpeta de datos aparte: nunca toca la contabilidad
