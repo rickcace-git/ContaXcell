@@ -26,7 +26,7 @@ subidas a la vez no pueden ganar las dos.
 | Ruta | Qué hace |
 |---|---|
 | `GET /api/salud` | Contesta `{"estado": "bien"}` si está vivo. |
-| `POST /api/cuentas/registro` | Crea la cuenta. Cuerpo: `{"usuario", "contrasena"}` y, si el servidor pide código, `"codigo"`. Devuelve `{"token", "usuario"}`. |
+| `POST /api/cuentas/registro` | Crea la cuenta. Cuerpo: `{"usuario", "contrasena"}`, `"correo"` (las apps lo piden; el servidor lo acepta sin él, por las versiones de antes) y, si el servidor pide código, `"codigo"`. Devuelve `{"token", "usuario", "en_espera"}`. |
 | `POST /api/cuentas/entrar` | Entra con usuario y contraseña. Devuelve `{"token", "usuario"}`. |
 | `POST /api/cuentas/contrasena` | Cambia la contraseña. Cuerpo: `{"contrasena_actual", "contrasena_nueva"}`. Devuelve `{"token"}`, uno nuevo. |
 | `GET /api/libro` | El libro guardado: `{"revision", "libro"}`. Revisión 0 y libro nulo si nunca se subió nada. |
@@ -277,6 +277,19 @@ Vetar **no borra nada**: el libro sigue en el servidor y la contabilidad sigue
 en su ordenador, que es suya. Lo que pierde es la cuenta. Y ojo, que con el
 código de invitación podría crearse otra: si de verdad no tiene que volver,
 cambia `CONTAXCELL_CODIGO_REGISTRO` en el `.env` y reinicia la API.
+
+## La app del móvil para descargar
+
+El Caddy sirve lo que haya en la carpeta `server/descargas` de la máquina en
+`https://<servidor>/descargas/`. Ahí va el APK con el nombre
+`ContaXcell.apk`, que es adonde apunta el QR de Ajustes y de la guía del
+programa de escritorio. La carpeta no va a git: el APK se sube a mano.
+
+```
+scp -i contaxcell.pem ContaXcell.apk ubuntu@<servidor>:server/descargas/ContaXcell.apk
+```
+
+No hace falta reiniciar nada: el siguiente que lo descargue ya se lleva el nuevo.
 
 ## Copias de seguridad de la base de datos
 

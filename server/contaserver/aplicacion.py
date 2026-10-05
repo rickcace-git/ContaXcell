@@ -54,6 +54,8 @@ CONTRASENA_MINIMA = 8
 # Un tope arriba también: amasar con scrypt una contraseña de un megabyte es
 # trabajo regalado para quien quiera atascar el servidor.
 CONTRASENA_MAXIMA = 128
+# El largo máximo que admite un correo de verdad.
+CORREO_MAXIMO = 254
 
 # Cuántos intentos se aguantan y en cuánto tiempo. Diez fallos de entrada por
 # cuarto de hora son de sobra para un despiste, y muy pocos para quien está
@@ -192,11 +194,12 @@ def crear_aplicacion(
         if codigo_registro:
             _comprobar_codigo(cuerpo.get("codigo"), codigo_registro, ip)
         usuario, contrasena = _credenciales(cuerpo)
+        correo = _correo(cuerpo.get("correo"))
         sal = seguridad.nueva_sal()
         hash_contrasena = seguridad.amasar_contrasena(contrasena, sal)
         try:
             usuario_id = almacen.crear_usuario(usuario, hash_contrasena, sal,
-                                               en_espera=aceptar_a_mano)
+                                               en_espera=aceptar_a_mano, correo=correo)
         except modulo_almacen.UsuarioYaExiste:
             raise HTTPException(409, "Ese nombre de usuario ya está cogido.")
         if aceptar_a_mano:
@@ -421,6 +424,26 @@ def _normalizar_usuario(valor) -> str:
             422, "El usuario no puede llevar caracteres invisibles ni de control."
         )
     return usuario
+
+
+def _correo(valor) -> str:
+    """El correo de la cuenta, en minúsculas, o cadena vacía si no viene.
+
+    No es obligatorio aquí, aunque las apps lo pidan: las versiones de antes
+    no lo mandan y no se les puede cerrar la puerta. Si viene, tiene que tener
+    pinta de correo. Que exista de verdad solo se sabrá el día que se le
+    escriba (para restablecer la contraseña, que es para lo que se guarda).
+    """
+    correo = str(valor or "").strip().lower()
+    if not correo:
+        return ""
+    usuario, arroba, dominio = correo.partition("@")
+    if (len(correo) > CORREO_MAXIMO or not arroba or not usuario or "." not in dominio
+            or dominio.startswith(".") or dominio.endswith(".")
+            or any(c.isspace() or unicodedata.category(c).startswith("C") for c in correo)
+            or "@" in dominio):
+        raise HTTPException(422, "El correo no parece válido. Revisa que esté bien escrito.")
+    return correo
 
 
 def _validar_contrasena(contrasena: str) -> None:

@@ -687,7 +687,7 @@ class PruebaQuienLoUsa(unittest.TestCase):
         self.assertEqual(ana["subidas"], 3)
         self.assertGreater(ana["tamano"], 0)
         self.assertEqual(set(ana), {"usuario", "creado", "ultimo_uso", "subidas", "tamano",
-                                    "vetado", "en_espera"})
+                                    "vetado", "en_espera", "correo"})
         # Quien nunca subió nada sale igual, con ceros.
         self.assertEqual((self.resumen("bea")["subidas"], self.resumen("bea")["tamano"]), (0, 0))
 
@@ -698,6 +698,51 @@ class PruebaQuienLoUsa(unittest.TestCase):
         self.poner_ultimo_uso("carlos", "-1 hours")
         orden = [f["usuario"] for f in self.almacen.resumen_usuarios()]
         self.assertEqual(orden, ["carlos", "ana", "bea"])
+
+
+class PruebaCorreo(unittest.TestCase):
+    """El correo de la cuenta: para saber quién es y, más adelante, para
+    restablecer la contraseña."""
+
+    def setUp(self):
+        self.almacen = AlmacenSQLite()
+        # Se prueban muchos correos malos seguidos: con el límite de verdad
+        # (cinco registros por hora) el sexto ya daría 429.
+        self.cliente = TestClient(crear_aplicacion(
+            almacen=self.almacen, secreto=SECRETO_DE_PRUEBA, cliente_precios=None,
+            limite_registro=(100, 3600),
+        ))
+
+    def registro(self, correo):
+        cuerpo = {"usuario": "ana", "contrasena": "contrasena1"}
+        if correo is not None:
+            cuerpo["correo"] = correo
+        return self.cliente.post("/api/cuentas/registro", json=cuerpo)
+
+    def test_se_guarda_en_minusculas_y_sin_espacios(self):
+        self.assertEqual(self.registro("  Ana.Perez@Correo.ES ").status_code, 201)
+        self.assertEqual(self.almacen.resumen_usuarios()[0]["correo"], "ana.perez@correo.es")
+
+    def test_las_apps_de_antes_sin_correo_siguen_pudiendo(self):
+        self.assertEqual(self.registro(None).status_code, 201)
+        self.assertEqual(self.almacen.resumen_usuarios()[0]["correo"], "")
+
+    def test_uno_sin_pinta_de_correo_da_422(self):
+        for malo in ("ana", "ana@", "@correo.es", "ana@correo", "ana@.es", "ana@correo.",
+                     "ana perez@correo.es", "ana@co@rreo.es", "a" * 250 + "@correo.es"):
+            with self.subTest(malo):
+                respuesta = self.registro(malo)
+                self.assertEqual(respuesta.status_code, 422)
+                self.assertIn("correo", respuesta.json()["detail"])
+        self.assertEqual(self.almacen.resumen_usuarios(), [])
+
+    def test_sale_en_la_tabla(self):
+        from contaserver.usuarios import informe
+        self.registro("ana@correo.es")
+        self.almacen.crear_usuario("vieja", "h", "s")
+        texto = informe(self.almacen.resumen_usuarios(), datetime.now(timezone.utc))
+        self.assertIn("CORREO", texto)
+        self.assertIn("ana@correo.es", texto)
 
 
 class PruebaVeto(unittest.TestCase):

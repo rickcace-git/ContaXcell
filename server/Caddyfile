@@ -22,5 +22,17 @@
 			profile shortlived
 		}
 	}
-	reverse_proxy api:8000
+	# La app del móvil, para descargarla con el QR de Ajustes y de la guía:
+	# https://<servidor>/descargas/ContaXcell.apk. Los archivos viven en la
+	# carpeta server/descargas de la máquina, que no va a git: se suben a mano.
+	handle_path /descargas/* {
+		root * /srv/descargas
+		@apk path *.apk
+		header @apk Content-Type application/vnd.android.package-archive
+		file_server
+	}
+
+	handle {
+		reverse_proxy api:8000
+	}
 }

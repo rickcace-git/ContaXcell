@@ -55,6 +55,8 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Lo que se puede descargar (la app del móvil). Solo lectura.
+      - ./descargas:/srv/descargas:ro
       - datos_caddy:/data
       - config_caddy:/config
     environment:
