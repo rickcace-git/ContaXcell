@@ -75,5 +75,13 @@ class PruebaParaLasDeAntes(unittest.TestCase):
         self.assertTrue(codigo.endswith(f"/compare/{'a' * 12}...{'c' * 12}"))
 
 
+
+class PruebaAndroid(unittest.TestCase):
+    def test_el_nombre_es_el_de_gradle(self):
+        # android/app/build.gradle.kts: versionName = "1.0.$compilacion"
+        self.assertEqual(publicar.nombre_android(48), "1.0.48")
+        gradle = (Path(__file__).resolve().parents[2] / "android" / "app" / "build.gradle.kts")
+        self.assertIn('versionName = "1.0.$compilacion"', gradle.read_text(encoding="utf-8"))
+
 if __name__ == "__main__":
     unittest.main()

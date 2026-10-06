@@ -33,6 +33,14 @@ a la que ya pregunta con cuenta. No hace falta volver a usarlo.
 Sube solo las condiciones de uso (server/textos/condiciones.md) al
 servidor. Se ven al momento, sin reiniciar nada ni publicar versión.
 
+    python publicar.py --android "Descargas/ContaXcell-android (6)/app-debug.apk" "lo nuevo"
+
+Publica la app del móvil que ha compilado GitHub: la carpeta del artifact
+trae, junto al APK, compilacion.json (su número y su commit). La firma, la
+sube, la pone también en el QR de descarga y marca el commit en git
+(android-48). Al abrir la app, a cada cuenta aceptada le sale «Hay una
+versión nueva de la app» y, con un toque en «Instalar», queda puesta.
+
 LA LLAVE DE FIRMAR es lo único delicado. Vive en tu carpeta de usuario
 (~/.contaxcell/llave-actualizaciones.json), nunca en el repositorio ni en el
 servidor, y es lo que impide que nadie más pueda colar una actualización.
@@ -62,6 +70,8 @@ LLAVE_PUBLICA = RAIZ / "contaxcell" / "llave_publica.py"
 ZIP = RAIZ / "dist" / "ContaXcell-windows.zip"
 LLAVE_SSH = Path.home() / ".ssh" / "contaxcell.pem"
 CONDICIONES = RAIZ.parent / "server" / "textos" / "condiciones.md"
+LLAVE_ANDROID = (RAIZ.parent / "android" / "app" / "src" / "main" / "java" / "com" / "contaxcell"
+                 / "app" / "data" / "update" / "UpdateKey.kt")
 # Cuántas versiones atrás guarda el historial de la nota.
 VERSIONES_EN_HISTORIAL = 8
 # Las últimas que solo saben leer «cambios» y no el historial. Para ellas,
@@ -96,6 +106,23 @@ def escribir_publica(n: int, e: int) -> None:
         + "".join(f'        "{t}"\n' for t in trozos)
         + f"    ),\n    {e},\n)\n",
         encoding="utf-8")
+    # La misma, para la app del móvil.
+    trozos = [str(n)[i:i + 90] for i in range(0, len(str(n)), 90)]
+    cuerpo = " +\n".join(f'        "{t}"' for t in trozos)
+    LLAVE_ANDROID.write_text(
+        "package com.contaxcell.app.data.update\n\n"
+        "/**\n"
+        " * La mitad pública de la llave con la que se firman las actualizaciones: la\n"
+        " * misma que comprueba el programa del ordenador (escritorio/contaxcell/\n"
+        " * llave_publica.py). La escribe `python publicar.py --crear-llave`; no se toca\n"
+        " * a mano. Sirve para comprobar firmas, no para hacerlas.\n"
+        " */\n"
+        "internal object UpdateKey {\n"
+        "    const val MODULUS: String =\n"
+        f"{cuerpo}\n"
+        f"    const val EXPONENT: Long = {e}L\n"
+        "}\n",
+        encoding="utf-8")
 
 
 def leer_llave() -> dict:
@@ -109,13 +136,13 @@ def maquina_del_servidor() -> tuple[str, str]:
     return servidor, urllib.parse.urlparse(servidor).hostname or ""
 
 
-def nota_publicada(ssh: list[str], destino: str,
-                   carpeta: str = "actualizaciones") -> tuple[bytes, bytes] | None:
+def nota_publicada(ssh: list[str], destino: str, carpeta: str = "actualizaciones",
+                   nota: str = "version.json") -> tuple[bytes, bytes] | None:
     """La nota y la firma que hay ahora en el servidor, leídas por ssh (las
     de la API piden cuenta, y esto no tiene por qué ir con una). None si no
     hay ninguna todavía."""
     partes = []
-    for nombre in ("version.json", "version.json.firma"):
+    for nombre in (nota, nota + ".firma"):
         leido = subprocess.run(["ssh", *ssh, destino, f"cat server/{carpeta}/{nombre}"],
                                capture_output=True)
         if leido.returncode != 0:
@@ -394,6 +421,141 @@ def publicar(notas: str, llave_ssh: Path, tambien_viejas: bool = False) -> int:
     return 0
 
 
+def nombre_android(codigo: int) -> str:
+    """El nombre de cada versión de la app, como lo pone android/app/build.gradle.kts."""
+    return f"1.0.{codigo}"
+
+
+def versiones_android() -> list[tuple[int, str]]:
+    """(número, commit) de cada app publicada, de la más vieja a la más nueva.
+    Salen de las marcas android-48 que pone `publicar --android`."""
+    marcas = []
+    for nombre in git("tag", "-l", "android-*").split():
+        numero = nombre.removeprefix("android-")
+        if numero.isdigit():
+            marcas.append((int(numero), git("rev-list", "-n", "1", nombre).strip()))
+    return sorted(marcas)
+
+
+def cambios_android(desde: str, hasta: str) -> list[dict]:
+    """Lo que cambió en la app (solo lo que toca android/) entre dos commits.
+    Sin «desde» (la primera vez), los últimos cambios."""
+    rango = [f"{desde}..{hasta}"] if desde else [hasta, "-n", "8"]
+    return leer_cambios(git("log", *rango, "--no-merges", "--format=%s%x1f%b%x1e",
+                            "--", "../android"))
+
+
+def historial_android(codigo: int, commit: str) -> list[dict]:
+    """Lo que trajo cada una de las últimas versiones de la app, la nueva la
+    primera: [{versionCode, versionName, fecha, cambios}]."""
+    anteriores = [m for m in versiones_android() if m[0] < codigo][-VERSIONES_EN_HISTORIAL:]
+    puntos = anteriores + [(codigo, commit)]
+    entradas = []
+    for i, (numero, hasta) in enumerate(puntos):
+        if i == 0 and anteriores:
+            continue  # la más vieja solo sirve de punto de partida
+        desde = puntos[i - 1][1] if i > 0 else ""
+        entradas.append({"versionCode": numero, "versionName": nombre_android(numero),
+                         "fecha": fecha_de(hasta), "cambios": cambios_android(desde, hasta)})
+    return entradas[::-1]
+
+
+def publicar_android(apk: Path, notas: str, llave_ssh: Path) -> int:
+    """Firma y sube la app del móvil que ha compilado GitHub."""
+    if not LLAVE_PRIVADA.exists():
+        print("Falta la llave de firmar (~/.contaxcell/llave-actualizaciones.json).")
+        return 1
+    llave = leer_llave()
+    from contaxcell.llave_publica import LLAVE_PUBLICA as PUBLICA
+    if (llave["n"], llave["e"]) != PUBLICA:
+        print("La llave de firmar no es la que conoce el programa (llave_publica.py).")
+        return 1
+    if not apk.is_file():
+        print(f"No encuentro el APK en {apk}.")
+        return 1
+    datos_compilacion = apk.parent / "compilacion.json"
+    if not datos_compilacion.is_file():
+        print("Junto al APK falta compilacion.json, que dice qué número y qué commit es.\n"
+              "Descarga el artifact entero de GitHub (Actions ▸ App Android ▸ Artifacts)\n"
+              "y descomprímelo: vienen los dos.")
+        return 1
+    compilacion = json.loads(datos_compilacion.read_text(encoding="utf-8"))
+    codigo, commit = int(compilacion["versionCode"]), str(compilacion["commit"])
+    if not git("cat-file", "-t", commit).strip():
+        print(f"Ese APK se compiló del commit {commit[:12]}, que no está en este ordenador.\n"
+              "Haz antes git pull.")
+        return 1
+
+    servidor, maquina = maquina_del_servidor()
+    ssh = ["-i", str(llave_ssh), "-o", "BatchMode=yes"]
+    destino = f"ubuntu@{maquina}"
+    print(f"Servidor: {servidor}\nApp a publicar: {nombre_android(codigo)} (compilación {codigo})")
+    if subprocess.run(["ssh", *ssh, destino, "mkdir -p server/actualizaciones"]).returncode != 0:
+        print(f"No se ha podido entrar en el servidor por ssh. ¿Está la llave en {llave_ssh}?")
+        return 1
+    publicada = nota_publicada(ssh, destino, nota="android.json")
+    if publicada is not None:
+        anterior = int(json.loads(publicada[0].decode("utf-8"))["versionCode"])
+        if codigo <= anterior:
+            print(f"\nEn el servidor ya está la compilación {anterior}. Esta es más vieja o la misma.")
+            return 1
+
+    entradas = historial_android(codigo, commit)
+    for entrada in entradas:
+        print(f"\nLa {entrada['versionName']} trae {len(entrada['cambios'])} cambios:")
+        for cambio in entrada["cambios"]:
+            print(f"  · {cambio['titulo']}")
+
+    datos = apk.read_bytes()
+    nombre = f"ContaXcell-android-{codigo}.apk"
+    nota = json.dumps({
+        "versionCode": codigo,
+        "versionName": nombre_android(codigo),
+        "archivo": actualizar.RUTA_BASE + nombre,
+        "tamano": len(datos),
+        "sha256": hashlib.sha256(datos).hexdigest(),
+        "notas": notas.strip(),
+        "historial": entradas,
+        "repositorio": repositorio(),
+    }, ensure_ascii=False, indent=2).encode("utf-8")
+    salida = RAIZ / "dist" / "publicar"
+    salida.mkdir(parents=True, exist_ok=True)
+    (salida / "android.json").write_bytes(nota)
+    (salida / "android.json.firma").write_bytes(firma.firmar(nota, llave))
+
+    print("\nSubiendo al servidor…")
+    pasos = [
+        ["scp", *ssh, str(apk), f"{destino}:server/actualizaciones/{nombre}"],
+        ["scp", *ssh, str(salida / "android.json"), f"{destino}:server/actualizaciones/.android.json"],
+        ["scp", *ssh, str(salida / "android.json.firma"),
+         f"{destino}:server/actualizaciones/.android.json.firma"],
+        # El del QR, para quien la instala por primera vez. Se copia con otro
+        # nombre y se renombra: nadie se baja uno a medias.
+        ["ssh", *ssh, destino,
+         f"cd server && cp actualizaciones/{nombre} descargas/.ContaXcell.apk"
+         " && mv descargas/.ContaXcell.apk descargas/ContaXcell.apk"
+         " && cd actualizaciones && mv .android.json.firma android.json.firma"
+         " && mv .android.json android.json"],
+    ]
+    for paso in pasos:
+        if subprocess.run(paso).returncode != 0:
+            print("Ha fallado la subida. Lo de antes sigue publicado tal cual.")
+            return 1
+
+    comprobada = nota_publicada(ssh, destino, nota="android.json")
+    if (comprobada is None or comprobada[0] != nota
+            or not firma.comprobar(comprobada[0], comprobada[1], PUBLICA)):
+        print("Subido, pero al volver a mirar no sale la versión nueva. Revísalo.")
+        return 1
+    git("tag", "-f", f"android-{codigo}", commit)
+    if subprocess.run(["git", "push", "-f", "origin", f"android-{codigo}"], cwd=RAIZ).returncode != 0:
+        print(f"Ojo: no se ha podido subir la marca android-{codigo} a GitHub. Hazlo con:\n"
+              f"    git push origin android-{codigo}")
+    print(f"\nPublicada la app {nombre_android(codigo)}. Les saldrá al abrirla con internet,\n"
+          "a los que tengan la cuenta aceptada. El QR de descarga ya da esta.")
+    return 0
+
+
 def subir_condiciones(llave_ssh: Path) -> int:
     """Sube server/textos/condiciones.md y comprueba que el servidor da esa."""
     import urllib.request
@@ -429,6 +591,8 @@ def main() -> int:
                                  "hasta la 1.1.2 (una vez, para pasarlas a la nueva)")
     analizador.add_argument("--condiciones", action="store_true",
                             help="sube solo las condiciones de uso (server/textos/condiciones.md)")
+    analizador.add_argument("--android", type=Path, metavar="APK",
+                            help="publica la app del móvil: el app-debug.apk del artifact de GitHub")
     analizador.add_argument("--llave-ssh", type=Path, default=LLAVE_SSH,
                             help=f"la llave .pem del servidor (por defecto {LLAVE_SSH})")
     argumentos = analizador.parse_args()
@@ -436,6 +600,8 @@ def main() -> int:
         return crear_llave()
     if argumentos.condiciones:
         return subir_condiciones(argumentos.llave_ssh)
+    if argumentos.android:
+        return publicar_android(argumentos.android, argumentos.notas, argumentos.llave_ssh)
     return publicar(argumentos.notas, argumentos.llave_ssh, argumentos.tambien_viejas)
 
 

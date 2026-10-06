@@ -162,7 +162,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      457 pruebas, ~5 s (test_dialogos y
+python -m unittest discover -s pruebas      458 pruebas, ~5 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
@@ -172,6 +172,9 @@ python publicar.py "novedades"              lo fabrica, lo firma y lo sube: les
                                             llega solo. Antes, subir VERSION en
                                             ventana.py, commit y push: la lista
                                             de cambios que ven sale de git
+python publicar.py --android <apk> "novedades"  lo mismo con la app del móvil: el APK
+                                            del artifact de GitHub (trae al lado
+                                            su compilacion.json)
 
 cd server
 docker compose up -d                        levantar el servidor (solo en local)

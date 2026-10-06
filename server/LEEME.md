@@ -326,6 +326,15 @@ la primera vez (es el enlace que se pasa por WhatsApp). Con eso alguien sin
 aceptar podría bajarse a mano la última versión; lo que no tiene es el aviso
 ni la instalación sola.
 
+## La app del móvil: descargarla y que se actualice sola
+
+`python publicar.py --android "…/ContaXcell-android (N)/app-debug.apk" "lo nuevo"`
+(en `escritorio/`) deja en `server/actualizaciones` el APK, la nota
+`android.json` y su firma, y copia el APK a `descargas/ContaXcell.apk`, el del
+QR. La app, al abrirse, pide la nota con su sesión (solo cuentas aceptadas),
+comprueba la firma con la misma llave que el programa del ordenador y, si
+hay versión nueva, la ofrece; se instala con un toque en «Instalar».
+
 ## La app del móvil para descargar
 
 El Caddy sirve lo que haya en la carpeta `server/descargas` de la máquina en

@@ -79,6 +79,13 @@ import com.contaxcell.app.ui.SyncStatus
 import com.contaxcell.app.ui.SyncUiState
 import com.contaxcell.app.ui.ThemePreference
 import com.contaxcell.app.ui.UiMessage
+import com.contaxcell.app.data.update.ApkInstaller
+import com.contaxcell.app.data.update.AppUpdate
+import com.contaxcell.app.data.update.AppUpdater
+import com.contaxcell.app.data.update.UntrustedUpdateException
+import com.contaxcell.app.ui.AppUpdateStage
+import com.contaxcell.app.ui.AppUpdateUi
+import java.io.File
 import java.io.InputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -138,6 +145,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var syncUi = SyncUiState(SyncStatus.Synced, "Solo en este dispositivo")
     private var message: UiMessage? = null
     private var busy = true
+    private val updater = AppUpdater()
+    private var availableUpdate: AppUpdate? = null
+    private var downloadedApk: File? = null
+    private var appUpdate: AppUpdateUi? = null
 
     private val _state = MutableStateFlow(ContaXcellUiState())
     val state: StateFlow<ContaXcellUiState> = _state.asStateFlow()
@@ -183,6 +194,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 action.acceptTerms,
             )
             is AppAction.ReadTerms -> readTerms(action.server)
+            AppAction.StartAppUpdate -> startAppUpdate()
+            AppAction.OpenInstallPermission -> {
+                ApkInstaller.openPermissionSettings(getApplication())
+                // Al volver, «Actualizar» lo intenta otra vez.
+                appUpdate = appUpdate?.copy(error = null)
+                refresh()
+            }
+            AppAction.DismissAppUpdate -> { appUpdate = null; refresh() }
             AppAction.CloseTerms -> {
                 (auth as? AuthUiState.Gate)?.let { auth = it.copy(termsText = null) }
                 refresh()
@@ -420,6 +439,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // sobre una copia atrasada, esta se daría por cambiada y se subiría encima
         // de la buena. Con algo ya pendiente lo de aquí va a subir igual, así que
         // no hay nada que esperar. Si el servidor no contesta, se sigue sin él.
+        if (signedIn) {
+            // Al rato de abrir, sin estorbar: ¿hay versión nueva de la app?
+            viewModelScope.launch {
+                kotlinx.coroutines.delay(3_000)
+                checkAppUpdate()
+            }
+        }
         if (signedIn && !session.pending) {
             val sync = syncNow()
             withTimeoutOrNull(ESPERA_SERVIDOR_MS) { sync.join() }
@@ -479,6 +505,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     defaultServer = server,
                     inviteRequired = kind == AuthenticationException.Kind.INVITATION_REQUIRED,
                     error = rootMessage(error),
+                )
+                refresh()
+            }
+        }
+    }
+
+    /**
+     * ¿Hay versión nueva de la app? Solo para cuentas aceptadas (lo decide el
+     * servidor). Sin red, sin permiso o sin nada nuevo, no se dice nada: solo
+     * se avisa si lo del servidor no viene firmado, que eso no es normal.
+     */
+    private suspend fun checkAppUpdate() {
+        val session = sessions.read()
+        if (!session.isSignedIn || session.expired) return
+        val result = runCatching {
+            updater.check(session.serverUrl, session.token, com.contaxcell.app.BuildConfig.VERSION_CODE)
+        }
+        result.exceptionOrNull()?.let { error ->
+            if (error is UntrustedUpdateException) {
+                message = UiMessage(error.message ?: "La actualización no es de fiar.", MessageKind.Error)
+                refresh()
+            }
+            return
+        }
+        val update = result.getOrNull() ?: return
+        availableUpdate = update
+        downloadedApk = null
+        appUpdate = AppUpdateUi(
+            versionName = update.versionName,
+            currentVersion = com.contaxcell.app.BuildConfig.VERSION_NAME,
+            notes = update.notes,
+            changes = update.changesSince(com.contaxcell.app.BuildConfig.VERSION_CODE),
+        )
+        refresh()
+    }
+
+    private fun startAppUpdate() {
+        val update = availableUpdate ?: return
+        val current = appUpdate ?: return
+        val app = getApplication<Application>()
+        // Ya bajada y comprobada: solo falta el instalador (por si se cerró).
+        downloadedApk?.takeIf(File::exists)?.let {
+            ApkInstaller.install(app, it)
+            return
+        }
+        if (!ApkInstaller.canInstall(app)) {
+            appUpdate = current.copy(stage = AppUpdateStage.NeedsPermission, error = null)
+            refresh()
+            return
+        }
+        appUpdate = current.copy(stage = AppUpdateStage.Downloading, progress = 0f, error = null)
+        refresh()
+        viewModelScope.launch {
+            val session = sessions.read()
+            var shown = 0
+            runCatching {
+                updater.download(session.serverUrl, session.token, update, ApkInstaller.folder(app)) { fraction ->
+                    // De cien en cien pasos, para no repintar con cada trozo.
+                    val step = (fraction * 100).toInt()
+                    if (step != shown) {
+                        shown = step
+                        viewModelScope.launch {
+                            appUpdate = appUpdate?.copy(progress = fraction)
+                            refresh()
+                        }
+                    }
+                }
+            }.onSuccess { apk ->
+                downloadedApk = apk
+                appUpdate = appUpdate?.copy(stage = AppUpdateStage.Ready, progress = 1f)
+                refresh()
+                ApkInstaller.install(app, apk)
+            }.onFailure { error ->
+                appUpdate = appUpdate?.copy(
+                    stage = AppUpdateStage.Offer,
+                    error = if (error is UntrustedUpdateException) error.message
+                    else "No se ha podido descargar (${rootMessage(error)}). Prueba otra vez.",
                 )
                 refresh()
             }
@@ -837,6 +940,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             sync = syncUi,
             loading = busy,
             message = message,
+            appUpdate = appUpdate,
             quickAdd = QuickAddUiState(
                 categories = categories,
                 assets = assets,

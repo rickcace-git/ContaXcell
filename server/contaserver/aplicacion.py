@@ -62,10 +62,11 @@ CONTRASENA_MAXIMA = 128
 # El largo máximo que admite un correo de verdad.
 CORREO_MAXIMO = 254
 
-# Lo que deja `publicar.py` en la carpeta de actualizaciones, y nada más: la
-# nota, su firma y los zips. Así un nombre con «..» no sale de la carpeta.
+# Lo que deja `publicar.py` en la carpeta de actualizaciones, y nada más: las
+# notas (la del ordenador y la del móvil), sus firmas, los zips y los APK. Así un nombre con «..» no sale de la carpeta.
 ARCHIVO_DE_ACTUALIZACION = re.compile(
-    r"version\.json(\.firma)?|ContaXcell-windows-[0-9][0-9.]*\.zip")
+    r"(version|android)\.json(\.firma)?|ContaXcell-windows-[0-9][0-9.]*\.zip"
+    r"|ContaXcell-android-[0-9]+\.apk")
 
 # Cuántos intentos se aguantan y en cuánto tiempo. Diez fallos de entrada por
 # cuarto de hora son de sobra para un despiste, y muy pocos para quien está

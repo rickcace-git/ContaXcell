@@ -7,7 +7,8 @@
 # falta, por ejemplo, después de cambiar el secreto CONTAXCELL_SERVIDOR.
 # Primero pasa las pruebas: si alguna falla, no hay APK.
 #
-# El APK sale en la página de la ejecución, abajo, en «Artifacts».
+# El APK sale en la página de la ejecución, abajo, en «Artifacts», con su
+# compilacion.json. Para que les llegue a todos: python publicar.py --android.
 name: App Android
 
 on:
@@ -92,10 +93,21 @@ jobs:
                       print(f"::error title={caso.get('classname')}.{caso.get('name')}::{mensaje}")
           EOF
 
+      # Junto al APK, qué número y qué commit es: lo lee
+      # `python publicar.py --android` para publicarlo y contar sus cambios.
+      - name: Apuntar la compilación
+        run: |
+          N="$GITHUB_RUN_NUMBER"
+          echo "{\"versionCode\": $N, \"versionName\": \"1.0.$N\", \"commit\": \"$GITHUB_SHA\"}" \
+            > app/build/outputs/apk/debug/compilacion.json
+          cat app/build/outputs/apk/debug/compilacion.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: ContaXcell-android
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/compilacion.json
 
       - if: failure()
         uses: actions/upload-artifact@v4

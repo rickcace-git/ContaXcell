@@ -24,6 +24,21 @@ data class ContaXcellUiState(
     val settings: SettingsUiState = SettingsUiState(),
     val loading: Boolean = false,
     val message: UiMessage? = null,
+    /** La versión nueva de la app, mientras se ofrece o se descarga; null si no hay. */
+    val appUpdate: AppUpdateUi? = null,
+)
+
+enum class AppUpdateStage { Offer, NeedsPermission, Downloading, Ready }
+
+data class AppUpdateUi(
+    val versionName: String,
+    val currentVersion: String,
+    val notes: String = "",
+    /** Solo las versiones que le faltan a este móvil, la más nueva primero. */
+    val changes: List<com.contaxcell.app.data.update.AppRelease> = emptyList(),
+    val stage: AppUpdateStage = AppUpdateStage.Offer,
+    val progress: Float = 0f,
+    val error: String? = null,
 )
 
 sealed interface AuthUiState {
@@ -428,6 +443,9 @@ sealed interface AppAction {
     ) : AppAction
     data class ReadTerms(val server: String) : AppAction
     data object CloseTerms : AppAction
+    data object StartAppUpdate : AppAction
+    data object OpenInstallPermission : AppAction
+    data object DismissAppUpdate : AppAction
     data object ContinueOffline : AppAction
     data object DismissMessage : AppAction
     data object Retry : AppAction

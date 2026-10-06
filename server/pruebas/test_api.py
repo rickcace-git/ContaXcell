@@ -920,6 +920,9 @@ class PruebaActualizaciones(unittest.TestCase):
         (self.carpeta / "version.json").write_bytes(b'{"version": "1.2.0"}')
         (self.carpeta / "version.json.firma").write_bytes(b"firma de mentira")
         (self.carpeta / "ContaXcell-windows-1.2.0.zip").write_bytes(b"PK zip")
+        (self.carpeta / "android.json").write_bytes(b'{"versionCode": 48}')
+        (self.carpeta / "android.json.firma").write_bytes(b"otra firma")
+        (self.carpeta / "ContaXcell-android-48.apk").write_bytes(b"PK apk")
         (self.carpeta / "otra-cosa.txt").write_bytes(b"secreto")
         self.almacen = AlmacenSQLite()
         self.cliente = TestClient(crear_aplicacion(
@@ -949,7 +952,8 @@ class PruebaActualizaciones(unittest.TestCase):
     def test_aceptada_se_lleva_los_archivos_tal_cual(self):
         cabeceras = self.cabeceras()
         self.almacen.aceptar("ana")
-        for nombre in ("version.json", "version.json.firma", "ContaXcell-windows-1.2.0.zip"):
+        for nombre in ("version.json", "version.json.firma", "ContaXcell-windows-1.2.0.zip",
+                       "android.json", "android.json.firma", "ContaXcell-android-48.apk"):
             respuesta = self.cliente.get(f"/api/actualizacion/{nombre}", headers=cabeceras)
             self.assertEqual(respuesta.status_code, 200, nombre)
             self.assertEqual(respuesta.content, (self.carpeta / nombre).read_bytes())
@@ -964,7 +968,8 @@ class PruebaActualizaciones(unittest.TestCase):
     def test_solo_lo_que_deja_publicar(self):
         cabeceras = self.cabeceras()
         self.almacen.aceptar("ana")
-        for nombre in ("otra-cosa.txt", "..%2F..%2Fetc%2Fpasswd", "ContaXcell-windows-9.9.zip"):
+        for nombre in ("otra-cosa.txt", "..%2F..%2Fetc%2Fpasswd", "ContaXcell-windows-9.9.zip",
+                       "ContaXcell-android-x.apk", "android.json.bak"):
             respuesta = self.cliente.get(f"/api/actualizacion/{nombre}", headers=cabeceras)
             self.assertEqual(respuesta.status_code, 404, nombre)
 

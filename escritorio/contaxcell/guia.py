@@ -397,7 +397,9 @@ class Guia(tk.Toplevel):
         self.texto.insert("end", "Descarga la app del móvil\n", "titulo")
         self.texto.insert("end", "Escanea el código con la cámara del móvil. Al abrir "
                                  "el archivo, el móvil pedirá permiso para instalar "
-                                 "apps de fuera de la tienda: es normal.\n", "parrafo")
+                                 "apps de fuera de la tienda: es normal. Después se "
+                                 "actualiza sola: al abrirla, si hay versión nueva, "
+                                 "te pregunta, y basta con pulsar «Instalar».\n", "parrafo")
         self.texto.image_create("end", image=self._imagen_qr)
         self.texto.insert("end", "\n" + self.direccion_app + "\n", "parrafo")
 
