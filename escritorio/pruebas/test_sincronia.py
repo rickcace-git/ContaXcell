@@ -498,6 +498,23 @@ class PruebaCuentaEnEspera(ConCarpeta):
                        correo=" ana@correo.es ")
         self.assertEqual(servidor.peticiones[0]["cuerpo"]["correo"], "ana@correo.es")
 
+    def test_las_condiciones_se_leen_sin_cuenta_y_viajan_al_crearla(self):
+        sinc, servidor = self.nueva(
+            (200, {"version": "abc123", "texto": "# Condiciones"}),
+            (201, {"token": "t", "usuario": "ana"}))
+        self.assertEqual(sinc.condiciones("http://servidor:8000/"), ("abc123", "# Condiciones"))
+        self.assertEqual(servidor.peticiones[0]["url"], "http://servidor:8000/api/condiciones")
+        self.assertNotIn("Authorization", servidor.peticiones[0]["cabeceras"])
+        sinc.registrar("ana", "contrasena1", "http://servidor:8000", "codigo",
+                       condiciones="abc123")
+        self.assertEqual(servidor.peticiones[1]["cuerpo"]["condiciones"], "abc123")
+
+    def test_un_servidor_sin_condiciones(self):
+        sinc, servidor = self.nueva((404, {"detail": "no"}), (201, {"token": "t", "usuario": "ana"}))
+        self.assertIsNone(sinc.condiciones("http://servidor:8000"))
+        sinc.registrar("ana", "contrasena1", "http://servidor:8000", "codigo")
+        self.assertNotIn("condiciones", servidor.peticiones[1]["cuerpo"])
+
     def test_sin_el_campo_es_que_no_espera(self):
         # Un servidor que no acepta a mano (o uno de antes) no manda nada.
         sinc, _ = self.nueva((200, {"token": "t", "usuario": "ana"}))

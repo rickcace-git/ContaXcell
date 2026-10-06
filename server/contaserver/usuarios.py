@@ -101,7 +101,7 @@ def informe(filas: list[dict], ahora: datetime) -> str:
     if vetados:
         cabecera += f" · {vetados} vetado{'s' if vetados != 1 else ''}"
 
-    titulos = ("USUARIO", "CREADO", "ÚLTIMO USO", "SUBIDAS", "LIBRO", "CORREO")
+    titulos = ("USUARIO", "CREADO", "ÚLTIMO USO", "SUBIDAS", "LIBRO", "CONDICIONES", "CORREO")
     renglones = [
         (
             f["usuario"] + ("  (EN ESPERA)" if f.get("en_espera") else "")
@@ -110,6 +110,9 @@ def informe(filas: list[dict], ahora: datetime) -> str:
             cuando(f["ultimo_uso"], ahora),
             str(f["subidas"]),
             tamano(f["tamano"]),
+            # Si aceptó las condiciones de uso al crearla. Las cuentas de
+            # antes de haberlas, o hechas con un programa viejo, dicen «no».
+            "aceptadas" if f.get("condiciones") else "no",
             # Las cuentas de antes de pedir el correo no lo tienen.
             f.get("correo") or "—",
         )

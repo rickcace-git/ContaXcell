@@ -81,7 +81,8 @@ class AlmacenSQLite:
                     ultimo_uso TEXT,
                     vetado     TEXT,
                     en_espera  INTEGER NOT NULL DEFAULT 0,
-                    correo     TEXT NOT NULL DEFAULT ''
+                    correo     TEXT NOT NULL DEFAULT '',
+                    condiciones TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS libros (
                     usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
@@ -109,7 +110,8 @@ class AlmacenSQLite:
             for columna in ("generacion INTEGER NOT NULL DEFAULT 0",
                             "ultimo_uso TEXT", "vetado TEXT",
                             "en_espera INTEGER NOT NULL DEFAULT 0",
-                            "correo TEXT NOT NULL DEFAULT ''"):
+                            "correo TEXT NOT NULL DEFAULT ''",
+                            "condiciones TEXT NOT NULL DEFAULT ''"):
                 try:
                     self._conexion.execute(
                         f"ALTER TABLE usuarios ADD COLUMN {columna}"
@@ -119,16 +121,19 @@ class AlmacenSQLite:
             self._conexion.commit()
 
     def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str,
-                      en_espera: bool = False, correo: str = "") -> int:
+                      en_espera: bool = False, correo: str = "",
+                      condiciones: str = "") -> int:
         """Con `en_espera`, la cuenta existe pero no guarda nada hasta que el
         administrador la acepte (`./usuarios aceptar`). El correo se guarda
-        para saber quién es y, más adelante, para restablecer la contraseña."""
+        para saber quién es y, más adelante, para restablecer la contraseña.
+        `condiciones` es la versión de las condiciones de uso que aceptó al
+        crearla, o "" si su programa era de antes de que las hubiera."""
         with self._candado:
             try:
                 cursor = self._conexion.execute(
-                    "INSERT INTO usuarios (usuario, hash, sal, en_espera, correo)"
-                    " VALUES (?, ?, ?, ?, ?)",
-                    (usuario, hash_contrasena, sal, 1 if en_espera else 0, correo),
+                    "INSERT INTO usuarios (usuario, hash, sal, en_espera, correo, condiciones)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (usuario, hash_contrasena, sal, 1 if en_espera else 0, correo, condiciones),
                 )
                 self._conexion.commit()
             except sqlite3.IntegrityError:
@@ -260,7 +265,7 @@ class AlmacenSQLite:
                 "SELECT u.usuario, u.creado, u.ultimo_uso,"
                 " COALESCE(l.revision, 0),"
                 " COALESCE(length(CAST(l.datos AS BLOB)), 0), u.vetado, u.en_espera,"
-                " u.correo"
+                " u.correo, u.condiciones"
                 " FROM usuarios u LEFT JOIN libros l ON l.usuario_id = u.id"
                 " ORDER BY u.en_espera DESC, u.ultimo_uso DESC NULLS LAST, u.usuario"
             ).fetchall()
@@ -274,6 +279,7 @@ class AlmacenSQLite:
                 "vetado": _momento_sqlite(f[5]),
                 "en_espera": bool(f[6]),
                 "correo": f[7] or "",
+                "condiciones": f[8] or "",
             }
             for f in filas
         ]
@@ -426,6 +432,10 @@ class AlmacenPostgres:
             ADD COLUMN IF NOT EXISTS correo TEXT NOT NULL DEFAULT ''
         """)
         self._ejecutar("""
+            ALTER TABLE usuarios
+            ADD COLUMN IF NOT EXISTS condiciones TEXT NOT NULL DEFAULT ''
+        """)
+        self._ejecutar("""
             CREATE TABLE IF NOT EXISTS libros (
                 usuario_id  INTEGER PRIMARY KEY REFERENCES usuarios(id),
                 revision    INTEGER NOT NULL,
@@ -452,12 +462,13 @@ class AlmacenPostgres:
         """)
 
     def crear_usuario(self, usuario: str, hash_contrasena: str, sal: str,
-                      en_espera: bool = False, correo: str = "") -> int:
+                      en_espera: bool = False, correo: str = "",
+                      condiciones: str = "") -> int:
         try:
             cursor = self._ejecutar(
-                "INSERT INTO usuarios (usuario, hash, sal, en_espera, correo)"
-                " VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (usuario, hash_contrasena, sal, en_espera, correo),
+                "INSERT INTO usuarios (usuario, hash, sal, en_espera, correo, condiciones)"
+                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (usuario, hash_contrasena, sal, en_espera, correo, condiciones),
             )
         except psycopg.errors.UniqueViolation:
             raise UsuarioYaExiste(usuario)
@@ -544,7 +555,8 @@ class AlmacenPostgres:
         cursor = self._ejecutar(
             "SELECT u.usuario, u.creado, u.ultimo_uso,"
             " COALESCE(l.revision, 0),"
-            " COALESCE(octet_length(l.datos::text), 0), u.vetado, u.en_espera, u.correo"
+            " COALESCE(octet_length(l.datos::text), 0), u.vetado, u.en_espera, u.correo,"
+            " u.condiciones"
             " FROM usuarios u LEFT JOIN libros l ON l.usuario_id = u.id"
             " ORDER BY u.en_espera DESC, u.ultimo_uso DESC NULLS LAST, u.usuario"
         )
@@ -558,6 +570,7 @@ class AlmacenPostgres:
                 "vetado": f[5],
                 "en_espera": bool(f[6]),
                 "correo": f[7] or "",
+                "condiciones": f[8] or "",
             }
             for f in cursor.fetchall()
         ]

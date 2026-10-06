@@ -2,6 +2,7 @@ package com.contaxcell.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +44,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -193,9 +196,11 @@ private fun CreateForm(
     var repeated by rememberSaveable { mutableStateOf("") }
     var localError by rememberSaveable { mutableStateOf<String?>(null) }
     var askingCode by rememberSaveable { mutableStateOf(false) }
+    var accepted by rememberSaveable { mutableStateOf(false) }
 
     fun next() {
         localError = AccountForm.newAccountProblem(user, email, password, repeated)
+            ?: if (!accepted) "Para crear la cuenta tienes que aceptar las condiciones de uso. Puedes leerlas pulsando en ellas." else null
         if (localError == null) askingCode = true
     }
 
@@ -220,6 +225,19 @@ private fun CreateForm(
         "Repite la contraseña", repeated, { repeated = it }, state.busy, ImeAction.Done,
         isError = repeated.isNotEmpty() && repeated != password,
     ) { next() }
+    Spacer(Modifier.height(6.dp))
+    // Las condiciones: hay que marcarlas, y se leen ahí mismo (las da el servidor).
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = accepted, onCheckedChange = { accepted = it }, enabled = !state.busy)
+        Text("He leído y acepto las", style = MaterialTheme.typography.bodyMedium)
+    }
+    TextButton(
+        onClick = { onAction(AppAction.ReadTerms(server)) },
+        enabled = !state.busy && !state.termsLoading,
+    ) {
+        if (state.termsLoading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+        else Text("condiciones de uso")
+    }
     ErrorText(localError ?: state.error)
     Spacer(Modifier.height(18.dp))
     MainButton("Crear cuenta", server.isNotBlank() && !state.busy, state.busy) { next() }
@@ -230,10 +248,49 @@ private fun CreateForm(
             onCancel = { askingCode = false },
             onConfirm = { code ->
                 askingCode = false
-                onAction(AppAction.Register(user, password, server, code, email.trim()))
+                onAction(AppAction.Register(user, password, server, code, email.trim(), acceptTerms = true))
             },
         )
     }
+    state.termsText?.let { text ->
+        TermsDialog(text) { onAction(AppAction.CloseTerms) }
+    }
+}
+
+/** Las condiciones de uso. Entiende lo poco de Markdown que llevan: «#», «##» y «- ». */
+@Composable
+private fun TermsDialog(text: String, onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Condiciones de uso") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                text.lines().map(String::trimEnd).filter(String::isNotEmpty).forEach { line ->
+                    when {
+                        line.startsWith("## ") -> Text(
+                            line.removePrefix("## "),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+                        )
+                        line.startsWith("# ") -> Unit // ya va de título
+                        line.startsWith("- ") || line.startsWith("* ") -> Text(
+                            "•  " + line.drop(2),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                        )
+                        else -> Text(
+                            line,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(bottom = 6.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onClose) { Text("Cerrar") } },
+    )
 }
 
 /** La ventanita del código, después de rellenar la cuenta: es lo último que falta. */

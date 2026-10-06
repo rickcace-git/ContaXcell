@@ -687,7 +687,7 @@ class PruebaQuienLoUsa(unittest.TestCase):
         self.assertEqual(ana["subidas"], 3)
         self.assertGreater(ana["tamano"], 0)
         self.assertEqual(set(ana), {"usuario", "creado", "ultimo_uso", "subidas", "tamano",
-                                    "vetado", "en_espera", "correo"})
+                                    "vetado", "en_espera", "correo", "condiciones"})
         # Quien nunca subió nada sale igual, con ceros.
         self.assertEqual((self.resumen("bea")["subidas"], self.resumen("bea")["tamano"]), (0, 0))
 
@@ -967,6 +967,64 @@ class PruebaActualizaciones(unittest.TestCase):
         for nombre in ("otra-cosa.txt", "..%2F..%2Fetc%2Fpasswd", "ContaXcell-windows-9.9.zip"):
             respuesta = self.cliente.get(f"/api/actualizacion/{nombre}", headers=cabeceras)
             self.assertEqual(respuesta.status_code, 404, nombre)
+
+
+class PruebaCondiciones(unittest.TestCase):
+    """Las condiciones de uso: se leen sin cuenta y se aceptan al crearla."""
+
+    def setUp(self):
+        self.carpeta = Path(tempfile.mkdtemp())
+        self.archivo = self.carpeta / "condiciones.md"
+        self.archivo.write_text("# Condiciones\n\nLo que hay.\n", encoding="utf-8")
+        self.almacen = AlmacenSQLite()
+        self.cliente = TestClient(crear_aplicacion(
+            almacen=self.almacen, secreto=SECRETO_DE_PRUEBA, cliente_precios=None,
+            archivo_condiciones=self.archivo, limite_registro=(100, 3600),
+        ))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.carpeta, ignore_errors=True)
+
+    def registro(self, usuario="ana", **extra):
+        return self.cliente.post("/api/cuentas/registro", json={
+            "usuario": usuario, "contrasena": "contrasena1", **extra})
+
+    def aceptadas(self, usuario):
+        return next(f for f in self.almacen.resumen_usuarios()
+                    if f["usuario"] == usuario)["condiciones"]
+
+    def test_se_leen_sin_cuenta(self):
+        respuesta = self.cliente.get("/api/condiciones")
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn("Lo que hay.", respuesta.json()["texto"])
+        self.assertEqual(len(respuesta.json()["version"]), 12)
+
+    def test_cambiar_el_texto_cambia_la_version_sin_reiniciar(self):
+        antes = self.cliente.get("/api/condiciones").json()["version"]
+        self.archivo.write_text("# Condiciones\n\nOtra cosa.\n", encoding="utf-8")
+        despues = self.cliente.get("/api/condiciones").json()
+        self.assertNotEqual(antes, despues["version"])
+        self.assertIn("Otra cosa.", despues["texto"])
+
+    def test_aceptarlas_queda_apuntado(self):
+        version = self.cliente.get("/api/condiciones").json()["version"]
+        self.assertEqual(self.registro(condiciones=version).status_code, 201)
+        self.assertEqual(self.aceptadas("ana"), version)
+
+    def test_unas_viejas_no_valen(self):
+        respuesta = self.registro(condiciones="000000000000")
+        self.assertEqual(respuesta.status_code, 422)
+        self.assertIn("han cambiado", respuesta.json()["detail"])
+        self.assertEqual(self.almacen.resumen_usuarios(), [])
+
+    def test_un_programa_de_antes_crea_la_cuenta_sin_aceptarlas(self):
+        self.assertEqual(self.registro().status_code, 201)
+        self.assertEqual(self.aceptadas("ana"), "")
+
+    def test_sin_archivo_no_hay_condiciones(self):
+        self.archivo.unlink()
+        self.assertEqual(self.cliente.get("/api/condiciones").status_code, 404)
 
 
 class PruebaRechazarTodas(unittest.TestCase):

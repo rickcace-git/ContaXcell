@@ -21,10 +21,12 @@ Cómo va, de punta a punta:
    cartelito («Reiniciando ContaXcell…») hasta que la ventana nueva aparece,
    para que nadie crea que se ha cerrado sin más.
 
-La nota trae también la lista de cambios desde la versión anterior (los
-mensajes de git, que `publicar.py` recoge) y el enlace a GitHub con el
-código cambiado, para quien quiera mirarlo antes de aceptar. Van dentro de
-la nota firmada, así que tampoco se pueden cambiar por el camino.
+La nota trae también el historial de cambios de las últimas versiones (los
+mensajes de git, que `publicar.py` recoge) y con qué commits empieza y
+acaba cada una, para el enlace a GitHub con el código. Cada programa
+enseña solo las versiones que le faltan: quien salta de la 1.1.3 a la
+1.1.6 ve lo de la 1.1.4, la 1.1.5 y la 1.1.6. Va dentro de la nota firmada,
+así que tampoco se puede cambiar por el camino.
 
 Los datos no se tocan nunca: viven en %APPDATA%\\ContaXcell, no en la carpeta
 del programa. Lo que se cambia es solo el programa.
@@ -41,6 +43,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -87,9 +90,28 @@ class Novedad:
     sha256: str
     tamano: int
     notas: str = ""
-    # (título, detalle) de cada cambio, del más nuevo al más viejo.
+    # (título, detalle) de cada cambio, del más nuevo al más viejo. Es lo
+    # que leían la 1.1.3 y la 1.1.4; las de después usan el historial.
     cambios: tuple[tuple[str, str], ...] = ()
     codigo: str = ""  # el enlace a GitHub con lo cambiado, o ""
+    # (versión, cambios, commit desde, commit hasta), la más nueva primero.
+    historial: tuple[tuple[str, tuple[tuple[str, str], ...], str, str], ...] = ()
+    repositorio: str = ""  # https://github.com/dueño/nombre
+
+    def cambios_para(self, version_actual: str) -> list[tuple[str, tuple[tuple[str, str], ...]]]:
+        """Lo que le falta a quien tiene `version_actual`: [(versión, cambios)],
+        la más nueva primero. Sin historial (una nota de antes), lo que haya."""
+        if self.historial:
+            return [(v, c) for v, c, _d, _h in self.historial
+                    if c and es_mas_nueva(v, version_actual)]
+        return [(self.version, self.cambios)] if self.cambios else []
+
+    def codigo_para(self, version_actual: str) -> str:
+        """El enlace a GitHub con el código cambiado desde `version_actual`."""
+        faltan = [h for h in self.historial if es_mas_nueva(h[0], version_actual)]
+        if faltan and self.repositorio:
+            return f"{self.repositorio}/compare/{faltan[-1][2][:12]}...{faltan[0][3][:12]}"
+        return self.codigo
 
 
 def version_en_numeros(texto: str) -> tuple[int, ...]:
@@ -154,7 +176,9 @@ def buscar(servidor: str, version_actual: str, abrir_url=urllib.request.urlopen,
                           sha256=str(datos["sha256"]).lower(), tamano=int(datos["tamano"]),
                           notas=str(datos.get("notas") or ""),
                           cambios=_cambios(datos.get("cambios")),
-                          codigo=_codigo(datos.get("codigo")))
+                          codigo=_codigo(datos.get("codigo")),
+                          historial=_historial(datos.get("historial")),
+                          repositorio=_codigo(datos.get("repositorio")).rstrip("/"))
     except (ValueError, KeyError, TypeError, AttributeError):
         raise ActualizacionNoFiable("La nota de la actualización está mal escrita.") from None
     if not novedad.archivo.startswith(RUTA_BASE):
@@ -168,6 +192,23 @@ def _cambios(crudo) -> tuple[tuple[str, str], ...]:
         return ()
     return tuple((str(c.get("titulo") or "").strip(), str(c.get("detalle") or "").strip())
                  for c in crudo if str(c.get("titulo") or "").strip())
+
+
+COMMIT = re.compile(r"[0-9a-f]{7,40}")
+
+
+def _historial(crudo) -> tuple:
+    """El historial de la nota. Una entrada con commits raros se queda sin
+    enlace, no se tira: los cambios se pueden leer igual."""
+    if not crudo:
+        return ()
+    entradas = []
+    for e in crudo:
+        desde, hasta = str(e.get("desde") or ""), str(e.get("hasta") or "")
+        if not (COMMIT.fullmatch(desde) and COMMIT.fullmatch(hasta)):
+            desde = hasta = ""
+        entradas.append((str(e["version"]), _cambios(e.get("cambios")), desde, hasta))
+    return tuple(entradas)
 
 
 def _codigo(crudo) -> str:

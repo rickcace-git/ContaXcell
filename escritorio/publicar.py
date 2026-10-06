@@ -9,10 +9,13 @@ Lo segundo, paso a paso:
    que la publicada. Si no, para: hay que subirla antes, o nadie la vería.
 2. Fabrica el programa con empaquetar.py.
 3. Escribe la nota (`version.json`: versión, archivo, tamaño y SHA-256 del
-   zip, más la lista de cambios desde la versión anterior y el enlace a
-   GitHub con el código cambiado) y la firma con tu llave. La lista sale de
-   los mensajes de git: por eso hay que tener todo guardado y subido antes.
-4. Sube a server/actualizaciones/ de la máquina el zip, la nota y su firma.
+   zip, más el historial de cambios de las últimas versiones y el enlace a
+   GitHub con el código) y la firma con tu llave. El historial sale de los
+   mensajes de git entre las marcas v1.1.4, v1.1.5… que deja cada
+   publicación: así cada programa enseña justo lo que le falta, venga de la
+   versión que venga. Por eso hay que tener todo guardado y subido antes.
+4. Sube a server/actualizaciones/ de la máquina el zip, la nota y su firma,
+   y marca el commit en git con la versión (v1.1.5) y la sube a GitHub.
    Eso lo reparte la API, y solo a las cuentas aceptadas y sin vetar. El zip
    va también a /descargas/ContaXcell-windows.zip, la descarga pública para
    instalarlo la primera vez.
@@ -24,6 +27,11 @@ Al abrir el programa, cada uno ve «Hay una versión nueva… ¿Actualizar ahora
 Lo mismo, y además deja la nota en /descargas/, el sitio público donde
 miraban las versiones hasta la 1.1.2. Sirvió una vez, para que esas pasaran
 a la que ya pregunta con cuenta. No hace falta volver a usarlo.
+
+    python publicar.py --condiciones
+
+Sube solo las condiciones de uso (server/textos/condiciones.md) al
+servidor. Se ven al momento, sin reiniciar nada ni publicar versión.
 
 LA LLAVE DE FIRMAR es lo único delicado. Vive en tu carpeta de usuario
 (~/.contaxcell/llave-actualizaciones.json), nunca en el repositorio ni en el
@@ -52,6 +60,12 @@ LLAVE_PRIVADA = Path.home() / ".contaxcell" / "llave-actualizaciones.json"
 LLAVE_PUBLICA = RAIZ / "contaxcell" / "llave_publica.py"
 ZIP = RAIZ / "dist" / "ContaXcell-windows.zip"
 LLAVE_SSH = Path.home() / ".ssh" / "contaxcell.pem"
+CONDICIONES = RAIZ.parent / "server" / "textos" / "condiciones.md"
+# Cuántas versiones atrás guarda el historial de la nota.
+VERSIONES_EN_HISTORIAL = 8
+# Las últimas que solo saben leer «cambios» y no el historial. Para ellas,
+# «cambios» lleva todo lo posterior, con la versión delante de cada cosa.
+ULTIMA_SIN_HISTORIAL = "1.1.4"
 
 
 def crear_llave() -> int:
@@ -157,14 +171,6 @@ def leer_cambios(salida_de_git: str) -> list[dict]:
     return cambios[:MAXIMO_CAMBIOS]
 
 
-def commit_de_version(version: str) -> str:
-    """El commit en el que VERSION pasó a valer `version`, o "" si no se sabe."""
-    salida = git("log", "-S", f'VERSION = "{version}"', "--format=%H", "--",
-                 "contaxcell/ventana.py").split()
-    # Salen el que la puso y el que la quitó; el más viejo es el que la puso.
-    return salida[-1] if salida else ""
-
-
 def enlace_codigo(remoto: str, desde: str, hasta: str) -> str:
     """La página de GitHub que compara dos commits, o "" si no es GitHub."""
     remoto = remoto.strip()
@@ -175,15 +181,54 @@ def enlace_codigo(remoto: str, desde: str, hasta: str) -> str:
     return ""
 
 
-def cambios_desde(version_anterior: str) -> tuple[list[dict], str]:
-    """Los cambios desde la versión anterior y el enlace a su código."""
-    desde = commit_de_version(version_anterior) if version_anterior else ""
-    if not desde:
-        return [], ""
-    hasta = git("rev-parse", "HEAD").strip()
-    cambios = leer_cambios(git("log", f"{desde}..{hasta}", "--no-merges",
-                               "--format=%s%x1f%b%x1e"))
-    return cambios, enlace_codigo(git("remote", "get-url", "origin"), desde, hasta)
+def versiones_publicadas() -> list[tuple[str, str]]:
+    """(versión, commit) de cada publicación, de la más vieja a la más nueva.
+    Salen de las marcas v1.2.3 que pone `publicar` en git."""
+    marcas = []
+    for linea in git("tag", "-l", "v*", "--format=%(refname:short) %(objectname)").splitlines():
+        nombre, _, commit = linea.partition(" ")
+        if nombre[1:2].isdigit() and commit:
+            # Una marca anotada apunta a sí misma: se pide el commit de verdad.
+            marcas.append((nombre[1:], git("rev-list", "-n", "1", nombre).strip() or commit))
+    return sorted(marcas, key=lambda m: actualizar.version_en_numeros(m[0]))
+
+
+def cambios_entre(desde: str, hasta: str) -> list[dict]:
+    return leer_cambios(git("log", f"{desde}..{hasta}", "--no-merges",
+                            "--format=%s%x1f%b%x1e"))
+
+
+def historial(version: str) -> list[dict]:
+    """Lo que trae cada una de las últimas versiones, la nueva la primera:
+    [{version, desde, hasta, cambios}]. «desde» y «hasta» son los commits,
+    para el enlace al código."""
+    anteriores = [m for m in versiones_publicadas()
+                  if actualizar.es_mas_nueva(version, m[0])][-VERSIONES_EN_HISTORIAL:]
+    puntos = anteriores + [(version, git("rev-parse", "HEAD").strip())]
+    entradas = [{"version": v, "desde": puntos[i - 1][1], "hasta": c,
+                 "cambios": cambios_entre(puntos[i - 1][1], c)}
+                for i, (v, c) in enumerate(puntos) if i > 0]
+    return entradas[::-1]
+
+
+def repositorio() -> str:
+    """https://github.com/dueño/nombre, o "" si no es GitHub."""
+    enlace = enlace_codigo(git("remote", "get-url", "origin"), "x", "x")
+    return enlace.split("/compare/")[0] if enlace else ""
+
+
+def para_las_de_antes(entradas: list[dict]) -> tuple[list[dict], str]:
+    """«cambios» y «codigo» para los programas que no leen el historial (la
+    1.1.3 y la 1.1.4): todo lo posterior a ellas, con la versión delante."""
+    nuevas = [e for e in entradas if actualizar.es_mas_nueva(e["version"], ULTIMA_SIN_HISTORIAL)
+              or e["version"] == ULTIMA_SIN_HISTORIAL]
+    cambios = [{"titulo": f"{e['version']} · {c['titulo']}", "detalle": c["detalle"]}
+               for e in nuevas for c in e["cambios"]][:MAXIMO_CAMBIOS]
+    codigo = ""
+    if nuevas:
+        codigo = enlace_codigo(git("remote", "get-url", "origin"),
+                               nuevas[-1]["desde"], nuevas[0]["hasta"])
+    return cambios, codigo
 
 
 def todo_guardado_y_subido() -> str:
@@ -198,15 +243,19 @@ def todo_guardado_y_subido() -> str:
 
 
 def firmar_nota(version: str, datos: bytes, archivo: str, notas: str, llave: dict,
-                cambios: list[dict] | None = None, codigo: str = "") -> tuple[bytes, bytes]:
+                entradas: list[dict] | None = None) -> tuple[bytes, bytes]:
     """La nota de una versión y su firma."""
+    entradas = entradas or []
+    cambios, codigo = para_las_de_antes(entradas)
     nota = json.dumps({
         "version": version,
         "archivo": archivo,
         "tamano": len(datos),
         "sha256": hashlib.sha256(datos).hexdigest(),
         "notas": notas.strip(),
-        "cambios": cambios or [],
+        "historial": entradas,
+        "repositorio": repositorio(),
+        "cambios": cambios,
         "codigo": codigo,
     }, ensure_ascii=False, indent=2).encode("utf-8")
     return nota, firma.firmar(nota, llave)
@@ -243,16 +292,11 @@ def publicar(notas: str, llave_ssh: Path, tambien_viejas: bool = False) -> int:
         print(f"\nEn el servidor ya está la {version_de(publicada[0])}. Sube VERSION en "
               "contaxcell/ventana.py (por ejemplo a la siguiente) y vuelve a lanzar esto.")
         return 1
-    # Hasta la 1.1.2 la nota vivía en /descargas/: de ahí sale la anterior la
-    # primera vez.
-    anterior = publicada or nota_publicada(ssh, destino, "descargas")
-    cambios, codigo = cambios_desde(version_de(anterior[0]) if anterior else "")
-    print(f"\nCambios desde la {version_de(anterior[0]) if anterior else '(ninguna)'}: "
-          f"{len(cambios)}")
-    for cambio in cambios:
-        print(f"  · {cambio['titulo']}")
-    if codigo:
-        print(f"Código: {codigo}")
+    entradas = historial(VERSION)
+    for entrada in entradas:
+        print(f"\nLa {entrada['version']} trae {len(entrada['cambios'])} cambios:")
+        for cambio in entrada["cambios"]:
+            print(f"  · {cambio['titulo']}")
 
     print("\nFabricando el programa…")
     if subprocess.run([sys.executable, str(RAIZ / "empaquetar.py")], cwd=RAIZ).returncode != 0:
@@ -265,7 +309,7 @@ def publicar(notas: str, llave_ssh: Path, tambien_viejas: bool = False) -> int:
     salida = RAIZ / "dist" / "publicar"
     salida.mkdir(parents=True, exist_ok=True)
     nota, firma_nota = firmar_nota(VERSION, datos, actualizar.RUTA_BASE + nombre, notas, llave,
-                                   cambios, codigo)
+                                   entradas)
     (salida / "version.json").write_bytes(nota)
     (salida / "version.json.firma").write_bytes(firma_nota)
 
@@ -287,7 +331,8 @@ def publicar(notas: str, llave_ssh: Path, tambien_viejas: bool = False) -> int:
     if tambien_viejas:
         # Las de antes (hasta la 1.1.2) miran en /descargas/, sin cuenta, y
         # solo aceptan un zip de ahí.
-        vieja, firma_vieja = firmar_nota(VERSION, datos, f"/descargas/{nombre}", notas, llave)
+        vieja, firma_vieja = firmar_nota(VERSION, datos, f"/descargas/{nombre}", notas, llave,
+                                         entradas)
         (salida / "vieja.json").write_bytes(vieja)
         (salida / "vieja.json.firma").write_bytes(firma_vieja)
         pasos += [
@@ -308,8 +353,36 @@ def publicar(notas: str, llave_ssh: Path, tambien_viejas: bool = False) -> int:
             or not firma.comprobar(comprobada[0], comprobada[1], PUBLICA)):
         print("Subido, pero al volver a mirar no sale la versión nueva. Revísalo.")
         return 1
+    # La marca en git: de aquí sale el historial de la próxima vez.
+    git("tag", "-f", f"v{VERSION}")
+    if subprocess.run(["git", "push", "-f", "origin", f"v{VERSION}"], cwd=RAIZ).returncode != 0:
+        print(f"Ojo: no se ha podido subir la marca v{VERSION} a GitHub. Hazlo con:\n"
+              f"    git push origin v{VERSION}")
     print(f"\nPublicada la {VERSION}. Les saldrá al abrir ContaXcell con internet,\n"
           "a los que tengan la cuenta aceptada.")
+    return 0
+
+
+def subir_condiciones(llave_ssh: Path) -> int:
+    """Sube server/textos/condiciones.md y comprueba que el servidor da esa."""
+    import urllib.request
+
+    servidor, maquina = maquina_del_servidor()
+    ssh = ["-i", str(llave_ssh), "-o", "BatchMode=yes"]
+    destino = f"ubuntu@{maquina}"
+    pasos = [["ssh", *ssh, destino, "mkdir -p server/textos"],
+             ["scp", *ssh, str(CONDICIONES), f"{destino}:server/textos/condiciones.md"]]
+    for paso in pasos:
+        if subprocess.run(paso).returncode != 0:
+            print("No se han podido subir las condiciones.")
+            return 1
+    with urllib.request.urlopen(servidor.rstrip("/") + "/api/condiciones", timeout=15) as r:
+        recibidas = json.loads(r.read().decode("utf-8"))["texto"]
+    if recibidas != CONDICIONES.read_text(encoding="utf-8"):
+        print("Subidas, pero el servidor da otras. Revísalo.")
+        return 1
+    print("Condiciones subidas: el servidor ya da las nuevas. Las cuentas que se creen\n"
+          "desde ahora aceptan estas.")
     return 0
 
 
@@ -323,11 +396,15 @@ def main() -> int:
     analizador.add_argument("--tambien-viejas", action="store_true",
                             help="deja también la nota donde miraban las versiones "
                                  "hasta la 1.1.2 (una vez, para pasarlas a la nueva)")
+    analizador.add_argument("--condiciones", action="store_true",
+                            help="sube solo las condiciones de uso (server/textos/condiciones.md)")
     analizador.add_argument("--llave-ssh", type=Path, default=LLAVE_SSH,
                             help=f"la llave .pem del servidor (por defecto {LLAVE_SSH})")
     argumentos = analizador.parse_args()
     if argumentos.crear_llave:
         return crear_llave()
+    if argumentos.condiciones:
+        return subir_condiciones(argumentos.llave_ssh)
     return publicar(argumentos.notas, argumentos.llave_ssh, argumentos.tambien_viejas)
 
 

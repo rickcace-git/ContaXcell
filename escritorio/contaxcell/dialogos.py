@@ -641,8 +641,9 @@ class VersionNueva(tk.Toplevel):
         pie = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
         pie.pack(fill="x", pady=(20, 0))
         # Solo si la nota trae algo que enseñar: las de antes no lo traían.
+        self.version_actual = version_actual
         self.boton_cambios = None
-        if novedad.cambios or novedad.codigo:
+        if novedad.cambios_para(version_actual) or novedad.codigo_para(version_actual):
             self.boton_cambios = ttk.Button(pie, text="Ver qué ha cambiado", style="Enlace.TButton",
                                             command=self._ver_cambios)
             self.boton_cambios.pack(side="left")
@@ -658,7 +659,7 @@ class VersionNueva(tk.Toplevel):
         self.destroy()
 
     def _ver_cambios(self) -> None:
-        CambiosDeVersion(self, self.novedad).mostrar()
+        CambiosDeVersion(self, self.novedad, desde=self.version_actual).mostrar()
 
     def mostrar(self) -> bool:
         self.update_idletasks()
@@ -673,11 +674,13 @@ class VersionNueva(tk.Toplevel):
 
 class CambiosDeVersion(tk.Toplevel):
     """La lista de lo que ha cambiado, tal como se apuntó al hacerlo, y el
-    enlace a GitHub para ver el código línea a línea."""
+    enlace a GitHub para ver el código línea a línea. `desde` es la versión
+    que se tenía: se enseña lo de todas las posteriores, cada una con lo suyo."""
 
-    def __init__(self, padre, novedad, encabezado: str = ""):
+    def __init__(self, padre, novedad, encabezado: str = "", desde: str = "0"):
         super().__init__(padre)
         self.novedad = novedad
+        self.codigo = novedad.codigo_para(desde)
         self.title(f"Qué trae la {novedad.version}")
         self.geometry(f"{round(560 * widgets.FUENTES.escala)}x{round(460 * widgets.FUENTES.escala)}")
         self.minsize(420, 300)
@@ -688,7 +691,7 @@ class CambiosDeVersion(tk.Toplevel):
         pie = ttk.Frame(self, style="Tarjeta.TFrame", padding=(20, 12))
         pie.pack(side="bottom", fill="x")
         tk.Frame(self, background=p.borde, height=1).pack(side="bottom", fill="x")
-        if novedad.codigo:
+        if self.codigo:
             ttk.Button(pie, text="Ver el código en GitHub", style="Enlace.TButton",
                        command=self._abrir_codigo).pack(side="left")
         ttk.Button(pie, text="Cerrar", style="Principal.TButton",
@@ -708,15 +711,22 @@ class CambiosDeVersion(tk.Toplevel):
         self.texto.tag_configure("titulo", font=f.negrita, spacing1=12, spacing3=2)
         self.texto.tag_configure("detalle", foreground=p.suave, lmargin1=14, lmargin2=14)
         self.texto.tag_configure("encabezado", font=f.negrita, foreground=p.acento, spacing3=4)
+        self.texto.tag_configure("version", font=f.negrita, foreground=p.acento,
+                                 spacing1=16, spacing3=2)
 
         if encabezado:
             self.texto.insert("end", f"{encabezado}\n", "encabezado")
 
-        if novedad.cambios:
-            for titulo, detalle in novedad.cambios:
-                self.texto.insert("end", f"•  {titulo}\n", "titulo")
-                if detalle:
-                    self.texto.insert("end", f"{detalle}\n", "detalle")
+        por_version = novedad.cambios_para(desde)
+        if por_version:
+            for version, cambios in por_version:
+                # Con más de una versión, cada una con su rótulo.
+                if len(por_version) > 1:
+                    self.texto.insert("end", f"Versión {version}\n", "version")
+                for titulo, detalle in cambios:
+                    self.texto.insert("end", f"•  {titulo}\n", "titulo")
+                    if detalle:
+                        self.texto.insert("end", f"{detalle}\n", "detalle")
         else:
             self.texto.insert("end", "Esta versión no trae la lista de cambios.\n", "detalle")
         self.texto.configure(state="disabled")
@@ -725,7 +735,70 @@ class CambiosDeVersion(tk.Toplevel):
 
     def _abrir_codigo(self) -> None:
         import webbrowser
-        webbrowser.open(self.novedad.codigo)
+        webbrowser.open(self.codigo)
+
+    def mostrar(self) -> None:
+        self.update_idletasks()
+        _centrar(self)
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window()
+
+
+class Lectura(tk.Toplevel):
+    """Un texto largo para leer, como las condiciones de uso. Entiende lo
+    poco de Markdown que hace falta: «# título», «## apartado» y «- punto»."""
+
+    def __init__(self, padre, titulo: str, texto: str):
+        super().__init__(padre)
+        self.title(titulo)
+        escala = widgets.FUENTES.escala
+        self.geometry(f"{round(600 * escala)}x{round(560 * escala)}")
+        self.minsize(420, 300)
+        self.configure(background=widgets.PALETA.tarjeta)
+        self.transient(padre)
+        p, f = widgets.PALETA, widgets.FUENTES
+
+        pie = ttk.Frame(self, style="Tarjeta.TFrame", padding=(20, 12))
+        pie.pack(side="bottom", fill="x")
+        tk.Frame(self, background=p.borde, height=1).pack(side="bottom", fill="x")
+        ttk.Button(pie, text="Cerrar", style="Principal.TButton",
+                   command=self.destroy).pack(side="right")
+
+        marco = ttk.Frame(self, style="Tarjeta.TFrame")
+        marco.pack(fill="both", expand=True)
+        barra = ttk.Scrollbar(marco, orient="vertical")
+        barra.pack(side="right", fill="y")
+        self.texto = tk.Text(
+            marco, wrap="word", font=f.normal, relief="flat", borderwidth=0,
+            highlightthickness=0, padx=24, pady=20, spacing1=2, spacing3=4,
+            background=p.tarjeta, foreground=p.texto, cursor="arrow",
+            yscrollcommand=barra.set)
+        self.texto.pack(side="left", fill="both", expand=True)
+        barra.configure(command=self.texto.yview)
+        self.texto.tag_configure("cabecera", font=f.cifra, spacing3=10)
+        self.texto.tag_configure("titulo", font=f.negrita, foreground=p.acento,
+                                 spacing1=14, spacing3=4)
+        self.texto.tag_configure("parrafo", spacing3=8)
+        self.texto.tag_configure("punto", lmargin1=12, lmargin2=26, spacing3=4)
+
+        for linea in texto.splitlines():
+            linea = linea.rstrip()
+            if not linea:
+                continue
+            if linea.startswith("## "):
+                self.texto.insert("end", linea[3:] + "\n", "titulo")
+            elif linea.startswith("# "):
+                self.texto.insert("end", linea[2:] + "\n", "cabecera")
+            elif linea.startswith(("- ", "* ")):
+                self.texto.insert("end", "•  " + linea[2:] + "\n", "punto")
+            else:
+                self.texto.insert("end", linea + "\n", "parrafo")
+        self.texto.configure(state="disabled")
+
+        self.bind("<Escape>", lambda _e: self.destroy())
 
     def mostrar(self) -> None:
         self.update_idletasks()

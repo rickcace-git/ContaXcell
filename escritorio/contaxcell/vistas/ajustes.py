@@ -295,6 +295,8 @@ class VistaAjustes:
         self.boton_contrasena.pack(side="left")
         ttk.Button(botones, text="Cerrar sesión", style="Peligro.TButton",
                    command=self.cerrar_sesion).pack(side="left", padx=(8, 0))
+        ttk.Button(botones, text="Condiciones de uso", style="Enlace.TButton",
+                   cursor="hand2", command=self.leer_condiciones).pack(side="left", padx=(12, 0))
 
         ttk.Label(tarjeta.cuerpo, style="Tarjeta.Suave.TLabel", justify="left",
                   wraplength=820,
@@ -333,6 +335,18 @@ class VistaAjustes:
         self.app.clipboard_clear()
         self.app.clipboard_append(self._direccion_app())
         self.app.estado("Dirección copiada.", "bien")
+
+    def leer_condiciones(self) -> None:
+        """Las que tiene el servidor ahora mismo, que son las que valen."""
+        try:
+            condiciones = self.app.sincronia.condiciones()
+        except ErrorDeSincronia as error:
+            dialogos.avisar(self.app, "No se han podido traer las condiciones de uso.", str(error))
+            return
+        if condiciones is None:
+            dialogos.avisar(self.app, "Este servidor no tiene condiciones de uso.")
+            return
+        dialogos.Lectura(self.app, "Condiciones de uso", condiciones[1]).mostrar()
 
     def _refrescar_cuenta(self) -> None:
         sincronia = self.app.sincronia

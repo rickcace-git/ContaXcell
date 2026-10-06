@@ -54,5 +54,22 @@ class PruebaEnlaceCodigo(unittest.TestCase):
         self.assertEqual(publicar.enlace_codigo("https://github.com/ana/x.git", "", "b"), "")
 
 
+class PruebaParaLasDeAntes(unittest.TestCase):
+    """La 1.1.3 y la 1.1.4 solo leen «cambios»: les va todo, con la versión."""
+
+    def test_lleva_lo_de_la_1_1_4_en_adelante_con_su_version(self):
+        entradas = [
+            {"version": "1.1.5", "desde": "b" * 40, "hasta": "c" * 40,
+             "cambios": [{"titulo": "Nuevo", "detalle": ""}]},
+            {"version": "1.1.4", "desde": "a" * 40, "hasta": "b" * 40,
+             "cambios": [{"titulo": "De antes", "detalle": "x"}]},
+            {"version": "1.1.3", "desde": "9" * 40, "hasta": "a" * 40,
+             "cambios": [{"titulo": "Viejo", "detalle": ""}]},
+        ]
+        cambios, codigo = publicar.para_las_de_antes(entradas)
+        self.assertEqual([c["titulo"] for c in cambios], ["1.1.5 · Nuevo", "1.1.4 · De antes"])
+        self.assertTrue(codigo.endswith(f"/compare/{'a' * 12}...{'c' * 12}"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -178,7 +178,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(ajustes = it.ajustes.copy(ocultarImportes = !it.ajustes.ocultarImportes))
             }
             is AppAction.SignIn -> authenticate(false, action.user, action.password, action.server, "")
-            is AppAction.Register -> authenticate(true, action.user, action.password, action.server, action.inviteCode, action.email)
+            is AppAction.Register -> authenticate(
+                true, action.user, action.password, action.server, action.inviteCode, action.email,
+                action.acceptTerms,
+            )
+            is AppAction.ReadTerms -> readTerms(action.server)
+            AppAction.CloseTerms -> {
+                (auth as? AuthUiState.Gate)?.let { auth = it.copy(termsText = null) }
+                refresh()
+            }
             AppAction.ContinueOffline -> {
                 auth = AuthUiState.SignedIn()
                 syncUi = SyncUiState(SyncStatus.Offline, "Solo en este dispositivo")
@@ -446,12 +454,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         server: String,
         invitation: String,
         email: String = "",
+        acceptTerms: Boolean = false,
     ) {
         auth = AuthUiState.Gate(defaultUser = user, defaultServer = server, busy = true)
         refresh()
         viewModelScope.launch {
             runCatching {
-                if (register) authRepository.register(user, password, server, invitation, email)
+                if (register) authRepository.register(user, password, server, invitation, email, acceptTerms)
                 else authRepository.login(user, password, server)
             }.onSuccess { session ->
                 auth = AuthUiState.SignedIn(session.username, session.serverUrl)
@@ -473,6 +482,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 refresh()
             }
+        }
+    }
+
+    /** Las condiciones de uso, para leerlas antes de crear la cuenta. */
+    private fun readTerms(server: String) {
+        val gate = auth as? AuthUiState.Gate ?: return
+        auth = gate.copy(termsLoading = true, error = null)
+        refresh()
+        viewModelScope.launch {
+            val current = auth as? AuthUiState.Gate ?: return@launch
+            auth = runCatching { authRepository.terms(server) }.fold(
+                onSuccess = { terms ->
+                    current.copy(
+                        termsLoading = false,
+                        termsText = terms?.text ?: "Este servidor no tiene condiciones de uso.",
+                    )
+                },
+                onFailure = { error -> current.copy(termsLoading = false, error = rootMessage(error)) },
+            )
+            refresh()
         }
     }
 

@@ -177,6 +177,35 @@ class PruebaBuscar(ConLlave):
         self.assertEqual(novedad.cambios, (("Lo nuevo", "Con su porqué"), ("Un arreglo", "")))
         self.assertEqual(novedad.codigo, "https://github.com/ana/Conta/compare/a...b")
 
+    def test_cada_uno_ve_lo_que_le_falta(self):
+        historial = [
+            {"version": "1.2.0", "desde": "b" * 40, "hasta": "c" * 40,
+             "cambios": [{"titulo": "Lo de la 1.2.0"}]},
+            {"version": "1.1.9", "desde": "a" * 40, "hasta": "b" * 40,
+             "cambios": [{"titulo": "Lo de la 1.1.9"}]},
+        ]
+        archivos = self.publicado(historial=historial,
+                                  repositorio="https://github.com/ana/Conta")
+        novedad = actualizar.buscar(SERVIDOR, "1.1.0", servidor_falso(archivos), self.publica)
+        self.assertEqual([v for v, _ in novedad.cambios_para("1.1.8")], ["1.2.0", "1.1.9"])
+        self.assertEqual([v for v, _ in novedad.cambios_para("1.1.9")], ["1.2.0"])
+        self.assertEqual(novedad.codigo_para("1.1.8"),
+                         f"https://github.com/ana/Conta/compare/{'a' * 12}...{'c' * 12}")
+        self.assertEqual(novedad.codigo_para("1.1.9"),
+                         f"https://github.com/ana/Conta/compare/{'b' * 12}...{'c' * 12}")
+
+    def test_sin_historial_se_usa_la_lista_de_siempre(self):
+        archivos = self.publicado(cambios=[{"titulo": "Algo"}])
+        novedad = actualizar.buscar(SERVIDOR, "1.1.0", servidor_falso(archivos), self.publica)
+        self.assertEqual(novedad.cambios_para("1.1.0"), [("1.2.0", (("Algo", ""),))])
+
+    def test_un_commit_raro_no_da_enlace(self):
+        historial = [{"version": "1.2.0", "desde": "../../malo", "hasta": "c" * 40,
+                      "cambios": [{"titulo": "Algo"}]}]
+        archivos = self.publicado(historial=historial, repositorio="https://github.com/ana/Conta")
+        novedad = actualizar.buscar(SERVIDOR, "1.1.0", servidor_falso(archivos), self.publica)
+        self.assertEqual(novedad.historial[0][2:], ("", ""))
+
     def test_las_notas_de_antes_sin_cambios_valen_igual(self):
         novedad = actualizar.buscar(SERVIDOR, "1.1.0", servidor_falso(self.publicado()), self.publica)
         self.assertEqual((novedad.cambios, novedad.codigo), ((), ""))

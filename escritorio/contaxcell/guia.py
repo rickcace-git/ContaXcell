@@ -221,13 +221,14 @@ Con una cuenta, tu contabilidad se guarda también en tu servidor y la puedes ll
 • Al abrir el programa, se trae lo que hayas cambiado en otro sitio.
 
 ## Al crear la cuenta
-Al abrir el programa por primera vez, elige «Crear cuenta». Pide usuario, correo electrónico y la contraseña dos veces; el ojo junto a cada una la enseña, para comprobarla. Luego sale una ventanita para el código de invitación que te haya dado quien administra ContaXcell.
+Al abrir el programa por primera vez, elige «Crear cuenta». Pide usuario, correo electrónico y la contraseña dos veces; el ojo junto a cada una la enseña, para comprobarla. Antes de crearla hay que aceptar las condiciones de uso: pulsa en ellas para leerlas (cuentan qué se guarda, dónde y quién puede verlo). Luego sale una ventanita para el código de invitación que te haya dado quien administra ContaXcell.
 Apúntate bien la contraseña: por ahora no hay forma de recuperarla. El correo se guarda para poder hacerlo más adelante.
 Es posible que tu cuenta tenga que esperar a que la acepten. Mientras tanto usas el programa igual y todo se guarda en este ordenador; el día que te acepten, se sube solo, sin hacer nada.
 
 ## En Ajustes ▸ Tu cuenta
 • «Cambiar la contraseña…»: este ordenador sigue dentro, pero en los demás habrá que volver a entrar.
 • «Cerrar sesión»: tus datos se quedan en este ordenador.
+• «Condiciones de uso»: para volver a leerlas cuando quieras.
 • «Entrar de nuevo»: aparece si la sesión ha caducado.
 
 ## Si alguna vez hay un conflicto

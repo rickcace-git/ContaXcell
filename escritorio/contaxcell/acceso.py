@@ -184,6 +184,15 @@ class VentanaAcceso(tk.Toplevel):
         widgets.etiqueta_campo(zona, "Repite la contraseña")
         self.var_repetida = tk.StringVar()
         self.campo_repetida = self._campo_contrasena(zona, self.var_repetida)
+        # Las condiciones de uso: hay que marcarlas para crear la cuenta, y
+        # se pueden leer ahí mismo (las da el servidor).
+        fila = ttk.Frame(zona, style="Tarjeta.TFrame")
+        fila.pack(anchor="w", pady=(10, 0))
+        self.var_acepta = tk.BooleanVar(value=False)
+        ttk.Checkbutton(fila, text="He leído y acepto las", variable=self.var_acepta).pack(
+            side="left")
+        ttk.Button(fila, text="condiciones de uso", style="Enlace.TButton", cursor="hand2",
+                   command=self.leer_condiciones).pack(side="left")
         self._bloque_servidor(marco, "crear")
         self.error_crear = self._linea_error(marco)
 
@@ -308,6 +317,21 @@ class VentanaAcceso(tk.Toplevel):
             self.error_crear.configure(text=fallo)
             self.bell()
             return
+        if not self.var_acepta.get():
+            self.error_crear.configure(
+                text="Para crear la cuenta tienes que aceptar las condiciones de uso. "
+                     "Puedes leerlas pulsando en ellas.")
+            self.bell()
+            return
+        # Se piden otra vez justo ahora: lo que se acepta es lo vigente.
+        self.error_crear.configure(text="Hablando con el servidor…")
+        self.update_idletasks()
+        try:
+            condiciones = self.sincronia.condiciones(self.var_servidor.get())
+        except ErrorDeSincronia as error:
+            self.error_crear.configure(text=str(error))
+            self.bell()
+            return
         self.error_crear.configure(text="")
         codigo = PedirCodigo(self).mostrar()
         if codigo is None:
@@ -318,7 +342,8 @@ class VentanaAcceso(tk.Toplevel):
             self.sincronia.registrar(self.var_usuario_nuevo.get(),
                                      self.var_contrasena_nueva.get(),
                                      self.var_servidor.get(), codigo,
-                                     correo=self.var_correo.get())
+                                     correo=self.var_correo.get(),
+                                     condiciones=condiciones[0] if condiciones else "")
         except FaltaCodigo as error:
             self.error_crear.configure(
                 text=f"{error}\nPulsa «Crear cuenta» otra vez para escribirlo.")
@@ -329,6 +354,21 @@ class VentanaAcceso(tk.Toplevel):
             self.bell()
             return
         self._dentro()
+
+    def leer_condiciones(self) -> None:
+        self.error_crear.configure(text="Pidiendo las condiciones al servidor…")
+        self.update_idletasks()
+        try:
+            condiciones = self.sincronia.condiciones(self.var_servidor.get())
+        except ErrorDeSincronia as error:
+            self.error_crear.configure(text=str(error))
+            self.bell()
+            return
+        self.error_crear.configure(text="")
+        if condiciones is None:
+            self.error_crear.configure(text="Este servidor no tiene condiciones de uso.")
+            return
+        dialogos.Lectura(self, "Condiciones de uso", condiciones[1]).mostrar()
 
     def _dentro(self) -> None:
         if self.sincronia.en_espera:

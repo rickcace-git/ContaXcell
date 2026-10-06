@@ -262,18 +262,37 @@ class Sincronia:
     # --- entrar y salir -------------------------------------------------------
 
     def registrar(self, usuario: str, contrasena: str, servidor: str = "",
-                  codigo: str = "", correo: str = "") -> None:
+                  codigo: str = "", correo: str = "", condiciones: str = "") -> None:
         """Crea la cuenta. Algunos servidores piden un código de invitación;
         si aquí no se pone, el propio servidor lo reclamará. El correo se
-        guarda en el servidor para poder restablecer la contraseña algún día."""
+        guarda en el servidor para poder restablecer la contraseña algún día.
+        `condiciones` es la versión de las condiciones de uso aceptadas (la
+        que da `condiciones()`), si el servidor las tiene."""
         self._acreditar("/api/cuentas/registro", usuario, contrasena, servidor,
-                        codigo=codigo, correo=correo)
+                        codigo=codigo, correo=correo, condiciones=condiciones)
+
+    def condiciones(self, servidor: str = "") -> tuple[str, str] | None:
+        """Las condiciones de uso del servidor, (versión, texto), para
+        leerlas antes de crear la cuenta. None si el servidor no tiene."""
+        servidor = (servidor or self.sesion["servidor"]).strip().rstrip("/")
+        try:
+            estado, datos = self._pedir("GET", "/api/condiciones", servidor=servidor,
+                                        con_token=False)
+        except _SinConexion:
+            raise ErrorDeSincronia(
+                MENSAJE_SERVIDOR_INALCANZABLE.format(servidor=servidor)) from None
+        if estado == 404:
+            return None
+        if estado != 200 or not isinstance(datos, dict) or not datos.get("version"):
+            raise ErrorDeSincronia("El servidor no ha dado las condiciones de uso. "
+                                   "Prueba otra vez dentro de un rato.")
+        return str(datos["version"]), str(datos.get("texto") or "")
 
     def entrar(self, usuario: str, contrasena: str, servidor: str = "") -> None:
         self._acreditar("/api/cuentas/entrar", usuario, contrasena, servidor)
 
     def _acreditar(self, ruta: str, usuario: str, contrasena: str, servidor: str,
-                   codigo: str = "", correo: str = "") -> None:
+                   codigo: str = "", correo: str = "", condiciones: str = "") -> None:
         """Pide el token y deja la sesión lista. Si se entra con un usuario
         distinto al de la sesión anterior, los datos locales se apartan a una
         copia y se empieza de cero, para no mezclar contabilidades."""
@@ -289,6 +308,8 @@ class Sincronia:
             cuerpo["codigo"] = codigo.strip()
         if correo.strip():
             cuerpo["correo"] = correo.strip()
+        if condiciones:
+            cuerpo["condiciones"] = condiciones
 
         try:
             # Aquí «estado» es el código HTTP; «codigo», el de invitación.

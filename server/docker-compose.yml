@@ -43,6 +43,9 @@ services:
       # Las versiones nuevas del programa, que deja ahí `publicar.py`. Las
       # reparte la API, y no el Caddy, para pedir cuenta aceptada. Solo lectura.
       - ./actualizaciones:/srv/actualizaciones:ro
+      # Las condiciones de uso (textos/condiciones.md). Se monta la carpeta
+      # y no el archivo: así, al cambiarlo, la API ve el nuevo sin reiniciar.
+      - ./textos:/srv/textos:ro
     depends_on:
       db:
         condition: service_healthy

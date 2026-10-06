@@ -659,10 +659,11 @@ class Aplicacion(tk.Tk):
         servidor = self._servidor()
 
         def al_acabar(novedad, error):
+            anterior = self._version_anterior or "0"
             if error is None and novedad is not None and novedad.version == VERSION \
-                    and (novedad.cambios or novedad.codigo):
+                    and novedad.cambios_para(anterior):
                 dialogos.CambiosDeVersion(
-                    self, novedad,
+                    self, novedad, desde=anterior,
                     encabezado=f"Ya tienes la {VERSION}. Esto es lo que ha cambiado:").mostrar()
 
         self._en_hilo(lambda: actualizar.buscar(servidor, "0", token=token), al_acabar)

@@ -290,6 +290,29 @@ en su ordenador, que es suya. Lo que pierde es la cuenta. Y ojo, que con el
 código de invitación podría crearse otra: si de verdad no tiene que volver,
 cambia `CONTAXCELL_CODIGO_REGISTRO` en el `.env` y reinicia la API.
 
+## Las condiciones de uso
+
+El texto está en `server/textos/condiciones.md` (en el repositorio y en la
+máquina). La API lo da en `/api/condiciones`, sin cuenta, y el programa y la
+app lo enseñan al crear la cuenta: hay que marcar «He leído y acepto» para
+crearla. Se escribe en Markdown sencillo: `# título`, `## apartado`, `- punto`
+y párrafos.
+
+Para cambiarlo: edítalo en el repositorio y, desde `escritorio/`,
+
+```
+python publicar.py --condiciones
+```
+
+Lo sube y comprueba que el servidor ya da el nuevo. No hace falta reiniciar
+nada ni sacar versión: la API lo lee en cada petición.
+
+Cada cuenta guarda qué versión aceptó (un resumen del texto, que cambia solo
+al tocar una letra). `./usuarios` lo enseña en la columna CONDICIONES:
+«aceptadas», o «no» si se creó con un programa de antes de que las hubiera.
+A quien ya tiene cuenta **no** se le vuelve a preguntar si el texto cambia:
+avísales tú.
+
 ## Las versiones nuevas del programa de escritorio
 
 `python publicar.py` (en `escritorio/`) deja en `server/actualizaciones` de la

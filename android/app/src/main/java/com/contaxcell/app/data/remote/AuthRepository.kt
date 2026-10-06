@@ -28,6 +28,9 @@ fun interface AccountChangeHandler {
     suspend fun onAccountChanged(previousUsername: String, newUsername: String)
 }
 
+/** Las condiciones de uso tal como las da el servidor. */
+data class Terms(val version: String, val text: String)
+
 class AuthRepository(
     private val api: ContaXcellApi,
     private val sessions: SessionStore,
@@ -41,7 +44,27 @@ class AuthRepository(
         serverUrl: String = "",
         invitationCode: String = "",
         email: String = "",
-    ): SyncSession = authenticate(username, password, serverUrl, true, invitationCode, email)
+        acceptTerms: Boolean = false,
+    ): SyncSession {
+        // Se piden justo ahora: lo que se acepta es lo vigente. Un servidor
+        // sin condiciones contesta 404 y la cuenta se crea igual.
+        val terms = if (acceptTerms) terms(serverUrl)?.version.orEmpty() else ""
+        return authenticate(username, password, serverUrl, true, invitationCode, email, terms)
+    }
+
+    /** Las condiciones de uso del servidor, o null si no tiene. */
+    suspend fun terms(serverUrl: String = ""): Terms? {
+        val server = OkHttpContaXcellApi.normalizeServerUrl(serverUrl.ifBlank { sessions.read().serverUrl })
+        val response = callOrOffline { api.terms(server) }
+        if (response.statusCode == 404) return null
+        val body = response.objectBody
+        val version = body?.get("version")?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
+        if (response.statusCode != 200 || version == null) {
+            fail("El servidor no ha dado las condiciones de uso. Prueba otra vez dentro de un rato.",
+                AuthenticationException.Kind.SERVER_ERROR)
+        }
+        return Terms(version, body?.get("texto")?.jsonPrimitive?.contentOrNull.orEmpty())
+    }
 
     suspend fun login(
         username: String,
@@ -85,6 +108,7 @@ class AuthRepository(
         registering: Boolean,
         invitationCode: String,
         email: String = "",
+        terms: String = "",
     ): SyncSession {
         val username = rawUsername.trim()
         if (username.isBlank() || password.isBlank()) {
@@ -95,7 +119,7 @@ class AuthRepository(
             requestedServerUrl.ifBlank { old.serverUrl },
         )
         val response = callOrOffline {
-            if (registering) api.register(server, username, password, invitationCode, email)
+            if (registering) api.register(server, username, password, invitationCode, email, terms)
             else api.login(server, username, password)
         }
         when (response.statusCode) {

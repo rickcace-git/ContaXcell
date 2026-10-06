@@ -571,6 +571,17 @@ class PruebasVersionNueva(ConVentana):
         ventana._aceptar()
         self.assertTrue(ventana.aceptada)
 
+    def test_la_lectura_entiende_titulos_y_puntos(self):
+        lectura = dialogos.Lectura(self.raiz, "Condiciones de uso",
+                                   "# Condiciones\n\n## Qué se guarda\n- Tu usuario\nY un párrafo.")
+        self.addCleanup(lectura.destroy)
+        texto = lectura.texto
+        self.assertEqual(texto.get("1.0", "1.end"), "Condiciones")
+        self.assertIn("cabecera", texto.tag_names("1.0"))
+        self.assertIn("titulo", texto.tag_names("2.0"))
+        self.assertEqual(texto.get("3.0", "3.end"), "•  Tu usuario")
+        self.assertIn("parrafo", texto.tag_names("4.0"))
+
     def test_reiniciando_no_se_cierra_con_la_x(self):
         espera = dialogos.Reiniciando(self.raiz, "1.2.0")
         self.addCleanup(espera.destroy)

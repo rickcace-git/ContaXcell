@@ -1,6 +1,6 @@
 """La API del servidor de sincronización.
 
-Nueve rutas y ninguna más:
+Diez rutas y ninguna más:
 
 - ``GET  /api/salud``              ¿está vivo el servidor?
 - ``POST /api/cuentas/registro``   crear cuenta y recibir una ficha
@@ -11,6 +11,7 @@ Nueve rutas y ninguna más:
 - ``GET  /api/precios/buscar``     buscar la cotización de un fondo (con ficha)
 - ``GET  /api/precios``            los cierres diarios de un fondo (con ficha)
 - ``GET  /api/actualizacion/…``    la versión nueva del programa (con ficha)
+- ``GET  /api/condiciones``        las condiciones de uso, para leerlas al crear cuenta
 
 Los precios están aquí y no en cada aplicación porque la fuente no es
 oficial y puede romperse: aquí se arregla en una máquina y no repartiendo
@@ -31,6 +32,7 @@ contraseña invalida las fichas antiguas de ese usuario.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import os
@@ -101,6 +103,7 @@ def crear_aplicacion(
     cliente_precios=_SIN_DECIR,
     aceptar_a_mano: bool | None = None,
     carpeta_actualizaciones: Path | str | None = None,
+    archivo_condiciones: Path | str | None = None,
 ) -> FastAPI:
     """Monta la aplicación con el almacén que le den.
 
@@ -120,6 +123,11 @@ def crear_aplicacion(
     /srv/actualizaciones). Se sirven por la API y no por el Caddy a pelo
     precisamente para pedir la ficha: sin cuenta aceptada, no hay versión
     nueva.
+
+    ``archivo_condiciones`` es el texto de las condiciones de uso
+    (CONTAXCELL_CONDICIONES; en el Docker, /srv/textos/condiciones.md, que
+    es server/textos/condiciones.md de la máquina). Se lee en cada petición:
+    cambiarlo no pide reiniciar nada.
     """
     if almacen is None:
         almacen = _almacen_desde_entorno()
@@ -143,6 +151,19 @@ def crear_aplicacion(
         carpeta_actualizaciones = os.environ.get(
             "CONTAXCELL_ACTUALIZACIONES", "/srv/actualizaciones")
     carpeta_actualizaciones = Path(carpeta_actualizaciones)
+    if archivo_condiciones is None:
+        archivo_condiciones = os.environ.get(
+            "CONTAXCELL_CONDICIONES", "/srv/textos/condiciones.md")
+    archivo_condiciones = Path(archivo_condiciones)
+
+    def condiciones_de_ahora() -> tuple[str, str] | None:
+        """(versión, texto) de las condiciones, o None si no hay. La versión
+        es un resumen del texto: cambia sola en cuanto se toca una letra."""
+        try:
+            texto = archivo_condiciones.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return hashlib.sha256(texto.encode("utf-8")).hexdigest()[:12], texto
 
     # Tres contadores: los fallos por IP, los fallos por cuenta y los
     # registros por IP. Separados a propósito: quien falla mucho contra una
@@ -214,11 +235,23 @@ def crear_aplicacion(
             _comprobar_codigo(cuerpo.get("codigo"), codigo_registro, ip)
         usuario, contrasena = _credenciales(cuerpo)
         correo = _correo(cuerpo.get("correo"))
+        # Las condiciones: quien las manda tiene que haber aceptado las de
+        # ahora. Un programa de antes no manda nada; entonces la cuenta se
+        # crea igual y `./usuarios` lo enseña, para decidir al aceptarla.
+        aceptadas = ""
+        if "condiciones" in cuerpo:
+            vigentes = condiciones_de_ahora()
+            if vigentes is None or cuerpo.get("condiciones") != vigentes[0]:
+                raise HTTPException(
+                    422, "Las condiciones de uso han cambiado mientras las leías. "
+                         "Vuelve a abrirlas y acéptalas otra vez.")
+            aceptadas = vigentes[0]
         sal = seguridad.nueva_sal()
         hash_contrasena = seguridad.amasar_contrasena(contrasena, sal)
         try:
             usuario_id = almacen.crear_usuario(usuario, hash_contrasena, sal,
-                                               en_espera=aceptar_a_mano, correo=correo)
+                                               en_espera=aceptar_a_mano, correo=correo,
+                                               condiciones=aceptadas)
         except modulo_almacen.UsuarioYaExiste:
             raise HTTPException(409, "Ese nombre de usuario ya está cogido.")
         if aceptar_a_mano:
@@ -388,6 +421,14 @@ def crear_aplicacion(
             "simbolo": simbolo.strip().upper(),
             "cotizaciones": [c.a_json() for c in encontradas],
         }
+
+    @app.get("/api/condiciones")
+    def condiciones():
+        """Las condiciones de uso, sin ficha: se leen antes de tener cuenta."""
+        vigentes = condiciones_de_ahora()
+        if vigentes is None:
+            raise HTTPException(404, "Este servidor no tiene condiciones de uso.")
+        return {"version": vigentes[0], "texto": vigentes[1]}
 
     @app.get("/api/actualizacion/{nombre}")
     def actualizacion(nombre: str, _id: int = Depends(usuario_actual)):

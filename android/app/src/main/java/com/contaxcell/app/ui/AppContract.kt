@@ -35,6 +35,9 @@ sealed interface AuthUiState {
         val inviteRequired: Boolean = false,
         val busy: Boolean = false,
         val error: String? = null,
+        /** El texto de las condiciones de uso, mientras se leen; null si no. */
+        val termsText: String? = null,
+        val termsLoading: Boolean = false,
     ) : AuthUiState
     data class SignedIn(val user: String = "", val server: String = "") : AuthUiState
 }
@@ -421,7 +424,10 @@ sealed interface AppAction {
         val server: String,
         val inviteCode: String,
         val email: String = "",
+        val acceptTerms: Boolean = false,
     ) : AppAction
+    data class ReadTerms(val server: String) : AppAction
+    data object CloseTerms : AppAction
     data object ContinueOffline : AppAction
     data object DismissMessage : AppAction
     data object Retry : AppAction

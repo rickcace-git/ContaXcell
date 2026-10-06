@@ -27,7 +27,10 @@ interface ContaXcellApi {
         password: String,
         invitationCode: String = "",
         email: String = "",
+        terms: String = "",
     ): HttpResult
+    /** Las condiciones de uso del servidor, sin sesión: {"version", "texto"} o 404. */
+    suspend fun terms(serverUrl: String): HttpResult = HttpResult(404)
     suspend fun login(serverUrl: String, username: String, password: String): HttpResult
     suspend fun changePassword(serverUrl: String, token: String, currentPassword: String, newPassword: String): HttpResult
     suspend fun downloadBook(serverUrl: String, token: String): HttpResult
@@ -73,6 +76,7 @@ class OkHttpContaXcellApi(
         password: String,
         invitationCode: String,
         email: String,
+        terms: String,
     ): HttpResult = request(
         serverUrl,
         "/api/cuentas/registro",
@@ -87,8 +91,15 @@ class OkHttpContaXcellApi(
             email.trim().takeIf(String::isNotEmpty)?.let {
                 put("correo", JsonPrimitive(it))
             }
+            // La versión de las condiciones de uso aceptadas, si el servidor las tiene.
+            terms.takeIf(String::isNotEmpty)?.let {
+                put("condiciones", JsonPrimitive(it))
+            }
         },
     )
+
+    override suspend fun terms(serverUrl: String): HttpResult =
+        request(serverUrl, "/api/condiciones", "GET")
 
     override suspend fun login(serverUrl: String, username: String, password: String): HttpResult =
         request(

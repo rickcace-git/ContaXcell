@@ -155,7 +155,7 @@ private class SyncQuoteFakeApi(private val response: HttpResult) : ContaXcellApi
     }
     override suspend fun searchQuotes(serverUrl: String, token: String, query: String) = HttpResult(500)
     override suspend fun health(serverUrl: String) = HttpResult(200)
-    override suspend fun register(serverUrl: String, username: String, password: String, invitationCode: String, email: String) = HttpResult(500)
+    override suspend fun register(serverUrl: String, username: String, password: String, invitationCode: String, email: String, terms: String) = HttpResult(500)
     override suspend fun login(serverUrl: String, username: String, password: String) = HttpResult(500)
     override suspend fun changePassword(serverUrl: String, token: String, currentPassword: String, newPassword: String) = HttpResult(500)
     override suspend fun downloadBook(serverUrl: String, token: String) = HttpResult(500)

@@ -60,6 +60,34 @@ class AuthRepositoryTest {
     }
 
     @Test
+    fun acceptingTheTermsSendsTheCurrentVersion() = runTest {
+        val api = AuthFakeApi().apply {
+            termsResponse = HttpResult(200, buildJsonObject {
+                put("version", JsonPrimitive("abc123"))
+                put("texto", JsonPrimitive("# Condiciones"))
+            })
+            registerResponse = HttpResult(201, tokenBody("t", "ana"))
+        }
+        val repository = AuthRepository(api, AuthMemorySessions())
+
+        assertEquals(Terms("abc123", "# Condiciones"), repository.terms("https://sync.example"))
+        repository.register("ana", "contrasena1", "https://sync.example", acceptTerms = true)
+
+        assertEquals("abc123", api.sentTerms)
+    }
+
+    @Test
+    fun aServerWithoutTermsStillCreatesTheAccount() = runTest {
+        val api = AuthFakeApi().apply { registerResponse = HttpResult(201, tokenBody("t", "ana")) }
+        val repository = AuthRepository(api, AuthMemorySessions())
+
+        assertEquals(null, repository.terms("https://sync.example"))
+        repository.register("ana", "contrasena1", "https://sync.example", acceptTerms = true)
+
+        assertEquals("", api.sentTerms)
+    }
+
+    @Test
     fun invitationErrorIsTypedForSimplifiedUiRetry() = runTest {
         val api = AuthFakeApi().apply {
             registerResponse = HttpResult(403, buildJsonObject { put("detail", JsonPrimitive("Hace falta código")) })
@@ -101,8 +129,14 @@ private class AuthFakeApi : ContaXcellApi {
     var loginResponse = HttpResult(500)
     var registerResponse = HttpResult(500)
     var passwordResponse = HttpResult(500)
+    var termsResponse = HttpResult(404)
+    var sentTerms: String? = null
     override suspend fun health(serverUrl: String) = HttpResult(200)
-    override suspend fun register(serverUrl: String, username: String, password: String, invitationCode: String, email: String) = registerResponse
+    override suspend fun register(serverUrl: String, username: String, password: String, invitationCode: String, email: String, terms: String): HttpResult {
+        sentTerms = terms
+        return registerResponse
+    }
+    override suspend fun terms(serverUrl: String) = termsResponse
     override suspend fun login(serverUrl: String, username: String, password: String) = loginResponse
     override suspend fun changePassword(serverUrl: String, token: String, currentPassword: String, newPassword: String) = passwordResponse
     override suspend fun downloadBook(serverUrl: String, token: String) = HttpResult(500)

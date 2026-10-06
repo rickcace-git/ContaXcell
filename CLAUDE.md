@@ -52,8 +52,11 @@ escritorio/          la aplicación (Python + tkinter, nada que instalar)
                      por pestaña. Si cambias cómo se usa algo, cámbialo aquí
     vistas/          una pestaña por archivo
 server/              FastAPI + Postgres en Docker (lo escribió un amigo)
-  contaserver/       aplicacion.py (9 rutas), seguridad.py, almacen.py,
+  contaserver/       aplicacion.py (10 rutas), seguridad.py, almacen.py,
                      limites.py (frena los intentos a lo bruto)
+  textos/condiciones.md  las condiciones de uso que se aceptan al crear
+                     cuenta. Las edita Ricardo; se suben con
+                     `python publicar.py --condiciones`
 android/             la app nativa (Kotlin + Compose). Lee y sube el mismo
                      datos.json: un campo nuevo en modelo.py hay que añadirlo
                      también en android/.../domain/Model.kt, o el móvil lo
@@ -159,7 +162,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      446 pruebas, ~5 s (test_dialogos y
+python -m unittest discover -s pruebas      453 pruebas, ~5 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
@@ -174,7 +177,7 @@ cd server
 docker compose up -d                        levantar el servidor (solo en local)
 docker compose --profile https up -d        producción: Caddy con certificado delante
 docker compose logs -f api                  ver las peticiones llegar
-python -m unittest discover -s pruebas     114 pruebas (SQLite, sin red)
+python -m unittest discover -s pruebas     120 pruebas (SQLite, sin red)
 ```
 
 `pruebas/ver.py` usa una carpeta de datos aparte: nunca toca la contabilidad
