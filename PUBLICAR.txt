@@ -1,0 +1,185 @@
+==========================================================================
+  CONTAXCELL — CHULETA PARA PUBLICAR Y ADMINISTRAR
+==========================================================================
+
+Todo se escribe en una terminal (PowerShell o la de VS Code) dentro de la
+carpeta del proyecto: C:\Users\Usuario\source\repos\ContaXcell
+
+En los comandos de abajo, IP_DEL_SERVIDOR es la dirección del servidor.
+No se escribe aquí porque este archivo va a GitHub, que es público. La
+tienes en escritorio\.env, en la línea CONTAXCELL_SERVIDOR=https://...
+
+
+--------------------------------------------------------------------------
+ 1. PUBLICAR UNA VERSIÓN NUEVA DEL PROGRAMA DE WINDOWS
+--------------------------------------------------------------------------
+
+ Paso 1. Sube el número de versión.
+   Abre escritorio\contaxcell\ventana.py y cambia la línea de arriba:
+       VERSION = "1.1.5"   ->   VERSION = "1.1.6"
+   (siempre más alto que la última publicada; si no, publicar se niega)
+
+ Paso 2. Comprueba que todo funciona.
+       cd escritorio
+       python -m unittest discover -s pruebas
+   Tiene que terminar en "OK". Si sale FAILED, no publiques.
+
+ Paso 3. Guarda en git y súbelo a GitHub.
+   (la lista de cambios que ven los demás sale de aquí: escribe bien los
+   mensajes de commit, son lo que leerán)
+       cd ..
+       git add -A
+       git commit -m "Lo que has cambiado, en una frase"
+       git push
+
+ Paso 4. Publica.
+   CIERRA antes cualquier ContaXcell que tengas abierto desde dist\.
+       cd escritorio
+       python publicar.py "Lo nuevo, en una frase para los demás"
+
+   Lo fabrica, lo firma, lo sube y marca la versión en git (v1.1.6).
+   Al abrir ContaXcell, a los que tengan la cuenta aceptada les saldrá
+   "Hay una versión nueva" y se actualiza con un clic.
+
+
+--------------------------------------------------------------------------
+ 2. PUBLICAR UNA VERSIÓN NUEVA DE LA APP DEL MÓVIL
+--------------------------------------------------------------------------
+
+ Paso 1. Sube a GitHub los cambios de la carpeta android\.
+       git add -A
+       git commit -m "Lo que has cambiado en la app"
+       git push
+
+ Paso 2. Espera a que GitHub la compile (unos 10 minutos).
+   En GitHub: pestaña Actions -> "App Android". Tiene que salir en verde.
+   Si sale en rojo, alguna prueba ha fallado: no hay APK.
+
+ Paso 3. Descarga el artifact.
+   Entra en esa ejecución -> abajo, en "Artifacts" -> ContaXcell-android.
+   Descomprímelo ENTERO: dentro vienen app-debug.apk y compilacion.json
+   (hacen falta los dos).
+
+ Paso 4. Publica (cambia la N por el número de la carpeta):
+       cd escritorio
+       python publicar.py --android "C:\Users\Usuario\Downloads\ContaXcell-android (N)\app-debug.apk" "Lo nuevo"
+
+   La firma, la sube, cambia también la del QR de descarga y marca la
+   versión en git (android-14). Al abrir la app, a los que tengan la cuenta
+   aceptada les saldrá "Hay una versión nueva de la app" -> Actualizar ->
+   Instalar.
+
+
+--------------------------------------------------------------------------
+ 3. CAMBIAR LAS CONDICIONES DE USO
+--------------------------------------------------------------------------
+
+ Paso 1. Edita server\textos\condiciones.md (Bloc de notas o VS Code).
+   # Título        ## Apartado        - Punto        y párrafos normales
+
+ Paso 2. Súbelas al servidor:
+       cd escritorio
+       python publicar.py --condiciones
+
+   Se aplican al momento. Las cuentas que se creen desde ahora aceptan
+   estas. A quien ya tiene cuenta NO se le pregunta otra vez: avísales tú.
+
+ Paso 3. Guárdalo también en git:
+       git add -A
+       git commit -m "Condiciones de uso: lo que has cambiado"
+       git push
+
+
+--------------------------------------------------------------------------
+ 4. ADMINISTRAR EL SERVIDOR (cuentas, vetos...)
+--------------------------------------------------------------------------
+
+ Entrar desde el ordenador:
+       ssh -i C:\Users\Usuario\.ssh\contaxcell.pem ubuntu@IP_DEL_SERVIDOR
+
+ Desde el móvil: Termius, con el servidor que ya tienes guardado.
+
+ Una vez dentro, escribe:
+       menu
+
+   1) Ver usuarios                      5) Vetar a alguien
+   2) Aceptar a alguien                 6) Quitarle el veto
+   3) Rechazar a alguien                7) ¿Está el servidor bien?
+   4) Rechazar TODAS las que esperan    0) Salir
+
+ Si prefieres las órdenes sueltas:   ./usuarios ayuda
+ Para salir del servidor:            exit
+
+
+--------------------------------------------------------------------------
+ 5. SUBIR CAMBIOS DEL CÓDIGO DEL SERVIDOR (lo de la carpeta server\)
+--------------------------------------------------------------------------
+
+ Solo si has tocado server\contaserver, el docker-compose.yml o el
+ Caddyfile. Desde la carpeta del proyecto:
+
+       scp -i C:\Users\Usuario\.ssh\contaxcell.pem -r server\contaserver server\docker-compose.yml server\Caddyfile ubuntu@IP_DEL_SERVIDOR:server/
+
+       ssh -i C:\Users\Usuario\.ssh\contaxcell.pem ubuntu@IP_DEL_SERVIDOR "cd server && docker compose --profile https up -d --build"
+
+ Después, entra y comprueba con  menu -> 7  que todo dice "bien".
+ Nunca subas tu .env ni toques el .env de la máquina sin saber qué haces:
+ ahí están los secretos del servidor.
+
+
+--------------------------------------------------------------------------
+ 6. LLEVARTE TODO A OTRO ORDENADOR
+--------------------------------------------------------------------------
+
+ En el ordenador que ya funciona:
+       cd escritorio
+       python boveda.py guardar
+   Te pide una contraseña (invéntala y NO la olvides). Deja en Descargas
+   el archivo ContaXcell-llaves.cxb: súbelo a tu Google Drive.
+
+ En el otro ordenador:
+   1. Instala Python y Git, y descarga el proyecto:
+          git clone https://github.com/rickcace-git/ContaXcell.git
+   2. Baja de Drive el ContaXcell-llaves.cxb a Descargas.
+   3.     cd ContaXcell\escritorio
+          python boveda.py abrir
+      Con la misma contraseña, cada llave vuelve a su sitio sola.
+
+
+--------------------------------------------------------------------------
+ 7. SI ALGO SALE MAL
+--------------------------------------------------------------------------
+
+ "Acceso denegado" al publicar el programa
+     Tienes abierto un ContaXcell desde dist\. Ciérralo y repite.
+
+ "Hay cambios sin guardar en git" / "Hay commits sin subir"
+     Haz el paso 3 (git add, commit, push) y vuelve a publicar.
+
+ "En el servidor ya está la 1.1.6"
+     No has subido VERSION en ventana.py, o ya la publicaste.
+
+ "Junto al APK falta compilacion.json"
+     Descomprime el artifact entero, no solo el APK.
+
+ "Ese APK se compiló del commit ..., que no está en este ordenador"
+     Escribe  git pull  y vuelve a publicar.
+
+ "No se ha podido entrar en el servidor por ssh"
+     Comprueba que existe C:\Users\Usuario\.ssh\contaxcell.pem
+     (si estás en otro ordenador: paso 6, boveda abrir).
+
+ El servidor no contesta / la app dice "sin conexión"
+     Entra por ssh -> menu -> 7. Si la API no contesta:
+          cd ~/server && docker compose --profile https up -d
+
+
+--------------------------------------------------------------------------
+ LO QUE NUNCA HAY QUE HACER
+--------------------------------------------------------------------------
+
+ - Nunca "python publicar.py --crear-llave" si ya tienes la llave. Una
+   llave nueva hace que los programas y apps repartidos dejen de aceptar
+   tus actualizaciones, y habría que repartirlos a mano otra vez.
+ - Nunca subas a GitHub la llave de firmar, el .pem ni ningún .env.
+ - Guarda el ContaXcell-llaves.cxb y su contraseña: es tu copia de todo.
