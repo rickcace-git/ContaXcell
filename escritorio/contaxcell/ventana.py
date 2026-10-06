@@ -144,6 +144,9 @@ class Aplicacion(tk.Tk):
 
         marca = ttk.Label(fila, text="ContaXcell", style="Tarjeta.Negrita.TLabel")
         marca.pack(side="left")
+        # Aquí van Archivo · Ver · Ayuda (los pone `_construir_menu`).
+        self.sitio_menu = ttk.Frame(fila, style="Tarjeta.TFrame")
+        self.sitio_menu.pack(side="left", padx=(22, 0))
 
         # A la derecha, y en este orden, para que el ojo quede pegado al saldo.
         self.boton_tema = widgets.BotonIcono(fila, "pantalla", self._siguiente_tema)
@@ -206,10 +209,21 @@ class Aplicacion(tk.Tk):
                                          padding=(20, 6))
         self.etiqueta_estado.pack(side="left")
 
-    def _construir_menu(self) -> None:
-        barra = tk.Menu(self)
+    def _desplegable(self) -> tk.Menu:
+        """Un menú con los colores y la letra del programa. Los desplegables
+        sí se dejan pintar en Windows; la barra de menú suya, no."""
+        p = self.paleta
+        return tk.Menu(self, tearoff=0, font=self.fuentes.normal, background=p.tarjeta,
+                       foreground=p.texto, activebackground=p.acento,
+                       activeforeground="#ffffff", disabledforeground=p.suave,
+                       relief="flat", borderwidth=1, activeborderwidth=0)
 
-        archivo = tk.Menu(barra, tearoff=0)
+    def _construir_menu(self) -> None:
+        # Sin la barra de Windows: los menús van en la cabecera, como botones.
+        self.configure(menu="")
+        self.menus: dict[str, tk.Menu] = {}
+
+        archivo = self._desplegable()
         archivo.add_command(label="Guardar copia de seguridad",
                             command=lambda: self.vistas["ajustes"].guardar_copia())
         archivo.add_command(label="Restaurar una copia…",
@@ -219,28 +233,41 @@ class Aplicacion(tk.Tk):
                             command=self.abrir_carpeta_datos)
         archivo.add_separator()
         archivo.add_command(label="Salir", command=self._al_cerrar)
-        barra.add_cascade(label="Archivo", menu=archivo)
+        self.menus["Archivo"] = archivo
 
-        ver = tk.Menu(barra, tearoff=0)
+        ver = self._desplegable()
         ver.add_command(label="Ocultar o mostrar los importes\tCtrl+H",
                         command=self.alternar_ocultos)
         ver.add_separator()
         for nombre, valor in (("Como el sistema", "auto"), ("Claro", "claro"), ("Oscuro", "oscuro")):
             ver.add_command(label=f"Tema: {nombre}", command=lambda v=valor: self.poner_tema(v))
-        barra.add_cascade(label="Ver", menu=ver)
+        self.menus["Ver"] = ver
 
-        ayuda = tk.Menu(barra, tearoff=0)
+        ayuda = self._desplegable()
         # El atajo va en `accelerator`, que Windows pinta en su columna de la
         # derecha. Con un tabulador dentro del texto salía pegado: «Guía de usoF1».
         ayuda.add_command(label="Guía de uso", accelerator="F1",
                           command=lambda: self.abrir_guia("empezar"))
+        ayuda.add_command(label="Condiciones de uso", command=self.leer_condiciones)
+        ayuda.add_command(label="Historial de versiones", command=self.historial_de_versiones)
+        ayuda.add_separator()
         ayuda.add_command(label="Buscar actualizaciones…",
                           command=lambda: self.buscar_actualizacion(a_mano=True))
         ayuda.add_separator()
         ayuda.add_command(label="Acerca de ContaXcell", command=self._acerca_de)
-        barra.add_cascade(label="Ayuda", menu=ayuda)
+        self.menus["Ayuda"] = ayuda
 
-        self.configure(menu=barra)
+        for nombre, menu in self.menus.items():
+            # width=0: lo que ocupe el texto (ttk les pone un mínimo de fábrica).
+            boton = ttk.Button(self.sitio_menu, text=nombre, style="Menu.TButton",
+                               cursor="hand2", takefocus=False, width=0)
+            boton.configure(command=lambda m=menu, b=boton: self._desplegar(m, b))
+            boton.pack(side="left")
+
+    @staticmethod
+    def _desplegar(menu: tk.Menu, boton: ttk.Button) -> None:
+        """Abre el menú justo debajo de su botón."""
+        menu.tk_popup(boton.winfo_rootx(), boton.winfo_rooty() + boton.winfo_height())
 
     def _atajos(self) -> None:
         self.bind_all("<Control-h>", lambda _e: self.alternar_ocultos())
@@ -667,6 +694,37 @@ class Aplicacion(tk.Tk):
                     encabezado=f"Ya tienes la {VERSION}. Esto es lo que ha cambiado:").mostrar()
 
         self._en_hilo(lambda: actualizar.buscar(servidor, "0", token=token), al_acabar)
+
+    def leer_condiciones(self) -> None:
+        """Las condiciones de uso, tal como las tiene el servidor ahora."""
+        if self.sincronia is None:
+            dialogos.avisar(self, "Sin cuenta no hay condiciones de uso.",
+                            "Las condiciones son las del servidor, y se aceptan al crear "
+                            "la cuenta. Usando el programa solo en este ordenador, tus "
+                            "datos no salen de aquí.")
+            return
+        self.estado("Pidiendo las condiciones de uso al servidor…")
+
+        def al_acabar(condiciones, error):
+            self.estado("")
+            if error is not None:
+                dialogos.avisar(self, "No se han podido traer las condiciones de uso.", str(error))
+            elif condiciones is None:
+                dialogos.avisar(self, "Este servidor no tiene condiciones de uso.")
+            else:
+                dialogos.Lectura(self, "Condiciones de uso", condiciones[1]).mostrar()
+
+        self._en_hilo(self.sincronia.condiciones, al_acabar)
+
+    def historial_de_versiones(self) -> None:
+        """Todas las versiones publicadas hasta esta, con lo que trajo cada una.
+        Va dentro del programa (lo escribe `publicar.py` al fabricarlo), así
+        que se ve sin internet y sin cuenta."""
+        try:
+            from .historial_versiones import HISTORIAL
+        except ImportError:
+            HISTORIAL = []
+        dialogos.HistorialDeVersiones(self, HISTORIAL, VERSION).mostrar()
 
     def _ficha(self) -> str:
         """El token de la sesión, o "" si no se ha entrado en ninguna cuenta."""

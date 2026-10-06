@@ -582,6 +582,24 @@ class PruebasVersionNueva(ConVentana):
         self.assertEqual(texto.get("3.0", "3.end"), "•  Tu usuario")
         self.assertIn("parrafo", texto.tag_names("4.0"))
 
+    def test_historial_de_versiones(self):
+        historial = [
+            {"version": "1.1.5", "fecha": "2026-10-06",
+             "cambios": [{"titulo": "Condiciones", "detalle": "Con su porqué"}]},
+            {"version": "1.0.0", "fecha": "2026-09-09", "cambios": []},
+        ]
+        ventana = dialogos.HistorialDeVersiones(self.raiz, historial, "1.0.0")
+        self.addCleanup(ventana.destroy)
+        texto = ventana.texto.get("1.0", "end")
+        for trozo in ("Versión 1.1.5", "6 de octubre de 2026", "Condiciones", "Con su porqué",
+                      "Versión 1.0.0   (la tuya)", "La primera publicada."):
+            self.assertIn(trozo, texto)
+
+    def test_historial_vacio_lo_explica(self):
+        ventana = dialogos.HistorialDeVersiones(self.raiz, [], "1.1.5")
+        self.addCleanup(ventana.destroy)
+        self.assertIn("no lleva el historial", ventana.texto.get("1.0", "end"))
+
     def test_reiniciando_no_se_cierra_con_la_x(self):
         espera = dialogos.Reiniciando(self.raiz, "1.2.0")
         self.addCleanup(espera.destroy)

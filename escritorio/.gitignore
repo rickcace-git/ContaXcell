@@ -18,3 +18,6 @@ __pycache__/
 
 # El archivo de llaves cifrado (boveda.py): nunca al repositorio.
 *.cxb
+
+# Lo escribe publicar.py al fabricar el programa.
+contaxcell/historial_versiones.py

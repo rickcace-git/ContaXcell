@@ -178,6 +178,25 @@ class PruebaRecienActualizado(unittest.TestCase):
         app._al_cerrar()
         return anterior
 
+    def test_el_menu_va_en_la_cabecera_con_lo_de_ayuda(self):
+        try:
+            app = ventana.Aplicacion()
+        except tk.TclError as error:
+            raise unittest.SkipTest(f"no hay pantalla disponible: {error}") from error
+        app.withdraw()
+        self.addCleanup(app.destroy)
+        self.assertEqual(str(app.cget("menu")), "")  # sin la barra blanca de Windows
+        self.assertEqual(list(app.menus), ["Archivo", "Ver", "Ayuda"])
+        ayuda = app.menus["Ayuda"]
+        opciones = [ayuda.entrycget(i, "label") for i in range(ayuda.index("end") + 1)
+                    if ayuda.type(i) == "command"]
+        self.assertIn("Condiciones de uso", opciones)
+        self.assertIn("Historial de versiones", opciones)
+        botones = [b.cget("text") for b in app.sitio_menu.winfo_children()]
+        self.assertEqual(botones, ["Archivo", "Ver", "Ayuda"])
+        for pendiente in app.tk.call("after", "info"):
+            app.after_cancel(pendiente)
+
     def test_primera_vez_no_es_actualizar(self):
         self.assertIsNone(self.abrir_y_cerrar())
 

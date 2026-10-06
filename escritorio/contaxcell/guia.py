@@ -42,6 +42,9 @@ ContaXcell lleva la cuenta de tu dinero: lo que entra, lo que sale y lo que tien
 • Lo que se repite solo cada mes (alquiler, nómina, suscripciones) ponlo una vez en Periódicos y se apuntará solo.
 • De vez en cuando, mira el Resumen y el Presupuesto para ver cómo vas.
 
+## Los menús de arriba
+Junto al nombre del programa están Archivo (copias de seguridad y la carpeta de tus datos), Ver (ocultar los importes y el tema) y Ayuda: esta guía, las condiciones de uso, el historial de versiones con lo que trajo cada una, buscar actualizaciones y «Acerca de».
+
 ## Dos ideas que explican casi todos los números
 • La inversión no es un gasto. El dinero sale del banco, pero sigue siendo tuyo: baja el saldo, pero no baja tu ahorro.
 • Solo el mercado da rentabilidad. Lo que metes tú, o lo que te regalan, no es ganancia. La ganancia es lo que vale hoy menos todo lo que has metido.

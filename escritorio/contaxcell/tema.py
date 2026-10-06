@@ -257,6 +257,15 @@ def _botones(estilo: ttk.Style, p: Paleta, fuentes: Fuentes) -> None:
                    background=[("active", color), ("pressed", color)],
                    foreground=[("active", "#ffffff")])
 
+    # Archivo · Ver · Ayuda, en la cabecera: la barra de menú de Windows no
+    # deja cambiarle el color ni la letra, y en oscuro era una franja blanca.
+    estilo.configure("Menu.TButton", background=p.tarjeta, foreground=p.texto,
+                     font=fuentes.normal, padding=(10, 4), borderwidth=0,
+                     lightcolor=p.tarjeta, darkcolor=p.tarjeta, bordercolor=p.tarjeta)
+    estilo.map("Menu.TButton", background=[("pressed", p.boton), ("active", p.boton)],
+               lightcolor=[("active", p.boton)], darkcolor=[("active", p.boton)],
+               bordercolor=[("active", p.boton)])
+
     estilo.configure("Enlace.TButton", background=p.tarjeta, foreground=p.acento,
                      font=fuentes.pequena, padding=(4, 2), borderwidth=0)
     estilo.map("Enlace.TButton", background=[("active", p.tarjeta)],

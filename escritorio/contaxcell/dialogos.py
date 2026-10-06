@@ -810,6 +810,87 @@ class Lectura(tk.Toplevel):
         self.wait_window()
 
 
+class HistorialDeVersiones(tk.Toplevel):
+    """Ayuda ▸ Historial de versiones: cada versión publicada, de la más nueva
+    a la más vieja, con su fecha y lo que trajo. `historial` es la lista que
+    `publicar.py` mete en el programa: [{version, fecha, cambios}]."""
+
+    MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+             "agosto", "septiembre", "octubre", "noviembre", "diciembre")
+
+    def __init__(self, padre, historial: list[dict], version_actual: str):
+        super().__init__(padre)
+        self.title("Historial de versiones")
+        escala = widgets.FUENTES.escala
+        self.geometry(f"{round(620 * escala)}x{round(560 * escala)}")
+        self.minsize(420, 300)
+        self.configure(background=widgets.PALETA.tarjeta)
+        self.transient(padre)
+        p, f = widgets.PALETA, widgets.FUENTES
+
+        pie = ttk.Frame(self, style="Tarjeta.TFrame", padding=(20, 12))
+        pie.pack(side="bottom", fill="x")
+        tk.Frame(self, background=p.borde, height=1).pack(side="bottom", fill="x")
+        ttk.Label(pie, text=f"Tienes la {version_actual}.", style="Tarjeta.Suave.TLabel").pack(
+            side="left")
+        ttk.Button(pie, text="Cerrar", style="Principal.TButton",
+                   command=self.destroy).pack(side="right")
+
+        marco = ttk.Frame(self, style="Tarjeta.TFrame")
+        marco.pack(fill="both", expand=True)
+        barra = ttk.Scrollbar(marco, orient="vertical")
+        barra.pack(side="right", fill="y")
+        self.texto = tk.Text(
+            marco, wrap="word", font=f.normal, relief="flat", borderwidth=0,
+            highlightthickness=0, padx=24, pady=18, spacing1=2, spacing3=4,
+            background=p.tarjeta, foreground=p.texto, cursor="arrow",
+            yscrollcommand=barra.set)
+        self.texto.pack(side="left", fill="both", expand=True)
+        barra.configure(command=self.texto.yview)
+        self.texto.tag_configure("version", font=f.cifra, spacing1=18, spacing3=2)
+        self.texto.tag_configure("fecha", foreground=p.suave, spacing3=6)
+        self.texto.tag_configure("titulo", font=f.negrita, spacing1=8, spacing3=2)
+        self.texto.tag_configure("detalle", foreground=p.suave, lmargin1=14, lmargin2=14)
+
+        if not historial:
+            self.texto.insert("end", "Esta copia del programa no lleva el historial. Lo lleva "
+                                     "el programa instalado, que es el que se publica.\n", "detalle")
+        for entrada in historial:
+            version = entrada.get("version", "")
+            tuya = "   (la tuya)" if version == version_actual else ""
+            self.texto.insert("end", f"Versión {version}{tuya}\n", "version")
+            if entrada.get("fecha"):
+                self.texto.insert("end", self.fecha(entrada["fecha"]) + "\n", "fecha")
+            cambios = entrada.get("cambios") or []
+            if not cambios:
+                self.texto.insert("end", "La primera publicada.\n", "detalle")
+            for cambio in cambios:
+                self.texto.insert("end", f"•  {cambio.get('titulo', '')}\n", "titulo")
+                if cambio.get("detalle"):
+                    self.texto.insert("end", f"{cambio['detalle']}\n", "detalle")
+        self.texto.configure(state="disabled")
+
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+    @classmethod
+    def fecha(cls, texto: str) -> str:
+        """«2026-10-06» → «6 de octubre de 2026»."""
+        try:
+            anyo, mes, dia = (int(x) for x in texto.split("-"))
+            return f"{dia} de {cls.MESES[mes - 1]} de {anyo}"
+        except (ValueError, IndexError):
+            return texto
+
+    def mostrar(self) -> None:
+        self.update_idletasks()
+        _centrar(self)
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window()
+
+
 class Reiniciando(tk.Toplevel):
     """«Actualizando…»: lo que se ve mientras se baja la versión nueva y el
     programa se cierra. Sin botón de cerrar: no hay nada que cancelar a medias.

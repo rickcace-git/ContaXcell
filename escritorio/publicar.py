@@ -198,17 +198,45 @@ def cambios_entre(desde: str, hasta: str) -> list[dict]:
                             "--format=%s%x1f%b%x1e"))
 
 
-def historial(version: str) -> list[dict]:
+def historial(version: str, cuantas: int | None = VERSIONES_EN_HISTORIAL) -> list[dict]:
     """Lo que trae cada una de las últimas versiones, la nueva la primera:
-    [{version, desde, hasta, cambios}]. «desde» y «hasta» son los commits,
-    para el enlace al código."""
-    anteriores = [m for m in versiones_publicadas()
-                  if actualizar.es_mas_nueva(version, m[0])][-VERSIONES_EN_HISTORIAL:]
+    [{version, fecha, desde, hasta, cambios}]. «desde» y «hasta» son los
+    commits, para el enlace al código. Con `cuantas=None`, todas, y la
+    primera de todas sale también, sin cambios (no hay nada antes)."""
+    anteriores = [m for m in versiones_publicadas() if actualizar.es_mas_nueva(version, m[0])]
+    if cuantas is not None:
+        anteriores = anteriores[-cuantas:]
     puntos = anteriores + [(version, git("rev-parse", "HEAD").strip())]
-    entradas = [{"version": v, "desde": puntos[i - 1][1], "hasta": c,
+    entradas = [{"version": v, "fecha": fecha_de(c), "desde": puntos[i - 1][1], "hasta": c,
                  "cambios": cambios_entre(puntos[i - 1][1], c)}
                 for i, (v, c) in enumerate(puntos) if i > 0]
+    if cuantas is None and puntos:
+        primera, commit = puntos[0]
+        entradas.insert(0, {"version": primera, "fecha": fecha_de(commit), "desde": "",
+                            "hasta": commit, "cambios": []})
     return entradas[::-1]
+
+
+def fecha_de(commit: str) -> str:
+    """El día del commit, AAAA-MM-DD. El de HEAD es hoy: se publica ahora."""
+    if commit == git("rev-parse", "HEAD").strip():
+        import datetime
+        return datetime.date.today().isoformat()
+    return git("log", "-1", "--format=%cs", commit).strip()
+
+
+HISTORIAL_EN_EL_PROGRAMA = RAIZ / "contaxcell" / "historial_versiones.py"
+
+
+def escribir_historial(version: str) -> None:
+    """Mete en el programa todas las versiones publicadas, para Ayuda ▸
+    Historial de versiones. No va a git: se escribe cada vez que se publica."""
+    entradas = [{k: e[k] for k in ("version", "fecha", "cambios")}
+                for e in historial(version, cuantas=None)]
+    HISTORIAL_EN_EL_PROGRAMA.write_text(
+        '"""Las versiones publicadas. Lo escribe publicar.py; no se toca a mano."""\n\n'
+        f"HISTORIAL = {json.dumps(entradas, ensure_ascii=False, indent=1)}\n",
+        encoding="utf-8")
 
 
 def repositorio() -> str:
@@ -298,6 +326,7 @@ def publicar(notas: str, llave_ssh: Path, tambien_viejas: bool = False) -> int:
         for cambio in entrada["cambios"]:
             print(f"  · {cambio['titulo']}")
 
+    escribir_historial(VERSION)
     print("\nFabricando el programa…")
     if subprocess.run([sys.executable, str(RAIZ / "empaquetar.py")], cwd=RAIZ).returncode != 0:
         print("No se ha podido fabricar. Si dice «Acceso denegado», cierra el ContaXcell "

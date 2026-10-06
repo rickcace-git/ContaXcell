@@ -337,16 +337,7 @@ class VistaAjustes:
         self.app.estado("Dirección copiada.", "bien")
 
     def leer_condiciones(self) -> None:
-        """Las que tiene el servidor ahora mismo, que son las que valen."""
-        try:
-            condiciones = self.app.sincronia.condiciones()
-        except ErrorDeSincronia as error:
-            dialogos.avisar(self.app, "No se han podido traer las condiciones de uso.", str(error))
-            return
-        if condiciones is None:
-            dialogos.avisar(self.app, "Este servidor no tiene condiciones de uso.")
-            return
-        dialogos.Lectura(self.app, "Condiciones de uso", condiciones[1]).mostrar()
+        self.app.leer_condiciones()
 
     def _refrescar_cuenta(self) -> None:
         sincronia = self.app.sincronia
