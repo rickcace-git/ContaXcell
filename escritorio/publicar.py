@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -166,7 +167,8 @@ def leer_cambios(salida_de_git: str) -> list[dict]:
         lineas = [linea.strip() for linea in cuerpo.strip().splitlines()
                   if not linea.strip().lower().startswith(LINEAS_QUE_SOBRAN)]
         detalle = desenvolver(lineas)
-        if titulo.strip():
+        # «Versión 1.1.5» solo sube el número: no es un cambio que contar.
+        if titulo.strip() and not re.fullmatch(r"Versi[oó]n \d+(\.\d+)*\.?", titulo.strip()):
             cambios.append({"titulo": titulo.strip(), "detalle": detalle[:2000]})
     return cambios[:MAXIMO_CAMBIOS]
 

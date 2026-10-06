@@ -35,6 +35,10 @@ class PruebaLeerCambios(unittest.TestCase):
         salida = registro("Arreglo", "Lo que sea.\n\nCo-Authored-By: Alguien <a@b.c>\n")
         self.assertEqual(publicar.leer_cambios(salida)[0]["detalle"], "Lo que sea.")
 
+    def test_subir_el_numero_no_es_un_cambio(self):
+        salida = registro("Versión 1.1.5") + registro("Lo de verdad")
+        self.assertEqual([c["titulo"] for c in publicar.leer_cambios(salida)], ["Lo de verdad"])
+
     def test_varios_en_orden_y_sin_cuerpo(self):
         salida = registro("El último") + "\n" + registro("El primero", "")
         self.assertEqual([c["titulo"] for c in publicar.leer_cambios(salida)],
