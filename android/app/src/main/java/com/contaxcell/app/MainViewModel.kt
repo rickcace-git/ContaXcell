@@ -83,6 +83,9 @@ import com.contaxcell.app.data.update.ApkInstaller
 import com.contaxcell.app.data.update.AppUpdate
 import com.contaxcell.app.data.update.AppUpdater
 import com.contaxcell.app.data.update.UntrustedUpdateException
+import com.contaxcell.app.data.update.UpdateNotAllowedException
+import com.contaxcell.app.data.update.UpdateNote
+import com.contaxcell.app.ui.InfoDialogUi
 import com.contaxcell.app.ui.AppUpdateStage
 import com.contaxcell.app.ui.AppUpdateUi
 import java.io.File
@@ -149,6 +152,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var availableUpdate: AppUpdate? = null
     private var downloadedApk: File? = null
     private var appUpdate: AppUpdateUi? = null
+    private var info: InfoDialogUi? = null
 
     private val _state = MutableStateFlow(ContaXcellUiState())
     val state: StateFlow<ContaXcellUiState> = _state.asStateFlow()
@@ -202,6 +206,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 refresh()
             }
             AppAction.DismissAppUpdate -> { appUpdate = null; refresh() }
+            AppAction.ShowTerms -> showTerms()
+            AppAction.ShowVersionHistory -> showVersionHistory()
+            AppAction.CheckAppUpdateNow -> viewModelScope.launch { checkAppUpdate(announce = true) }
+            AppAction.CloseInfo -> { info = null; refresh() }
             AppAction.CloseTerms -> {
                 (auth as? AuthUiState.Gate)?.let { auth = it.copy(termsText = null) }
                 refresh()
@@ -516,20 +524,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * servidor). Sin red, sin permiso o sin nada nuevo, no se dice nada: solo
      * se avisa si lo del servidor no viene firmado, que eso no es normal.
      */
-    private suspend fun checkAppUpdate() {
+    private suspend fun checkAppUpdate(announce: Boolean = false) {
+        // `announce`: desde Ajustes ▸ Ayuda, que ahí sí se dice lo que pasa.
+        fun tell(text: String, kind: MessageKind = MessageKind.Info) {
+            if (!announce) return
+            message = UiMessage(text, kind)
+            refresh()
+        }
         val session = sessions.read()
-        if (!session.isSignedIn || session.expired) return
+        if (!session.isSignedIn || session.expired) {
+            tell("Las actualizaciones llegan a las cuentas aceptadas: entra con tu cuenta.", MessageKind.Warning)
+            return
+        }
         val result = runCatching {
             updater.check(session.serverUrl, session.token, com.contaxcell.app.BuildConfig.VERSION_CODE)
         }
         result.exceptionOrNull()?.let { error ->
-            if (error is UntrustedUpdateException) {
-                message = UiMessage(error.message ?: "La actualización no es de fiar.", MessageKind.Error)
-                refresh()
+            when (error) {
+                is UntrustedUpdateException -> {
+                    message = UiMessage(error.message ?: "La actualización no es de fiar.", MessageKind.Error)
+                    refresh()
+                }
+                is UpdateNotAllowedException -> tell(
+                    "Tu cuenta todavía no recibe actualizaciones: llegan cuando la acepta quien administra ContaXcell.",
+                    MessageKind.Warning,
+                )
+                else -> tell("No se ha podido mirar si hay versión nueva. Comprueba la conexión.", MessageKind.Warning)
             }
             return
         }
-        val update = result.getOrNull() ?: return
+        val update = result.getOrNull()
+        if (update == null) {
+            tell("Ya tienes la última versión (${com.contaxcell.app.BuildConfig.VERSION_NAME}).", MessageKind.Success)
+            return
+        }
         availableUpdate = update
         downloadedApk = null
         appUpdate = AppUpdateUi(
@@ -585,6 +613,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 refresh()
             }
+        }
+    }
+
+    /** Ajustes ▸ Ayuda ▸ Condiciones de uso: las del servidor, ahora mismo. */
+    private fun showTerms() {
+        viewModelScope.launch {
+            runCatching { authRepository.terms() }
+                .onSuccess { terms ->
+                    if (terms == null) message = UiMessage("Este servidor no tiene condiciones de uso.")
+                    else info = InfoDialogUi.Terms(terms.text)
+                }
+                .onFailure { message = UiMessage(rootMessage(it), MessageKind.Warning) }
+            refresh()
+        }
+    }
+
+    /** Ajustes ▸ Ayuda ▸ Historial de versiones: el que lleva la app dentro. */
+    private fun showVersionHistory() {
+        viewModelScope.launch {
+            val releases = withContext(Dispatchers.IO) {
+                runCatching {
+                    getApplication<Application>().assets.open("historial.json").use { it.readBytes() }
+                }.map(UpdateNote::parseHistory).getOrDefault(emptyList())
+            }
+            info = InfoDialogUi.History(releases, com.contaxcell.app.BuildConfig.VERSION_CODE)
+            refresh()
         }
     }
 
@@ -941,6 +995,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             loading = busy,
             message = message,
             appUpdate = appUpdate,
+            info = info,
             quickAdd = QuickAddUiState(
                 categories = categories,
                 assets = assets,

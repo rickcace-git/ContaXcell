@@ -6,3 +6,6 @@ local.properties
 captures/
 *.jks
 *.keystore
+
+# Lo escribe GitHub al compilar (publicar.py --historial-android).
+app/src/main/assets/historial.json

@@ -154,6 +154,21 @@ fun SettingsScreen(
                 )
             }
         }
+        item {
+            SectionCard("Ayuda", supporting = "Tienes la versi\u00f3n ${state.appVersion}.") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onAction(AppAction.ShowTerms) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Condiciones de uso")
+                    }
+                    OutlinedButton(onClick = { onAction(AppAction.ShowVersionHistory) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Historial de versiones")
+                    }
+                    OutlinedButton(onClick = { onAction(AppAction.CheckAppUpdateNow) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Buscar actualizaciones")
+                    }
+                }
+            }
+        }
         if (state.appVersion.isNotBlank()) {
             item { Text("ContaXcell ${state.appVersion}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }

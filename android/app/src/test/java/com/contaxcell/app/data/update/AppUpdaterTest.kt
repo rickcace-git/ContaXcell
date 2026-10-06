@@ -138,6 +138,20 @@ class AppUpdaterTest {
     }
 
     @Test
+    fun theHistoryInsideTheAppIsRead() {
+        val json = """
+            [{"versionCode": 14, "versionName": "1.0.14", "fecha": "2026-10-06",
+              "cambios": [{"titulo": "Ayuda en Ajustes", "detalle": "Condiciones e historial"}]},
+             {"versionCode": 13, "versionName": "1.0.13", "fecha": "2026-10-06", "cambios": []}]
+        """.trimIndent().toByteArray()
+        val history = UpdateNote.parseHistory(json)
+        assertEquals(listOf(14, 13), history.map { it.versionCode })
+        assertEquals("2026-10-06", history.first().date)
+        assertEquals("Condiciones e historial", history.first().changes.single().detail)
+        assertEquals(emptyList<AppRelease>(), UpdateNote.parseHistory("no es json".toByteArray()))
+    }
+
+    @Test
     fun theOfficialKeyLoads() {
         assertEquals(3072, (UpdateNote.officialKey() as java.security.interfaces.RSAPublicKey).modulus.bitLength())
     }

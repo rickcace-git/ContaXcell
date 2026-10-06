@@ -26,7 +26,17 @@ data class ContaXcellUiState(
     val message: UiMessage? = null,
     /** La versión nueva de la app, mientras se ofrece o se descarga; null si no hay. */
     val appUpdate: AppUpdateUi? = null,
+    /** Lo que se abre desde Ajustes ▸ Ayuda; null si nada. */
+    val info: InfoDialogUi? = null,
 )
+
+sealed interface InfoDialogUi {
+    data class Terms(val text: String) : InfoDialogUi
+    data class History(
+        val releases: List<com.contaxcell.app.data.update.AppRelease>,
+        val currentCode: Int,
+    ) : InfoDialogUi
+}
 
 enum class AppUpdateStage { Offer, NeedsPermission, Downloading, Ready }
 
@@ -446,6 +456,10 @@ sealed interface AppAction {
     data object StartAppUpdate : AppAction
     data object OpenInstallPermission : AppAction
     data object DismissAppUpdate : AppAction
+    data object ShowTerms : AppAction
+    data object ShowVersionHistory : AppAction
+    data object CheckAppUpdateNow : AppAction
+    data object CloseInfo : AppAction
     data object ContinueOffline : AppAction
     data object DismissMessage : AppAction
     data object Retry : AppAction

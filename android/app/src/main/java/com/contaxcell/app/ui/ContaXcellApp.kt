@@ -59,6 +59,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.contaxcell.app.ui.screens.AppUpdateDialog
+import com.contaxcell.app.ui.screens.TermsDialog
+import com.contaxcell.app.ui.screens.VersionHistoryDialog
 import com.contaxcell.app.ui.screens.AuthScreen
 import com.contaxcell.app.ui.screens.BudgetsScreen
 import com.contaxcell.app.ui.screens.DebtsScreen
@@ -87,6 +89,13 @@ fun ContaXcellApp(
             }
             if (state.auth is AuthUiState.SignedIn) {
                 state.appUpdate?.let { AppUpdateDialog(it, onAction) }
+                when (val info = state.info) {
+                    is InfoDialogUi.Terms -> TermsDialog(info.text) { onAction(AppAction.CloseInfo) }
+                    is InfoDialogUi.History -> VersionHistoryDialog(info.releases, info.currentCode) {
+                        onAction(AppAction.CloseInfo)
+                    }
+                    null -> Unit
+                }
             }
         }
     }

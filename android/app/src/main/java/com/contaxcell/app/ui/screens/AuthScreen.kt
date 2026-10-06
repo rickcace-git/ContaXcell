@@ -259,7 +259,7 @@ private fun CreateForm(
 
 /** Las condiciones de uso. Entiende lo poco de Markdown que llevan: «#», «##» y «- ». */
 @Composable
-private fun TermsDialog(text: String, onClose: () -> Unit) {
+fun TermsDialog(text: String, onClose: () -> Unit) {
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("Condiciones de uso") },

@@ -43,8 +43,13 @@ import okhttp3.Request
 
 data class AppChange(val title: String, val detail: String = "")
 
-/** Lo que trajo una versión de la app. */
-data class AppRelease(val versionCode: Int, val versionName: String, val changes: List<AppChange>)
+/** Lo que trajo una versión de la app. `date` es AAAA-MM-DD, o "" si no se sabe. */
+data class AppRelease(
+    val versionCode: Int,
+    val versionName: String,
+    val changes: List<AppChange>,
+    val date: String = "",
+)
 
 data class AppUpdate(
     val versionCode: Int,
@@ -103,22 +108,34 @@ object UpdateNote {
             size = root["tamano"]?.jsonPrimitive?.longOrNull ?: error("sin tamaño"),
             sha256 = root.text("sha256").lowercase(),
             notes = root["notas"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-            releases = (root["historial"] as? JsonArray).orEmpty().map { entry ->
-                val release = entry.jsonObject
-                AppRelease(
-                    versionCode = release.int("versionCode"),
-                    versionName = release.text("versionName"),
-                    changes = (release["cambios"] as? JsonArray).orEmpty().mapNotNull { change ->
-                        val item = change.jsonObject
-                        val title = item["titulo"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-                        if (title.isEmpty()) null
-                        else AppChange(title, item["detalle"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty())
-                    },
-                )
-            },
+            releases = releases(root["historial"] as? JsonArray),
         )
     } catch (_: Exception) {
         throw UntrustedUpdateException("La nota de la actualización está mal escrita.")
+    }
+
+    /**
+     * El historial que lleva la app dentro (assets/historial.json, lo escribe
+     * GitHub al compilarla): todas las versiones publicadas, la más nueva
+     * primero. Vacío si no está o no se entiende, que no es para romper nada.
+     */
+    fun parseHistory(bytes: ByteArray): List<AppRelease> = runCatching {
+        releases(Json.parseToJsonElement(bytes.decodeToString()) as? JsonArray)
+    }.getOrDefault(emptyList())
+
+    private fun releases(array: JsonArray?): List<AppRelease> = array.orEmpty().map { entry ->
+        val release = entry.jsonObject
+        AppRelease(
+            versionCode = release.int("versionCode"),
+            versionName = release.text("versionName"),
+            changes = (release["cambios"] as? JsonArray).orEmpty().mapNotNull { change ->
+                val item = change.jsonObject
+                val title = item["titulo"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (title.isEmpty()) null
+                else AppChange(title, item["detalle"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty())
+            },
+            date = release["fecha"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        )
     }
 
     private fun JsonObject.int(key: String): Int = this[key]?.jsonPrimitive?.intOrNull ?: error("sin $key")

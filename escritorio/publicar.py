@@ -445,14 +445,17 @@ def cambios_android(desde: str, hasta: str) -> list[dict]:
                             "--", "../android"))
 
 
-def historial_android(codigo: int, commit: str) -> list[dict]:
+def historial_android(codigo: int, commit: str, completo: bool = False) -> list[dict]:
     """Lo que trajo cada una de las últimas versiones de la app, la nueva la
-    primera: [{versionCode, versionName, fecha, cambios}]."""
-    anteriores = [m for m in versiones_android() if m[0] < codigo][-VERSIONES_EN_HISTORIAL:]
+    primera: [{versionCode, versionName, fecha, cambios}]. Con `completo`,
+    todas, y la primera también (para Ajustes ▸ Ayuda ▸ Historial)."""
+    anteriores = [m for m in versiones_android() if m[0] < codigo]
+    if not completo:
+        anteriores = anteriores[-VERSIONES_EN_HISTORIAL:]
     puntos = anteriores + [(codigo, commit)]
     entradas = []
     for i, (numero, hasta) in enumerate(puntos):
-        if i == 0 and anteriores:
+        if i == 0 and anteriores and not completo:
             continue  # la más vieja solo sirve de punto de partida
         desde = puntos[i - 1][1] if i > 0 else ""
         entradas.append({"versionCode": numero, "versionName": nombre_android(numero),
@@ -556,6 +559,20 @@ def publicar_android(apk: Path, notas: str, llave_ssh: Path) -> int:
     return 0
 
 
+def escribir_historial_android(destino: Path) -> int:
+    """El historial que la app lleva dentro (assets/historial.json). Lo llama
+    GitHub al compilarla: su número y su commit salen de GITHUB_RUN_NUMBER y
+    GITHUB_SHA. Sin ellos (en local), el commit de ahora."""
+    import os
+    codigo = int(os.environ.get("GITHUB_RUN_NUMBER") or 0)
+    commit = os.environ.get("GITHUB_SHA") or git("rev-parse", "HEAD").strip()
+    entradas = historial_android(codigo, commit, completo=True)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(json.dumps(entradas, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"Historial de la app: {len(entradas)} versiones en {destino}")
+    return 0
+
+
 def subir_condiciones(llave_ssh: Path) -> int:
     """Sube server/textos/condiciones.md y comprueba que el servidor da esa."""
     import urllib.request
@@ -593,6 +610,8 @@ def main() -> int:
                             help="sube solo las condiciones de uso (server/textos/condiciones.md)")
     analizador.add_argument("--android", type=Path, metavar="APK",
                             help="publica la app del móvil: el app-debug.apk del artifact de GitHub")
+    analizador.add_argument("--historial-android", type=Path, metavar="RUTA",
+                            help="escribe el historial que lleva la app dentro (lo usa GitHub)")
     analizador.add_argument("--llave-ssh", type=Path, default=LLAVE_SSH,
                             help=f"la llave .pem del servidor (por defecto {LLAVE_SSH})")
     argumentos = analizador.parse_args()
@@ -600,6 +619,8 @@ def main() -> int:
         return crear_llave()
     if argumentos.condiciones:
         return subir_condiciones(argumentos.llave_ssh)
+    if argumentos.historial_android:
+        return escribir_historial_android(argumentos.historial_android)
     if argumentos.android:
         return publicar_android(argumentos.android, argumentos.notas, argumentos.llave_ssh)
     return publicar(argumentos.notas, argumentos.llave_ssh, argumentos.tambien_viejas)

@@ -26,7 +26,11 @@ jobs:
       run:
         working-directory: android
     steps:
+      # Con toda la historia y las marcas (android-13…): de ahí sale el
+      # historial de versiones que la app lleva dentro.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -69,6 +73,11 @@ jobs:
           done
           grep -q listo "$RUNNER_TEMP/servidor.log" || { cat "$RUNNER_TEMP/servidor.log"; exit 1; }
           echo "CONTAXCELL_SERVIDOR_PRUEBAS=http://127.0.0.1:8765" >> "$GITHUB_ENV"
+
+      # Ajustes ▸ Ayuda ▸ Historial de versiones: lo que trajo cada una.
+      - name: Historial de versiones
+        working-directory: .
+        run: python escritorio/publicar.py --historial-android android/app/src/main/assets/historial.json
 
       - name: Pruebas y APK
         env:

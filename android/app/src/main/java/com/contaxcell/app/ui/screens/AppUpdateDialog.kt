@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.contaxcell.app.data.update.AppRelease
 import com.contaxcell.app.ui.AppAction
 import com.contaxcell.app.ui.AppUpdateStage
 import com.contaxcell.app.ui.AppUpdateUi
@@ -110,6 +111,80 @@ fun AppUpdateDialog(update: AppUpdateUi, onAction: (AppAction) -> Unit) {
             }
         },
     )
+}
+
+/** Ajustes ▸ Ayuda ▸ Historial de versiones: todas las publicadas, con la tuya marcada. */
+@Composable
+fun VersionHistoryDialog(releases: List<AppRelease>, currentCode: Int, onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Historial de versiones") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                if (releases.isEmpty()) {
+                    Text("Esta copia de la app no lleva el historial. Lo llevan las que compila GitHub.")
+                }
+                releases.forEachIndexed { index, release ->
+                    val yours = if (release.versionCode == currentCode) "   (la tuya)" else ""
+                    Text(
+                        "Versión ${release.versionName}$yours",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 14.dp),
+                    )
+                    if (release.date.isNotBlank()) {
+                        Text(
+                            spanishDate(release.date),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (release.changes.isEmpty()) {
+                        Text(
+                            if (index == releases.lastIndex) "La primera publicada." else "Sin cambios en la app.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    ReleaseChanges(release)
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onClose) { Text("Cerrar") } },
+    )
+}
+
+private val MONTHS = listOf(
+    "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+    "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+)
+
+/** «2026-10-06» → «6 de octubre de 2026». */
+internal fun spanishDate(iso: String): String {
+    val parts = iso.split("-").mapNotNull(String::toIntOrNull)
+    if (parts.size != 3 || parts[1] !in 1..12) return iso
+    return "${parts[2]} de ${MONTHS[parts[1] - 1]} de ${parts[0]}"
+}
+
+@Composable
+private fun ReleaseChanges(release: AppRelease) {
+    release.changes.forEach { change ->
+        Text(
+            "•  ${change.title}",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        if (change.detail.isNotBlank()) {
+            Text(
+                change.detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 14.dp),
+            )
+        }
+    }
 }
 
 /** Lo que trae cada versión que falta, la más nueva primero. */
