@@ -653,17 +653,8 @@ class Aplicacion(tk.Tk):
         return self.sincronia.sesion["token"]
 
     def _ofrecer_actualizacion(self, servidor: str, novedad, token: str) -> None:
-        from tkinter import messagebox
-
         from . import actualizar
-        notas = f"\n\nNovedades: {novedad.notas}" if novedad.notas else ""
-        si = messagebox.askyesno(
-            "Hay una versión nueva",
-            f"Hay una versión nueva de ContaXcell: la {novedad.version}. Tienes la {VERSION}.",
-            detail=f"¿Actualizar ahora? El programa se cerrará un momento y se volverá a "
-                   f"abrir solo. Tus datos no se tocan.{notas}",
-            parent=self, icon=messagebox.QUESTION, default=messagebox.YES)
-        if not si:
+        if not dialogos.VersionNueva(self, VERSION, novedad).mostrar():
             self.estado("Te lo volverá a preguntar la próxima vez que abras el programa.")
             return
         instalacion = actualizar.instalacion_actual()
@@ -671,20 +662,26 @@ class Aplicacion(tk.Tk):
             dialogos.avisar(self, "Descarga comprobada, pero esto no es el programa instalado.",
                             "Desde el código fuente no se cambia nada.")
             return
-        self.estado("Descargando la versión nueva…")
         trabajo = actualizar.carpeta_de_trabajo()
+        # El cartel del PowerShell sale donde esté ahora el programa, que
+        # puede ser la segunda pantalla.
+        centro = (self.winfo_rootx() + self.winfo_width() // 2,
+                  self.winfo_rooty() + self.winfo_height() // 2)
+        espera = dialogos.Reiniciando(self, novedad.version)
 
         def bajar_y_preparar():
             archivo = actualizar.descargar(servidor, novedad, trabajo, token=token)
-            return actualizar.preparar(archivo, instalacion, os.getpid(), trabajo)
+            return actualizar.preparar(archivo, instalacion, os.getpid(), trabajo, centro)
 
         def al_acabar(guion, error):
             if error is not None:
+                espera.destroy()
                 titulo = ("La actualización no es de fiar y no se ha instalado."
                           if isinstance(error, actualizar.ActualizacionNoFiable)
                           else "No se ha podido descargar la versión nueva.")
                 dialogos.error(self, titulo, f"{error}\n\nEl programa sigue como estaba.")
                 return
+            espera.decir("Reiniciando el programa. Se volverá a abrir solo en unos segundos.")
             # Todo está en disco desde antes: cada cambio se guarda al hacerlo,
             # y lo pendiente de subir queda apuntado para la próxima vez.
             actualizar.lanzar(guion)

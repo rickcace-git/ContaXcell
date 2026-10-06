@@ -602,3 +602,170 @@ class AcercaDe(tk.Toplevel):
         except tk.TclError:
             pass
         self.wait_window()
+
+
+# --- versión nueva -------------------------------------------------------------
+
+class VersionNueva(tk.Toplevel):
+    """«Hay una versión nueva»: qué trae, y si se pone ya o en otro momento.
+
+    No es el diálogo de Windows porque lleva un tercer botón, «Ver qué ha
+    cambiado», con la lista de cambios y el enlace al código. `mostrar()`
+    devuelve True si se acepta.
+    """
+
+    ANCHO = 440
+
+    def __init__(self, padre, version_actual: str, novedad):
+        super().__init__(padre)
+        self.novedad = novedad
+        self.aceptada = False
+        self.title("Hay una versión nueva")
+        self.resizable(False, False)
+        self.configure(background=widgets.PALETA.tarjeta)
+        self.transient(padre)
+
+        cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=20)
+        cuerpo.pack(fill="both", expand=True)
+        ttk.Label(cuerpo, text=f"Hay una versión nueva: la {novedad.version}",
+                  style="Tarjeta.Negrita.TLabel").pack(anchor="w")
+        ttk.Label(cuerpo, text=f"Tienes la {version_actual}. Al actualizar, el programa se "
+                               "cierra un momento y se vuelve a abrir solo. Tus datos no "
+                               "se tocan.",
+                  style="Tarjeta.TLabel", wraplength=self.ANCHO,
+                  justify="left").pack(anchor="w", pady=(6, 0))
+        if novedad.notas:
+            ttk.Label(cuerpo, text=f"Novedades: {novedad.notas}", style="Tarjeta.Suave.TLabel",
+                      wraplength=self.ANCHO, justify="left").pack(anchor="w", pady=(12, 0))
+
+        pie = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
+        pie.pack(fill="x", pady=(20, 0))
+        # Solo si la nota trae algo que enseñar: las de antes no lo traían.
+        self.boton_cambios = None
+        if novedad.cambios or novedad.codigo:
+            self.boton_cambios = ttk.Button(pie, text="Ver qué ha cambiado", style="Enlace.TButton",
+                                            command=self._ver_cambios)
+            self.boton_cambios.pack(side="left")
+        ttk.Button(pie, text="Actualizar ahora", style="Principal.TButton",
+                   command=self._aceptar).pack(side="right")
+        ttk.Button(pie, text="Ahora no", command=self.destroy).pack(side="right", padx=(0, 8))
+
+        self.bind("<Return>", lambda _e: self._aceptar())
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _aceptar(self) -> None:
+        self.aceptada = True
+        self.destroy()
+
+    def _ver_cambios(self) -> None:
+        CambiosDeVersion(self, self.novedad).mostrar()
+
+    def mostrar(self) -> bool:
+        self.update_idletasks()
+        _centrar(self)
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window()
+        return self.aceptada
+
+
+class CambiosDeVersion(tk.Toplevel):
+    """La lista de lo que ha cambiado, tal como se apuntó al hacerlo, y el
+    enlace a GitHub para ver el código línea a línea."""
+
+    def __init__(self, padre, novedad):
+        super().__init__(padre)
+        self.novedad = novedad
+        self.title(f"Qué trae la {novedad.version}")
+        self.geometry(f"{round(560 * widgets.FUENTES.escala)}x{round(460 * widgets.FUENTES.escala)}")
+        self.minsize(420, 300)
+        self.configure(background=widgets.PALETA.tarjeta)
+        self.transient(padre)
+        p, f = widgets.PALETA, widgets.FUENTES
+
+        pie = ttk.Frame(self, style="Tarjeta.TFrame", padding=(20, 12))
+        pie.pack(side="bottom", fill="x")
+        tk.Frame(self, background=p.borde, height=1).pack(side="bottom", fill="x")
+        if novedad.codigo:
+            ttk.Button(pie, text="Ver el código en GitHub", style="Enlace.TButton",
+                       command=self._abrir_codigo).pack(side="left")
+        ttk.Button(pie, text="Cerrar", style="Principal.TButton",
+                   command=self.destroy).pack(side="right")
+
+        marco = ttk.Frame(self, style="Tarjeta.TFrame")
+        marco.pack(fill="both", expand=True)
+        barra = ttk.Scrollbar(marco, orient="vertical")
+        barra.pack(side="right", fill="y")
+        self.texto = tk.Text(
+            marco, wrap="word", font=f.normal, relief="flat", borderwidth=0,
+            highlightthickness=0, padx=22, pady=18, spacing1=2, spacing3=4,
+            background=p.tarjeta, foreground=p.texto, cursor="arrow",
+            yscrollcommand=barra.set)
+        self.texto.pack(side="left", fill="both", expand=True)
+        barra.configure(command=self.texto.yview)
+        self.texto.tag_configure("titulo", font=f.negrita, spacing1=12, spacing3=2)
+        self.texto.tag_configure("detalle", foreground=p.suave, lmargin1=14, lmargin2=14)
+
+        if novedad.cambios:
+            for titulo, detalle in novedad.cambios:
+                self.texto.insert("end", f"•  {titulo}\n", "titulo")
+                if detalle:
+                    self.texto.insert("end", f"{detalle}\n", "detalle")
+        else:
+            self.texto.insert("end", "Esta versión no trae la lista de cambios.\n", "detalle")
+        self.texto.configure(state="disabled")
+
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _abrir_codigo(self) -> None:
+        import webbrowser
+        webbrowser.open(self.novedad.codigo)
+
+    def mostrar(self) -> None:
+        self.update_idletasks()
+        _centrar(self)
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window()
+
+
+class Reiniciando(tk.Toplevel):
+    """«Actualizando…»: lo que se ve mientras se baja la versión nueva y el
+    programa se cierra. Sin botón de cerrar: no hay nada que cancelar a medias.
+    Al cerrarse el programa, toma el relevo el cartel del PowerShell
+    (`actualizar.preparar`) hasta que se abre el nuevo."""
+
+    def __init__(self, padre, version: str):
+        super().__init__(padre)
+        self.title("Actualizando ContaXcell")
+        self.resizable(False, False)
+        self.configure(background=widgets.PALETA.tarjeta)
+        self.transient(padre)
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=24)
+        cuerpo.pack(fill="both", expand=True)
+        ttk.Label(cuerpo, text=f"Actualizando a la {version}…",
+                  style="Tarjeta.Negrita.TLabel").pack(anchor="w")
+        self.paso = ttk.Label(cuerpo, text="Descargando la versión nueva. Espera un momento: "
+                                           "el programa se cerrará y se volverá a abrir solo.",
+                              style="Tarjeta.TLabel", wraplength=360, justify="left")
+        self.paso.pack(anchor="w", pady=(8, 14))
+        self.barra = ttk.Progressbar(cuerpo, mode="indeterminate", length=360)
+        self.barra.pack(fill="x")
+        self.barra.start(12)
+
+        self.update_idletasks()
+        _centrar(self)
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+
+    def decir(self, texto: str) -> None:
+        self.paso.configure(text=texto)
+        self.update_idletasks()

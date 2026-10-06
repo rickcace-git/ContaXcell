@@ -168,6 +168,24 @@ class PruebaBuscar(ConLlave):
             with self.subTest(codigo), self.assertRaises(actualizar.SinPermiso):
                 actualizar.buscar(SERVIDOR, "1.1.0", sin_permiso, self.publica, token="abc")
 
+    def test_trae_la_lista_de_cambios_y_el_enlace(self):
+        archivos = self.publicado(
+            cambios=[{"titulo": "Lo nuevo", "detalle": "Con su porqué"},
+                     {"titulo": "Un arreglo"}, {"titulo": "", "detalle": "sin título"}],
+            codigo="https://github.com/ana/Conta/compare/a...b")
+        novedad = actualizar.buscar(SERVIDOR, "1.1.0", servidor_falso(archivos), self.publica)
+        self.assertEqual(novedad.cambios, (("Lo nuevo", "Con su porqué"), ("Un arreglo", "")))
+        self.assertEqual(novedad.codigo, "https://github.com/ana/Conta/compare/a...b")
+
+    def test_las_notas_de_antes_sin_cambios_valen_igual(self):
+        novedad = actualizar.buscar(SERVIDOR, "1.1.0", servidor_falso(self.publicado()), self.publica)
+        self.assertEqual((novedad.cambios, novedad.codigo), ((), ""))
+
+    def test_un_enlace_que_no_es_de_github_no_se_abre(self):
+        archivos = self.publicado(codigo="https://otro-sitio.example/malo")
+        novedad = actualizar.buscar(SERVIDOR, "1.1.0", servidor_falso(archivos), self.publica)
+        self.assertEqual(novedad.codigo, "")
+
     def test_sin_red_lo_dice_sin_romper(self):
         def sin_red(peticion, timeout=None):
             raise urllib.error.URLError("sin red")
@@ -210,6 +228,18 @@ class PruebaDescargarYPreparar(ConLlave):
         self.assertIn("robocopy", texto)
         self.assertIn(str(instalacion / "ContaXcell.exe"), texto)
         self.assertTrue((self.trabajo / "nueva" / "ContaXcell" / "ContaXcell.exe").is_file())
+        # El cartel de «Reiniciando…», que sale hasta que se abre el nuevo.
+        self.assertIn("Reiniciando ContaXcell", texto)
+        self.assertIn("CenterScreen", texto)
+
+    def test_el_cartel_sale_en_la_pantalla_del_programa(self):
+        archivos = self.publicado()
+        archivo = actualizar.descargar(SERVIDOR, self.novedad(archivos), self.trabajo,
+                                       servidor_falso(archivos))
+        texto = actualizar.preparar(archivo, Path(self._temporal.name), 1, self.trabajo,
+                                    centro=(2900, 500)).read_text(encoding="utf-8-sig")
+        self.assertIn("(2900 - $ancho / 2)", texto)
+        self.assertNotIn("CenterScreen", texto)
 
     def test_una_ruta_con_comilla_no_rompe_el_guion(self):
         archivos = self.publicado()

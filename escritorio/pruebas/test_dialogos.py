@@ -534,5 +534,51 @@ class PruebasAcercaDe(ConVentana):
         self.assertNotIn("no salen de este ordenador", texto)
 
 
+
+class PruebasVersionNueva(ConVentana):
+    """«Hay una versión nueva», su lista de cambios y el «Actualizando…»."""
+
+    def novedad(self, **cambios):
+        from contaxcell.actualizar import Novedad
+        datos = dict(version="1.2.0", archivo="/api/actualizacion/x.zip", sha256="0",
+                     tamano=1, notas="Cosas nuevas")
+        datos.update(cambios)
+        return Novedad(**datos)
+
+    def ventana(self, novedad):
+        ventana = dialogos.VersionNueva(self.raiz, "1.1.3", novedad)
+        self.addCleanup(lambda: ventana.winfo_exists() and ventana.destroy())
+        return ventana
+
+    def test_sin_lista_de_cambios_no_hay_boton(self):
+        self.assertIsNone(self.ventana(self.novedad()).boton_cambios)
+
+    def test_con_lista_hay_boton_y_se_ve_todo(self):
+        novedad = self.novedad(cambios=(("Lo nuevo", "Con su porqué"), ("Un arreglo", "")),
+                               codigo="https://github.com/ana/Conta/compare/a...b")
+        self.assertIsNotNone(self.ventana(novedad).boton_cambios)
+        lista = dialogos.CambiosDeVersion(self.raiz, novedad)
+        self.addCleanup(lista.destroy)
+        texto = lista.texto.get("1.0", "end")
+        for trozo in ("Lo nuevo", "Con su porqué", "Un arreglo"):
+            self.assertIn(trozo, texto)
+        botones = [h.cget("text") for h in lista.winfo_children()[0].winfo_children()]
+        self.assertIn("Ver el código en GitHub", botones)
+
+    def test_aceptar_y_no_aceptar(self):
+        ventana = self.ventana(self.novedad())
+        self.assertFalse(ventana.aceptada)
+        ventana._aceptar()
+        self.assertTrue(ventana.aceptada)
+
+    def test_reiniciando_no_se_cierra_con_la_x(self):
+        espera = dialogos.Reiniciando(self.raiz, "1.2.0")
+        self.addCleanup(espera.destroy)
+        espera.tk.call(espera.protocol("WM_DELETE_WINDOW"))  # lo que hace la X: nada
+        self.assertTrue(espera.winfo_exists())
+        espera.decir("Reiniciando")
+        self.assertEqual(espera.paso.cget("text"), "Reiniciando")
+
+
 if __name__ == "__main__":
     unittest.main()

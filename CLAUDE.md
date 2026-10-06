@@ -159,7 +159,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      430 pruebas, ~5 s (test_dialogos y
+python -m unittest discover -s pruebas      444 pruebas, ~5 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
@@ -167,7 +167,8 @@ python pruebas/ver.py --pestana resumen --captura foto.png
 python empaquetar.py                        genera el .exe y el .zip
 python publicar.py "novedades"              lo fabrica, lo firma y lo sube: les
                                             llega solo. Antes, subir VERSION en
-                                            ventana.py
+                                            ventana.py, commit y push: la lista
+                                            de cambios que ven sale de git
 
 cd server
 docker compose up -d                        levantar el servidor (solo en local)

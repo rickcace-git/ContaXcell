@@ -17,7 +17,14 @@ Cómo va, de punta a punta:
 4. Se descomprime en una carpeta temporal y se lanza un PowerShell pequeño que
    espera a que el programa se cierre, copia lo nuevo encima de la carpeta del
    programa y lo vuelve a abrir. Hace falta así: Windows no deja reemplazar
-   un .exe mientras está abierto.
+   un .exe mientras está abierto. Mientras, ese mismo PowerShell enseña un
+   cartelito («Reiniciando ContaXcell…») hasta que la ventana nueva aparece,
+   para que nadie crea que se ha cerrado sin más.
+
+La nota trae también la lista de cambios desde la versión anterior (los
+mensajes de git, que `publicar.py` recoge) y el enlace a GitHub con el
+código cambiado, para quien quiera mirarlo antes de aceptar. Van dentro de
+la nota firmada, así que tampoco se pueden cambiar por el camino.
 
 Los datos no se tocan nunca: viven en %APPDATA%\\ContaXcell, no en la carpeta
 del programa. Lo que se cambia es solo el programa.
@@ -54,6 +61,9 @@ NOMBRE_EXE = "ContaXcell.exe"
 SEGUNDOS = 15
 # Un tope por si algo no cuadra: el zip pesa unos 11 MB.
 TAMANO_MAXIMO = 200 * 1024 * 1024
+# El enlace al código solo se abre si va aquí: aunque la nota venga firmada,
+# el navegador no tiene por qué ir a ningún otro sitio desde el programa.
+ENLACE_CODIGO = "https://github.com/"
 
 
 class ActualizacionNoFiable(Exception):
@@ -77,6 +87,9 @@ class Novedad:
     sha256: str
     tamano: int
     notas: str = ""
+    # (título, detalle) de cada cambio, del más nuevo al más viejo.
+    cambios: tuple[tuple[str, str], ...] = ()
+    codigo: str = ""  # el enlace a GitHub con lo cambiado, o ""
 
 
 def version_en_numeros(texto: str) -> tuple[int, ...]:
@@ -139,12 +152,27 @@ def buscar(servidor: str, version_actual: str, abrir_url=urllib.request.urlopen,
         datos = json.loads(nota.decode("utf-8"))
         novedad = Novedad(version=str(datos["version"]), archivo=str(datos["archivo"]),
                           sha256=str(datos["sha256"]).lower(), tamano=int(datos["tamano"]),
-                          notas=str(datos.get("notas") or ""))
-    except (ValueError, KeyError, TypeError):
+                          notas=str(datos.get("notas") or ""),
+                          cambios=_cambios(datos.get("cambios")),
+                          codigo=_codigo(datos.get("codigo")))
+    except (ValueError, KeyError, TypeError, AttributeError):
         raise ActualizacionNoFiable("La nota de la actualización está mal escrita.") from None
     if not novedad.archivo.startswith(RUTA_BASE):
         raise ActualizacionNoFiable("La actualización apunta fuera de su sitio.")
     return novedad if es_mas_nueva(novedad.version, version_actual) else None
+
+
+def _cambios(crudo) -> tuple[tuple[str, str], ...]:
+    """La lista de cambios de la nota. Las notas de antes no la traen."""
+    if not crudo:
+        return ()
+    return tuple((str(c.get("titulo") or "").strip(), str(c.get("detalle") or "").strip())
+                 for c in crudo if str(c.get("titulo") or "").strip())
+
+
+def _codigo(crudo) -> str:
+    enlace = str(crudo or "").strip()
+    return enlace if enlace.startswith(ENLACE_CODIGO) else ""
 
 
 def descargar(servidor: str, novedad: Novedad, carpeta: Path,
@@ -164,8 +192,13 @@ def descargar(servidor: str, novedad: Novedad, carpeta: Path,
     return destino
 
 
-def preparar(zip_nuevo: Path, instalacion: Path, pid: int, trabajo: Path) -> Path:
+def preparar(zip_nuevo: Path, instalacion: Path, pid: int, trabajo: Path,
+             centro: tuple[int, int] | None = None) -> Path:
     """Descomprime y escribe el PowerShell que hará el cambio. Devuelve su ruta.
+
+    `centro` es dónde poner el cartel de «Reiniciando…» (el centro de la
+    ventana del programa, que puede estar en la segunda pantalla). Sin él,
+    sale en el centro de la principal.
 
     El zip trae una carpeta ContaXcell/ con el .exe dentro; si no, no es un
     ContaXcell y no se sigue."""
@@ -186,15 +219,64 @@ def preparar(zip_nuevo: Path, instalacion: Path, pid: int, trabajo: Path) -> Pat
     def comillas(ruta: Path) -> str:
         return "'" + str(ruta).replace("'", "''") + "'"
 
+    # El programa cuenta en píxeles de verdad (se declara «DPI aware») y
+    # PowerShell, si no se le dice, en píxeles escalados: con la pantalla al
+    # 125 % el cartel saldría en otro sitio. Por eso se declara igual, y el
+    # tamaño se escala a mano.
+    if centro is None:
+        sitio = "$cartel.StartPosition = 'CenterScreen'\n"
+    else:
+        x, y = (int(c) for c in centro)
+        sitio = ("$cartel.StartPosition = 'Manual'\n"
+                 f"$cartel.Location = New-Object Drawing.Point([int]({x} - $ancho / 2), "
+                 f"[int]({y} - $alto / 2))\n")
+
     guion = trabajo / "actualizar.ps1"
     # Con BOM: es lo que necesita PowerShell 5 para leer bien una ruta con
     # tildes o eñes (C:\Users\Begoña\…).
     guion.write_text(
         "# Cambia ContaXcell por la versión nueva y lo vuelve a abrir.\n"
+        "# El cartel: entre que se cierra el programa y se abre el nuevo pasan\n"
+        "# unos segundos sin nada en pantalla, y así se sabe que va.\n"
+        "$cartel = $null\n"
+        "try {\n"
+        "    Add-Type -AssemblyName System.Windows.Forms, System.Drawing\n"
+        "    Add-Type -Name Pantalla -Namespace ContaXcell -MemberDefinition "
+        "'[DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();'\n"
+        "    [void][ContaXcell.Pantalla]::SetProcessDPIAware()\n"
+        "    $escala = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero).DpiX / 96\n"
+        "    $ancho = [int](340 * $escala); $alto = [int](90 * $escala)\n"
+        "    $cartel = New-Object Windows.Forms.Form\n"
+        "    $cartel.FormBorderStyle = 'None'\n"
+        "    $cartel.Size = New-Object Drawing.Size($ancho, $alto)\n"
+        "    $cartel.TopMost = $true\n"
+        "    $cartel.ShowInTaskbar = $false\n"
+        "    $cartel.BackColor = [Drawing.Color]::FromArgb(150, 150, 150)\n"
+        "    $cartel.Padding = New-Object Windows.Forms.Padding(1)\n"
+        + "".join("    " + linea + "\n" for linea in sitio.splitlines())
+        + "    $letrero = New-Object Windows.Forms.Label\n"
+        "    $letrero.Dock = 'Fill'\n"
+        "    $letrero.BackColor = [Drawing.Color]::White\n"
+        "    $letrero.TextAlign = 'MiddleCenter'\n"
+        "    $letrero.Font = New-Object Drawing.Font('Segoe UI', 11)\n"
+        "    $letrero.Text = \"Reiniciando ContaXcell…`nSe abrirá solo en unos segundos.\"\n"
+        "    $cartel.Controls.Add($letrero)\n"
+        "    $cartel.Show()\n"
+        "    [Windows.Forms.Application]::DoEvents()\n"
+        "} catch { $cartel = $null }\n"
         f"Wait-Process -Id {int(pid)} -Timeout 120 -ErrorAction SilentlyContinue\n"
         "Start-Sleep -Milliseconds 500\n"
         f"robocopy {comillas(origen)} {comillas(instalacion)} /E /R:5 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null\n"
-        f"Start-Process -FilePath {comillas(instalacion / NOMBRE_EXE)}\n"
+        f"$nuevo = Start-Process -FilePath {comillas(instalacion / NOMBRE_EXE)} -PassThru\n"
+        "# El cartel se va cuando aparece la ventana nueva (o a los 30 s, por si acaso).\n"
+        "for ($i = 0; $cartel -and $i -lt 150; $i++) {\n"
+        "    [Windows.Forms.Application]::DoEvents()\n"
+        "    if (-not $nuevo) { break }\n"
+        "    $nuevo.Refresh()\n"
+        "    if ($nuevo.HasExited -or $nuevo.MainWindowHandle -ne 0) { break }\n"
+        "    Start-Sleep -Milliseconds 200\n"
+        "}\n"
+        "if ($cartel) { $cartel.Close() }\n"
         f"Remove-Item -Recurse -Force {comillas(nueva)} -ErrorAction SilentlyContinue\n"
         f"Remove-Item -Force {comillas(zip_nuevo)} -ErrorAction SilentlyContinue\n",
         encoding="utf-8-sig")

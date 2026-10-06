@@ -9,7 +9,9 @@ Lo segundo, paso a paso:
    que la publicada. Si no, para: hay que subirla antes, o nadie la vería.
 2. Fabrica el programa con empaquetar.py.
 3. Escribe la nota (`version.json`: versión, archivo, tamaño y SHA-256 del
-   zip) y la firma con tu llave.
+   zip, más la lista de cambios desde la versión anterior y el enlace a
+   GitHub con el código cambiado) y la firma con tu llave. La lista sale de
+   los mensajes de git: por eso hay que tener todo guardado y subido antes.
 4. Sube a server/actualizaciones/ de la máquina el zip, la nota y su firma.
    Eso lo reparte la API, y solo a las cuentas aceptadas y sin vetar. El zip
    va también a /descargas/ContaXcell-windows.zip, la descarga pública para
@@ -92,13 +94,14 @@ def maquina_del_servidor() -> tuple[str, str]:
     return servidor, urllib.parse.urlparse(servidor).hostname or ""
 
 
-def nota_publicada(ssh: list[str], destino: str) -> tuple[bytes, bytes] | None:
+def nota_publicada(ssh: list[str], destino: str,
+                   carpeta: str = "actualizaciones") -> tuple[bytes, bytes] | None:
     """La nota y la firma que hay ahora en el servidor, leídas por ssh (las
     de la API piden cuenta, y esto no tiene por qué ir con una). None si no
     hay ninguna todavía."""
     partes = []
     for nombre in ("version.json", "version.json.firma"):
-        leido = subprocess.run(["ssh", *ssh, destino, f"cat server/actualizaciones/{nombre}"],
+        leido = subprocess.run(["ssh", *ssh, destino, f"cat server/{carpeta}/{nombre}"],
                                capture_output=True)
         if leido.returncode != 0:
             return None
@@ -110,8 +113,92 @@ def version_de(nota: bytes) -> str:
     return str(json.loads(nota.decode("utf-8"))["version"])
 
 
-def firmar_nota(version: str, datos: bytes, archivo: str, notas: str,
-                llave: dict) -> tuple[bytes, bytes]:
+def git(*argumentos: str) -> str:
+    return subprocess.run(["git", *argumentos], cwd=RAIZ, capture_output=True,
+                          text=True, encoding="utf-8").stdout
+
+
+# Lo que no le interesa a quien lee los cambios: las firmas de coautoría.
+LINEAS_QUE_SOBRAN = ("co-authored-by:", "signed-off-by:")
+MAXIMO_CAMBIOS = 80
+
+
+def desenvolver(lineas: list[str]) -> str:
+    """Los mensajes de git van cortados a unos 72 caracteres; en la ventana
+    se leen mejor como párrafos. Una línea en blanco separa párrafos y una
+    que empieza por guion o punto es un elemento de lista: esas se respetan."""
+    parrafos: list[str] = []
+    seguir = False
+    for linea in lineas:
+        if not linea:
+            seguir = False
+            continue
+        if seguir and not linea.startswith(("-", "•", "*")):
+            parrafos[-1] += " " + linea
+        else:
+            parrafos.append(linea)
+        seguir = True
+    return "\n".join(parrafos)
+
+
+def leer_cambios(salida_de_git: str) -> list[dict]:
+    """De `git log --format=%s%x1f%b%x1e` a [{titulo, detalle}], del más
+    nuevo al más viejo."""
+    cambios = []
+    for registro in salida_de_git.split("\x1e"):
+        if "\x1f" not in registro:
+            continue
+        titulo, cuerpo = registro.split("\x1f", 1)
+        lineas = [linea.strip() for linea in cuerpo.strip().splitlines()
+                  if not linea.strip().lower().startswith(LINEAS_QUE_SOBRAN)]
+        detalle = desenvolver(lineas)
+        if titulo.strip():
+            cambios.append({"titulo": titulo.strip(), "detalle": detalle[:2000]})
+    return cambios[:MAXIMO_CAMBIOS]
+
+
+def commit_de_version(version: str) -> str:
+    """El commit en el que VERSION pasó a valer `version`, o "" si no se sabe."""
+    salida = git("log", "-S", f'VERSION = "{version}"', "--format=%H", "--",
+                 "contaxcell/ventana.py").split()
+    # Salen el que la puso y el que la quitó; el más viejo es el que la puso.
+    return salida[-1] if salida else ""
+
+
+def enlace_codigo(remoto: str, desde: str, hasta: str) -> str:
+    """La página de GitHub que compara dos commits, o "" si no es GitHub."""
+    remoto = remoto.strip()
+    for prefijo in ("https://github.com/", "git@github.com:"):
+        if remoto.startswith(prefijo) and desde and hasta:
+            repositorio = remoto[len(prefijo):].removesuffix(".git").strip("/")
+            return f"https://github.com/{repositorio}/compare/{desde[:12]}...{hasta[:12]}"
+    return ""
+
+
+def cambios_desde(version_anterior: str) -> tuple[list[dict], str]:
+    """Los cambios desde la versión anterior y el enlace a su código."""
+    desde = commit_de_version(version_anterior) if version_anterior else ""
+    if not desde:
+        return [], ""
+    hasta = git("rev-parse", "HEAD").strip()
+    cambios = leer_cambios(git("log", f"{desde}..{hasta}", "--no-merges",
+                               "--format=%s%x1f%b%x1e"))
+    return cambios, enlace_codigo(git("remote", "get-url", "origin"), desde, hasta)
+
+
+def todo_guardado_y_subido() -> str:
+    """"" si se puede publicar; si no, qué falta."""
+    if git("status", "--porcelain", "--untracked-files=no").strip():
+        return ("Hay cambios sin guardar en git. La lista de novedades sale de git, así que\n"
+                "haz antes commit (con VERSION ya subida) y git push.")
+    if git("rev-list", "@{u}..HEAD").strip():
+        return ("Hay commits sin subir a GitHub, y el enlace al código no funcionaría.\n"
+                "Haz antes git push.")
+    return ""
+
+
+def firmar_nota(version: str, datos: bytes, archivo: str, notas: str, llave: dict,
+                cambios: list[dict] | None = None, codigo: str = "") -> tuple[bytes, bytes]:
     """La nota de una versión y su firma."""
     nota = json.dumps({
         "version": version,
@@ -119,6 +206,8 @@ def firmar_nota(version: str, datos: bytes, archivo: str, notas: str,
         "tamano": len(datos),
         "sha256": hashlib.sha256(datos).hexdigest(),
         "notas": notas.strip(),
+        "cambios": cambios or [],
+        "codigo": codigo,
     }, ensure_ascii=False, indent=2).encode("utf-8")
     return nota, firma.firmar(nota, llave)
 
@@ -137,6 +226,11 @@ def publicar(notas: str, llave_ssh: Path, tambien_viejas: bool = False) -> int:
               "Lo que publicaras no lo aceptaría nadie. Revisa cuál es la buena.")
         return 1
 
+    falta = todo_guardado_y_subido()
+    if falta:
+        print(falta)
+        return 1
+
     servidor, maquina = maquina_del_servidor()
     print(f"Servidor: {servidor}\nVersión a publicar: {VERSION}")
     ssh = ["-i", str(llave_ssh), "-o", "BatchMode=yes"]
@@ -149,6 +243,16 @@ def publicar(notas: str, llave_ssh: Path, tambien_viejas: bool = False) -> int:
         print(f"\nEn el servidor ya está la {version_de(publicada[0])}. Sube VERSION en "
               "contaxcell/ventana.py (por ejemplo a la siguiente) y vuelve a lanzar esto.")
         return 1
+    # Hasta la 1.1.2 la nota vivía en /descargas/: de ahí sale la anterior la
+    # primera vez.
+    anterior = publicada or nota_publicada(ssh, destino, "descargas")
+    cambios, codigo = cambios_desde(version_de(anterior[0]) if anterior else "")
+    print(f"\nCambios desde la {version_de(anterior[0]) if anterior else '(ninguna)'}: "
+          f"{len(cambios)}")
+    for cambio in cambios:
+        print(f"  · {cambio['titulo']}")
+    if codigo:
+        print(f"Código: {codigo}")
 
     print("\nFabricando el programa…")
     if subprocess.run([sys.executable, str(RAIZ / "empaquetar.py")], cwd=RAIZ).returncode != 0:
@@ -160,7 +264,8 @@ def publicar(notas: str, llave_ssh: Path, tambien_viejas: bool = False) -> int:
     nombre = f"ContaXcell-windows-{VERSION}.zip"
     salida = RAIZ / "dist" / "publicar"
     salida.mkdir(parents=True, exist_ok=True)
-    nota, firma_nota = firmar_nota(VERSION, datos, actualizar.RUTA_BASE + nombre, notas, llave)
+    nota, firma_nota = firmar_nota(VERSION, datos, actualizar.RUTA_BASE + nombre, notas, llave,
+                                   cambios, codigo)
     (salida / "version.json").write_bytes(nota)
     (salida / "version.json.firma").write_bytes(firma_nota)
 
