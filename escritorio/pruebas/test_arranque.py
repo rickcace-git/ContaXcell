@@ -154,5 +154,40 @@ class PruebaArranqueConCuenta(unittest.TestCase):
         self.assertIn("2026-09-05", [m.fecha for m in app.libro.movimientos])
 
 
+
+class PruebaRecienActualizado(unittest.TestCase):
+    """La ventana sabe si se acaba de actualizar: así enseña lo que trae."""
+
+    def setUp(self):
+        self._temporal = tempfile.TemporaryDirectory(prefix="contaxcell-version-")
+        self.carpeta = Path(self._temporal.name)
+        self.addCleanup(self._temporal.cleanup)
+        self._carpeta_de_antes = almacen.carpeta_de_datos
+        almacen.carpeta_de_datos = lambda: self.carpeta
+        self.addCleanup(setattr, almacen, "carpeta_de_datos", self._carpeta_de_antes)
+
+    def abrir_y_cerrar(self) -> str | None:
+        try:
+            app = ventana.Aplicacion()
+        except tk.TclError as error:
+            raise unittest.SkipTest(f"no hay pantalla disponible: {error}") from error
+        app.withdraw()
+        anterior = app._version_anterior
+        for pendiente in app.tk.call("after", "info"):
+            app.after_cancel(pendiente)
+        app._al_cerrar()
+        return anterior
+
+    def test_primera_vez_no_es_actualizar(self):
+        self.assertIsNone(self.abrir_y_cerrar())
+
+    def test_viniendo_de_la_1_1_2_y_luego_ya_no(self):
+        # La 1.1.2 guardaba la ventana sin la versión.
+        (self.carpeta / ventana.ARCHIVO_VENTANA).write_text(
+            json.dumps({"geometria": "", "maximizada": False}), encoding="utf-8")
+        self.assertEqual(self.abrir_y_cerrar(), "1.1.2")
+        self.assertEqual(self.abrir_y_cerrar(), ventana.VERSION)
+
+
 if __name__ == "__main__":
     unittest.main()

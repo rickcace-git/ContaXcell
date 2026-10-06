@@ -675,7 +675,7 @@ class CambiosDeVersion(tk.Toplevel):
     """La lista de lo que ha cambiado, tal como se apuntó al hacerlo, y el
     enlace a GitHub para ver el código línea a línea."""
 
-    def __init__(self, padre, novedad):
+    def __init__(self, padre, novedad, encabezado: str = ""):
         super().__init__(padre)
         self.novedad = novedad
         self.title(f"Qué trae la {novedad.version}")
@@ -707,6 +707,10 @@ class CambiosDeVersion(tk.Toplevel):
         barra.configure(command=self.texto.yview)
         self.texto.tag_configure("titulo", font=f.negrita, spacing1=12, spacing3=2)
         self.texto.tag_configure("detalle", foreground=p.suave, lmargin1=14, lmargin2=14)
+        self.texto.tag_configure("encabezado", font=f.negrita, foreground=p.acento, spacing3=4)
+
+        if encabezado:
+            self.texto.insert("end", f"{encabezado}\n", "encabezado")
 
         if novedad.cambios:
             for titulo, detalle in novedad.cambios:

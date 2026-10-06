@@ -22,7 +22,7 @@ from .almacen import Almacen, carpeta_de_recursos
 from .modelo import Libro, hoy
 
 # Súbela antes de cada `python publicar.py`: es lo que compara el actualizador.
-VERSION = "1.1.3"
+VERSION = "1.1.4"
 ARCHIVO_VENTANA = "ventana.json"
 # Cuánto se espera como mucho al hilo de sincronía antes de apuntar los
 # recibos por cuenta propia. Una petición se rinde a los diez segundos, así
@@ -114,6 +114,8 @@ class Aplicacion(tk.Tk):
         if (actualizar.instalacion_actual() is not None
                 or os.environ.get("CONTAXCELL_PROBAR_ACTUALIZACION") == "1"):
             self.after(4000, lambda: self.buscar_actualizacion(a_mano=False))
+            if self._version_anterior not in (None, VERSION):
+                self.after(2500, self._ensenar_novedades)
 
     # --- montaje ---------------------------------------------------------
 
@@ -646,6 +648,25 @@ class Aplicacion(tk.Tk):
 
         self._en_hilo(lambda: actualizar.buscar(servidor, VERSION, token=token), al_acabar)
 
+    def _ensenar_novedades(self) -> None:
+        """Recién actualizado: lo que trae esta versión. Se le pide la nota
+        al servidor (la lista de cambios viaja en ella, firmada); si no
+        contesta o no es esta versión, no se dice nada."""
+        from . import actualizar
+        token = self._ficha()
+        if not token:
+            return
+        servidor = self._servidor()
+
+        def al_acabar(novedad, error):
+            if error is None and novedad is not None and novedad.version == VERSION \
+                    and (novedad.cambios or novedad.codigo):
+                dialogos.CambiosDeVersion(
+                    self, novedad,
+                    encabezado=f"Ya tienes la {VERSION}. Esto es lo que ha cambiado:").mostrar()
+
+        self._en_hilo(lambda: actualizar.buscar(servidor, "0", token=token), al_acabar)
+
     def _ficha(self) -> str:
         """El token de la sesión, o "" si no se ha entrado en ninguna cuenta."""
         if self.sincronia is None or not self.sincronia.hay_sesion():
@@ -719,8 +740,13 @@ class Aplicacion(tk.Tk):
 
     def _restaurar_geometria(self) -> None:
         ancho, alto = int(1180 * self.escala), int(800 * self.escala)
+        # La versión con la que se cerró la última vez: si no es esta, es que
+        # se acaba de actualizar. None si es la primera vez en este ordenador.
+        self._version_anterior = None
         try:
             guardado = json.loads(self._ruta_geometria().read_text(encoding="utf-8"))
+            # Hasta la 1.1.2 no se guardaba: si falta, venía de una de esas.
+            self._version_anterior = str(guardado.get("version") or "1.1.2")
             geometria = guardado.get("geometria", "")
             # Donde se cerró, si esa pantalla sigue ahí. Se mira la barra del
             # título: es lo que hace falta ver para poder mover la ventana.
@@ -751,6 +777,7 @@ class Aplicacion(tk.Tk):
             datos = {
                 "geometria": self.geometry() if not maximizada else "",
                 "maximizada": maximizada,
+                "version": VERSION,
             }
             self.almacen.carpeta.mkdir(parents=True, exist_ok=True)
             self._ruta_geometria().write_text(json.dumps(datos), encoding="utf-8")

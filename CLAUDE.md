@@ -159,7 +159,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      444 pruebas, ~5 s (test_dialogos y
+python -m unittest discover -s pruebas      446 pruebas, ~5 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
