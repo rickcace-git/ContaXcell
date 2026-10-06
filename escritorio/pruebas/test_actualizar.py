@@ -72,7 +72,7 @@ class ConLlave(unittest.TestCase):
 
     def publicado(self, version="1.2.0", datos_zip=None, notas="Cosas nuevas", **cambios):
         datos_zip = zip_de_contaxcell() if datos_zip is None else datos_zip
-        nota = {"version": version, "archivo": f"/descargas/ContaXcell-windows-{version}.zip",
+        nota = {"version": version, "archivo": f"/api/actualizacion/ContaXcell-windows-{version}.zip",
                 "tamano": len(datos_zip), "sha256": hashlib.sha256(datos_zip).hexdigest(),
                 "notas": notas, **cambios}
         texto = json.dumps(nota).encode("utf-8")
@@ -146,10 +146,27 @@ class PruebaBuscar(ConLlave):
         del archivos[actualizar.RUTA_FIRMA]
         self.assertIsNone(actualizar.buscar(SERVIDOR, "1.1.0", servidor_falso(archivos), self.publica))
 
-    def test_un_archivo_fuera_de_las_descargas_no_se_acepta(self):
-        archivos = self.publicado(archivo="/api/otra-cosa")
+    def test_un_archivo_fuera_de_su_sitio_no_se_acepta(self):
+        archivos = self.publicado(archivo="/descargas/ContaXcell-windows-1.2.0.zip")
         with self.assertRaises(actualizar.ActualizacionNoFiable):
             actualizar.buscar(SERVIDOR, "1.1.0", servidor_falso(archivos), self.publica)
+
+    def test_pregunta_con_la_ficha_de_la_sesion(self):
+        fichas = []
+
+        def con_ficha(peticion, timeout=None):
+            fichas.append(peticion.get_header("Authorization"))
+            return servidor_falso(self.publicado())(peticion, timeout)
+
+        actualizar.buscar(SERVIDOR, "1.1.0", con_ficha, self.publica, token="abc")
+        self.assertEqual(fichas, ["Bearer abc", "Bearer abc"])
+
+    def test_cuenta_en_espera_o_vetada_no_recibe_nada(self):
+        for codigo in (401, 403):
+            def sin_permiso(peticion, timeout=None, codigo=codigo):
+                raise urllib.error.HTTPError(peticion.full_url, codigo, "no", {}, io.BytesIO(b""))
+            with self.subTest(codigo), self.assertRaises(actualizar.SinPermiso):
+                actualizar.buscar(SERVIDOR, "1.1.0", sin_permiso, self.publica, token="abc")
 
     def test_sin_red_lo_dice_sin_romper(self):
         def sin_red(peticion, timeout=None):
@@ -171,7 +188,7 @@ class PruebaDescargarYPreparar(ConLlave):
         archivos = self.publicado()
         archivo = actualizar.descargar(SERVIDOR, self.novedad(archivos), self.trabajo,
                                        servidor_falso(archivos))
-        self.assertEqual(archivo.read_bytes(), archivos["/descargas/ContaXcell-windows-1.2.0.zip"])
+        self.assertEqual(archivo.read_bytes(), archivos["/api/actualizacion/ContaXcell-windows-1.2.0.zip"])
 
     def test_un_zip_cambiado_no_se_guarda(self):
         archivos = self.publicado()

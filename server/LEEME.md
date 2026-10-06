@@ -290,6 +290,19 @@ en su ordenador, que es suya. Lo que pierde es la cuenta. Y ojo, que con el
 código de invitación podría crearse otra: si de verdad no tiene que volver,
 cambia `CONTAXCELL_CODIGO_REGISTRO` en el `.env` y reinicia la API.
 
+## Las versiones nuevas del programa de escritorio
+
+`python publicar.py` (en `escritorio/`) deja en `server/actualizaciones` de la
+máquina el zip, la nota `version.json` y su firma. Esa carpeta **no** la sirve
+el Caddy: la reparte la API en `/api/actualizacion/…`, y solo a quien trae la
+ficha de una cuenta aceptada y sin vetar. Sin cuenta, en espera o vetado, el
+programa sigue funcionando en su ordenador, pero no se actualiza.
+
+Lo que sí queda público es `/descargas/ContaXcell-windows.zip`, para instalarlo
+la primera vez (es el enlace que se pasa por WhatsApp). Con eso alguien sin
+aceptar podría bajarse a mano la última versión; lo que no tiene es el aviso
+ni la instalación sola.
+
 ## La app del móvil para descargar
 
 El Caddy sirve lo que haya en la carpeta `server/descargas` de la máquina en

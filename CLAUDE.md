@@ -46,12 +46,13 @@ escritorio/          la aplicación (Python + tkinter, nada que instalar)
     actualizar.py    el .exe se actualiza solo desde el servidor, si se
                      acepta. Solo instala lo firmado (firma.py, RSA sin
                      librerías) con la llave cuya mitad pública es
-                     llave_publica.py
+                     llave_publica.py. Y solo llega a cuentas aceptadas:
+                     se pide a la API con la ficha de la sesión
     guia.py          la guía de uso (Ayuda ▸ Guía de uso, F1): un apartado
                      por pestaña. Si cambias cómo se usa algo, cámbialo aquí
     vistas/          una pestaña por archivo
 server/              FastAPI + Postgres en Docker (lo escribió un amigo)
-  contaserver/       aplicacion.py (8 rutas), seguridad.py, almacen.py,
+  contaserver/       aplicacion.py (9 rutas), seguridad.py, almacen.py,
                      limites.py (frena los intentos a lo bruto)
 android/             la app nativa (Kotlin + Compose). Lee y sube el mismo
                      datos.json: un campo nuevo en modelo.py hay que añadirlo
@@ -158,7 +159,7 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      428 pruebas, ~5 s (test_dialogos y
+python -m unittest discover -s pruebas      430 pruebas, ~5 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
@@ -172,7 +173,7 @@ cd server
 docker compose up -d                        levantar el servidor (solo en local)
 docker compose --profile https up -d        producción: Caddy con certificado delante
 docker compose logs -f api                  ver las peticiones llegar
-python -m unittest discover -s pruebas     109 pruebas (SQLite, sin red)
+python -m unittest discover -s pruebas     114 pruebas (SQLite, sin red)
 ```
 
 `pruebas/ver.py` usa una carpeta de datos aparte: nunca toca la contabilidad

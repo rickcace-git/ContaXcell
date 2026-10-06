@@ -39,6 +39,10 @@ services:
       CONTAXCELL_CODIGO_REGISTRO: ${CONTAXCELL_CODIGO_REGISTRO:-}
       # Opcional: con 1, las cuentas nuevas esperan a `./usuarios aceptar`.
       CONTAXCELL_ACEPTAR_CUENTAS: ${CONTAXCELL_ACEPTAR_CUENTAS:-}
+    volumes:
+      # Las versiones nuevas del programa, que deja ahí `publicar.py`. Las
+      # reparte la API, y no el Caddy, para pedir cuenta aceptada. Solo lectura.
+      - ./actualizaciones:/srv/actualizaciones:ro
     depends_on:
       db:
         condition: service_healthy

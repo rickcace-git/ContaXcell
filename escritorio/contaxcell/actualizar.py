@@ -3,12 +3,15 @@
 Cómo va, de punta a punta:
 
 1. Quien administra ContaXcell ejecuta `python publicar.py` en su ordenador.
-   Eso fabrica el zip, lo firma con su llave y deja en el servidor, en
-   /descargas/, el zip, una nota `version.json` (qué versión es, qué archivo y
-   su resumen SHA-256) y la firma de esa nota.
-2. Al abrir el programa, se pide la nota y su firma. Si la firma no es de su
-   llave, no se hace nada más: se avisa y punto. Si lo es y la versión es más
-   nueva, se pregunta antes de tocar nada.
+   Eso fabrica el zip, lo firma con su llave y deja en el servidor el zip,
+   una nota `version.json` (qué versión es, qué archivo y su resumen SHA-256)
+   y la firma de esa nota.
+2. Al abrir el programa, se pide la nota y su firma a /api/actualizacion/,
+   con la ficha de la sesión: solo las cuentas aceptadas y sin vetar reciben
+   versiones nuevas (sin cuenta, o en espera, el programa sigue funcionando
+   en local, pero no se actualiza). Si la firma no es de su llave, no se hace
+   nada más: se avisa y punto. Si lo es y la versión es más nueva, se
+   pregunta antes de tocar nada.
 3. Si se acepta, se baja el zip y se comprueba que su SHA-256 es el de la
    nota (que va firmada: así el zip queda firmado también, sin firmarlo aparte).
 4. Se descomprime en una carpeta temporal y se lanza un PowerShell pequeño que
@@ -44,8 +47,9 @@ from pathlib import Path
 from . import firma
 from .llave_publica import LLAVE_PUBLICA
 
-RUTA_NOTA = "/descargas/version.json"
-RUTA_FIRMA = "/descargas/version.json.firma"
+RUTA_BASE = "/api/actualizacion/"
+RUTA_NOTA = RUTA_BASE + "version.json"
+RUTA_FIRMA = RUTA_BASE + "version.json.firma"
 NOMBRE_EXE = "ContaXcell.exe"
 SEGUNDOS = 15
 # Un tope por si algo no cuadra: el zip pesa unos 11 MB.
@@ -61,10 +65,15 @@ class SinActualizaciones(Exception):
     """No se ha podido preguntar: sin red, o el servidor no contesta."""
 
 
+class SinPermiso(SinActualizaciones):
+    """El servidor no da versiones nuevas a esta cuenta: está en espera de
+    que la acepten, vetada, o la sesión ha caducado."""
+
+
 @dataclass
 class Novedad:
     version: str
-    archivo: str      # la ruta en el servidor, p. ej. /descargas/ContaXcell-windows-1.1.0.zip
+    archivo: str      # la ruta en el servidor, p. ej. /api/actualizacion/ContaXcell-windows-1.1.0.zip
     sha256: str
     tamano: int
     notas: str = ""
@@ -93,27 +102,31 @@ def instalacion_actual() -> Path | None:
     return None
 
 
-def _bajar(abrir_url, url: str) -> bytes:
+def _bajar(abrir_url, url: str, token: str) -> bytes:
+    peticion = urllib.request.Request(url)
+    peticion.add_header("Authorization", f"Bearer {token}")
     try:
-        with abrir_url(urllib.request.Request(url), timeout=SEGUNDOS) as respuesta:
+        with abrir_url(peticion, timeout=SEGUNDOS) as respuesta:
             return respuesta.read(TAMANO_MAXIMO + 1)
-    except urllib.error.HTTPError:
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            raise SinPermiso(f"el servidor ha contestado {error.code}") from None
         raise
     except (urllib.error.URLError, OSError) as error:
         raise SinActualizaciones(str(error)) from None
 
 
 def buscar(servidor: str, version_actual: str, abrir_url=urllib.request.urlopen,
-           publica: tuple[int, int] = LLAVE_PUBLICA) -> Novedad | None:
+           publica: tuple[int, int] = LLAVE_PUBLICA, token: str = "") -> Novedad | None:
     """La versión nueva si la hay; None si no hay o si ya se tiene esa.
 
     Si el servidor todavía no ha publicado nada (404), es que no hay. Si hay
     nota pero la firma no cuadra, se lanza ActualizacionNoFiable: eso no es
-    normal y merece decirse."""
+    normal y merece decirse. Si la cuenta no tiene permiso, SinPermiso."""
     base = servidor.rstrip("/")
     try:
-        nota = _bajar(abrir_url, base + RUTA_NOTA)
-        firma_nota = _bajar(abrir_url, base + RUTA_FIRMA)
+        nota = _bajar(abrir_url, base + RUTA_NOTA, token)
+        firma_nota = _bajar(abrir_url, base + RUTA_FIRMA, token)
     except urllib.error.HTTPError as error:
         if error.code == 404:
             return None
@@ -129,18 +142,18 @@ def buscar(servidor: str, version_actual: str, abrir_url=urllib.request.urlopen,
                           notas=str(datos.get("notas") or ""))
     except (ValueError, KeyError, TypeError):
         raise ActualizacionNoFiable("La nota de la actualización está mal escrita.") from None
-    if not novedad.archivo.startswith("/descargas/"):
-        raise ActualizacionNoFiable("La actualización apunta fuera de las descargas.")
+    if not novedad.archivo.startswith(RUTA_BASE):
+        raise ActualizacionNoFiable("La actualización apunta fuera de su sitio.")
     return novedad if es_mas_nueva(novedad.version, version_actual) else None
 
 
 def descargar(servidor: str, novedad: Novedad, carpeta: Path,
-              abrir_url=urllib.request.urlopen) -> Path:
+              abrir_url=urllib.request.urlopen, token: str = "") -> Path:
     """Baja el zip y comprueba que es justo el de la nota. Si no, lo borra."""
     carpeta.mkdir(parents=True, exist_ok=True)
     destino = carpeta / f"ContaXcell-{novedad.version}.zip"
     try:
-        datos = _bajar(abrir_url, servidor.rstrip("/") + novedad.archivo)
+        datos = _bajar(abrir_url, servidor.rstrip("/") + novedad.archivo, token)
     except urllib.error.HTTPError as error:
         raise SinActualizaciones(f"el servidor ha contestado {error.code}") from None
     if len(datos) != novedad.tamano or hashlib.sha256(datos).hexdigest() != novedad.sha256:

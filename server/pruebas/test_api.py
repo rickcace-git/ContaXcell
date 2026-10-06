@@ -912,6 +912,63 @@ class PruebaAceptarAMano(unittest.TestCase):
         self.assertNotIn("bea", texto)
 
 
+class PruebaActualizaciones(unittest.TestCase):
+    """La versión nueva del programa solo llega a las cuentas aceptadas."""
+
+    def setUp(self):
+        self.carpeta = Path(tempfile.mkdtemp())
+        (self.carpeta / "version.json").write_bytes(b'{"version": "1.2.0"}')
+        (self.carpeta / "version.json.firma").write_bytes(b"firma de mentira")
+        (self.carpeta / "ContaXcell-windows-1.2.0.zip").write_bytes(b"PK zip")
+        (self.carpeta / "otra-cosa.txt").write_bytes(b"secreto")
+        self.almacen = AlmacenSQLite()
+        self.cliente = TestClient(crear_aplicacion(
+            almacen=self.almacen, secreto=SECRETO_DE_PRUEBA, cliente_precios=None,
+            aceptar_a_mano=True, carpeta_actualizaciones=self.carpeta,
+        ))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.carpeta, ignore_errors=True)
+
+    def cabeceras(self, usuario="ana"):
+        respuesta = self.cliente.post("/api/cuentas/registro",
+                                      json={"usuario": usuario, "contrasena": "contrasena1"})
+        return {"Authorization": f"Bearer {respuesta.json()['token']}"}
+
+    def test_sin_cuenta_no_hay_nada(self):
+        respuesta = self.cliente.get("/api/actualizacion/version.json")
+        self.assertEqual(respuesta.status_code, 401)
+
+    def test_en_espera_tampoco(self):
+        cabeceras = self.cabeceras()
+        for nombre in ("version.json", "version.json.firma", "ContaXcell-windows-1.2.0.zip"):
+            respuesta = self.cliente.get(f"/api/actualizacion/{nombre}", headers=cabeceras)
+            self.assertEqual(respuesta.status_code, 403, nombre)
+
+    def test_aceptada_se_lleva_los_archivos_tal_cual(self):
+        cabeceras = self.cabeceras()
+        self.almacen.aceptar("ana")
+        for nombre in ("version.json", "version.json.firma", "ContaXcell-windows-1.2.0.zip"):
+            respuesta = self.cliente.get(f"/api/actualizacion/{nombre}", headers=cabeceras)
+            self.assertEqual(respuesta.status_code, 200, nombre)
+            self.assertEqual(respuesta.content, (self.carpeta / nombre).read_bytes())
+
+    def test_vetada_no(self):
+        cabeceras = self.cabeceras()
+        self.almacen.aceptar("ana")
+        self.almacen.vetar("ana", True)
+        respuesta = self.cliente.get("/api/actualizacion/version.json", headers=cabeceras)
+        self.assertEqual(respuesta.status_code, 401)
+
+    def test_solo_lo_que_deja_publicar(self):
+        cabeceras = self.cabeceras()
+        self.almacen.aceptar("ana")
+        for nombre in ("otra-cosa.txt", "..%2F..%2Fetc%2Fpasswd", "ContaXcell-windows-9.9.zip"):
+            respuesta = self.cliente.get(f"/api/actualizacion/{nombre}", headers=cabeceras)
+            self.assertEqual(respuesta.status_code, 404, nombre)
+
+
 class PruebaRechazarTodas(unittest.TestCase):
     """`./usuarios rechazar-todas`: para cuando alguien crea cuentas basura."""
 

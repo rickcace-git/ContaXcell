@@ -8,3 +8,6 @@ venv/
 
 # El APK que se sirve para descargar: se sube a mano a la máquina.
 descargas/
+
+# Las versiones del programa para actualizar: las sube publicar.py.
+actualizaciones/

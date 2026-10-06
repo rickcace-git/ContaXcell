@@ -22,7 +22,7 @@ from .almacen import Almacen, carpeta_de_recursos
 from .modelo import Libro, hoy
 
 # Súbela antes de cada `python publicar.py`: es lo que compara el actualizador.
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 ARCHIVO_VENTANA = "ventana.json"
 # Cuánto se espera como mucho al hilo de sincronía antes de apuntar los
 # recibos por cuenta propia. Una petición se rinde a los diez segundos, así
@@ -612,12 +612,25 @@ class Aplicacion(tk.Tk):
                             "Se está ejecutando desde el código fuente: se actualiza con git, "
                             "no desde aquí.")
             return
+        # Las versiones nuevas son para las cuentas aceptadas: sin cuenta, el
+        # programa sigue sirviendo en local, pero no se actualiza.
+        token = self._ficha()
+        if not token:
+            if a_mano:
+                dialogos.avisar(self, "Las actualizaciones llegan a las cuentas aceptadas.",
+                                "Entra con tu cuenta (Ajustes ▸ Cuenta) y vuelve a probar.")
+            return
         self._buscando_actualizacion = True
         servidor = self._servidor()
 
         def al_acabar(novedad, error):
             self._buscando_actualizacion = False
-            if isinstance(error, actualizar.ActualizacionNoFiable):
+            if isinstance(error, actualizar.SinPermiso):
+                if a_mano:
+                    dialogos.avisar(self, "Tu cuenta todavía no recibe actualizaciones.",
+                                    "Llegan cuando quien administra ContaXcell la acepta. "
+                                    "Mientras, el programa funciona igual en este ordenador.")
+            elif isinstance(error, actualizar.ActualizacionNoFiable):
                 dialogos.error(self, "Hay algo raro en la actualización del servidor.",
                                f"{error}\n\nAvisa a quien administra ContaXcell.")
             elif error is not None:
@@ -629,11 +642,17 @@ class Aplicacion(tk.Tk):
                     dialogos.avisar(self, "Ya tienes la última versión.",
                                     f"ContaXcell {VERSION}.")
             else:
-                self._ofrecer_actualizacion(servidor, novedad)
+                self._ofrecer_actualizacion(servidor, novedad, token)
 
-        self._en_hilo(lambda: actualizar.buscar(servidor, VERSION), al_acabar)
+        self._en_hilo(lambda: actualizar.buscar(servidor, VERSION, token=token), al_acabar)
 
-    def _ofrecer_actualizacion(self, servidor: str, novedad) -> None:
+    def _ficha(self) -> str:
+        """El token de la sesión, o "" si no se ha entrado en ninguna cuenta."""
+        if self.sincronia is None or not self.sincronia.hay_sesion():
+            return ""
+        return self.sincronia.sesion["token"]
+
+    def _ofrecer_actualizacion(self, servidor: str, novedad, token: str) -> None:
         from tkinter import messagebox
 
         from . import actualizar
@@ -656,7 +675,7 @@ class Aplicacion(tk.Tk):
         trabajo = actualizar.carpeta_de_trabajo()
 
         def bajar_y_preparar():
-            archivo = actualizar.descargar(servidor, novedad, trabajo)
+            archivo = actualizar.descargar(servidor, novedad, trabajo, token=token)
             return actualizar.preparar(archivo, instalacion, os.getpid(), trabajo)
 
         def al_acabar(guion, error):

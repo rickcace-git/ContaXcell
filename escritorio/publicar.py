@@ -10,10 +10,18 @@ Lo segundo, paso a paso:
 2. Fabrica el programa con empaquetar.py.
 3. Escribe la nota (`version.json`: versión, archivo, tamaño y SHA-256 del
    zip) y la firma con tu llave.
-4. Sube a /descargas/ del servidor el zip, la nota y su firma. El zip va
-   también como ContaXcell-windows.zip, la descarga de siempre.
+4. Sube a server/actualizaciones/ de la máquina el zip, la nota y su firma.
+   Eso lo reparte la API, y solo a las cuentas aceptadas y sin vetar. El zip
+   va también a /descargas/ContaXcell-windows.zip, la descarga pública para
+   instalarlo la primera vez.
 
 Al abrir el programa, cada uno ve «Hay una versión nueva… ¿Actualizar ahora?».
+
+    python publicar.py --tambien-viejas "…"
+
+Lo mismo, y además deja la nota en /descargas/, el sitio público donde
+miraban las versiones hasta la 1.1.2. Sirvió una vez, para que esas pasaran
+a la que ya pregunta con cuenta. No hace falta volver a usarlo.
 
 LA LLAVE DE FIRMAR es lo único delicado. Vive en tu carpeta de usuario
 (~/.contaxcell/llave-actualizaciones.json), nunca en el repositorio ni en el
@@ -84,7 +92,38 @@ def maquina_del_servidor() -> tuple[str, str]:
     return servidor, urllib.parse.urlparse(servidor).hostname or ""
 
 
-def publicar(notas: str, llave_ssh: Path) -> int:
+def nota_publicada(ssh: list[str], destino: str) -> tuple[bytes, bytes] | None:
+    """La nota y la firma que hay ahora en el servidor, leídas por ssh (las
+    de la API piden cuenta, y esto no tiene por qué ir con una). None si no
+    hay ninguna todavía."""
+    partes = []
+    for nombre in ("version.json", "version.json.firma"):
+        leido = subprocess.run(["ssh", *ssh, destino, f"cat server/actualizaciones/{nombre}"],
+                               capture_output=True)
+        if leido.returncode != 0:
+            return None
+        partes.append(leido.stdout)
+    return partes[0], partes[1]
+
+
+def version_de(nota: bytes) -> str:
+    return str(json.loads(nota.decode("utf-8"))["version"])
+
+
+def firmar_nota(version: str, datos: bytes, archivo: str, notas: str,
+                llave: dict) -> tuple[bytes, bytes]:
+    """La nota de una versión y su firma."""
+    nota = json.dumps({
+        "version": version,
+        "archivo": archivo,
+        "tamano": len(datos),
+        "sha256": hashlib.sha256(datos).hexdigest(),
+        "notas": notas.strip(),
+    }, ensure_ascii=False, indent=2).encode("utf-8")
+    return nota, firma.firmar(nota, llave)
+
+
+def publicar(notas: str, llave_ssh: Path, tambien_viejas: bool = False) -> int:
     from contaxcell.ventana import VERSION
 
     if not LLAVE_PRIVADA.exists():
@@ -100,13 +139,14 @@ def publicar(notas: str, llave_ssh: Path) -> int:
 
     servidor, maquina = maquina_del_servidor()
     print(f"Servidor: {servidor}\nVersión a publicar: {VERSION}")
-    try:
-        publicada = actualizar.buscar(servidor, "0")
-    except actualizar.SinActualizaciones as error:
-        print(f"No se ha podido preguntar al servidor ({error}).")
+    ssh = ["-i", str(llave_ssh), "-o", "BatchMode=yes"]
+    destino = f"ubuntu@{maquina}"
+    if subprocess.run(["ssh", *ssh, destino, "mkdir -p server/actualizaciones"]).returncode != 0:
+        print(f"No se ha podido entrar en el servidor por ssh. ¿Está la llave en {llave_ssh}?")
         return 1
-    if publicada is not None and not actualizar.es_mas_nueva(VERSION, publicada.version):
-        print(f"\nEn el servidor ya está la {publicada.version}. Sube VERSION en "
+    publicada = nota_publicada(ssh, destino)
+    if publicada is not None and not actualizar.es_mas_nueva(VERSION, version_de(publicada[0])):
+        print(f"\nEn el servidor ya está la {version_de(publicada[0])}. Sube VERSION en "
               "contaxcell/ventana.py (por ejemplo a la siguiente) y vuelve a lanzar esto.")
         return 1
 
@@ -118,42 +158,53 @@ def publicar(notas: str, llave_ssh: Path) -> int:
 
     datos = ZIP.read_bytes()
     nombre = f"ContaXcell-windows-{VERSION}.zip"
-    nota = json.dumps({
-        "version": VERSION,
-        "archivo": f"/descargas/{nombre}",
-        "tamano": len(datos),
-        "sha256": hashlib.sha256(datos).hexdigest(),
-        "notas": notas.strip(),
-    }, ensure_ascii=False, indent=2).encode("utf-8")
     salida = RAIZ / "dist" / "publicar"
     salida.mkdir(parents=True, exist_ok=True)
+    nota, firma_nota = firmar_nota(VERSION, datos, actualizar.RUTA_BASE + nombre, notas, llave)
     (salida / "version.json").write_bytes(nota)
-    (salida / "version.json.firma").write_bytes(firma.firmar(nota, llave))
+    (salida / "version.json.firma").write_bytes(firma_nota)
 
     print("\nSubiendo al servidor…")
-    ssh = ["-i", str(llave_ssh), "-o", "BatchMode=yes"]
-    destino = f"ubuntu@{maquina}"
     # Primero el zip; la nota y su firma, al final y de golpe (se suben con
     # otro nombre y se renombran juntas), para que nadie vea una nota que
     # apunte a un zip que aún no está.
     pasos = [
-        ["scp", *ssh, str(ZIP), f"{destino}:server/descargas/{nombre}"],
-        ["scp", *ssh, str(salida / "version.json"), f"{destino}:server/descargas/.version.json"],
-        ["scp", *ssh, str(salida / "version.json.firma"), f"{destino}:server/descargas/.version.json.firma"],
+        ["scp", *ssh, str(ZIP), f"{destino}:server/actualizaciones/{nombre}"],
+        ["scp", *ssh, str(salida / "version.json"),
+         f"{destino}:server/actualizaciones/.version.json"],
+        ["scp", *ssh, str(salida / "version.json.firma"),
+         f"{destino}:server/actualizaciones/.version.json.firma"],
         ["ssh", *ssh, destino,
-         "cd server/descargas && cp " + nombre + " ContaXcell-windows.zip"
-         " && mv .version.json.firma version.json.firma && mv .version.json version.json"],
+         f"cd server && cp actualizaciones/{nombre} descargas/ContaXcell-windows.zip"
+         " && cd actualizaciones && mv .version.json.firma version.json.firma"
+         " && mv .version.json version.json"],
     ]
+    if tambien_viejas:
+        # Las de antes (hasta la 1.1.2) miran en /descargas/, sin cuenta, y
+        # solo aceptan un zip de ahí.
+        vieja, firma_vieja = firmar_nota(VERSION, datos, f"/descargas/{nombre}", notas, llave)
+        (salida / "vieja.json").write_bytes(vieja)
+        (salida / "vieja.json.firma").write_bytes(firma_vieja)
+        pasos += [
+            ["scp", *ssh, str(salida / "vieja.json"), f"{destino}:server/descargas/.version.json"],
+            ["scp", *ssh, str(salida / "vieja.json.firma"),
+             f"{destino}:server/descargas/.version.json.firma"],
+            ["ssh", *ssh, destino,
+             f"cd server/descargas && cp ../actualizaciones/{nombre} {nombre}"
+             " && mv .version.json.firma version.json.firma && mv .version.json version.json"],
+        ]
     for paso in pasos:
         if subprocess.run(paso).returncode != 0:
             print("Ha fallado la subida. Lo de antes sigue publicado tal cual.")
             return 1
 
-    comprobada = actualizar.buscar(servidor, "0")
-    if comprobada is None or comprobada.version != VERSION:
-        print("Subido, pero al volver a preguntar no sale la versión nueva. Revísalo.")
+    comprobada = nota_publicada(ssh, destino)
+    if (comprobada is None or comprobada[0] != nota
+            or not firma.comprobar(comprobada[0], comprobada[1], PUBLICA)):
+        print("Subido, pero al volver a mirar no sale la versión nueva. Revísalo.")
         return 1
-    print(f"\nPublicada la {VERSION}. Les saldrá al abrir ContaXcell con internet.")
+    print(f"\nPublicada la {VERSION}. Les saldrá al abrir ContaXcell con internet,\n"
+          "a los que tengan la cuenta aceptada.")
     return 0
 
 
@@ -164,12 +215,15 @@ def main() -> int:
                             help="lo que trae de nuevo, en una frase (se enseña al preguntar)")
     analizador.add_argument("--crear-llave", action="store_true",
                             help="crea la llave de firmar (solo la primera vez)")
+    analizador.add_argument("--tambien-viejas", action="store_true",
+                            help="deja también la nota donde miraban las versiones "
+                                 "hasta la 1.1.2 (una vez, para pasarlas a la nueva)")
     analizador.add_argument("--llave-ssh", type=Path, default=LLAVE_SSH,
                             help=f"la llave .pem del servidor (por defecto {LLAVE_SSH})")
     argumentos = analizador.parse_args()
     if argumentos.crear_llave:
         return crear_llave()
-    return publicar(argumentos.notas, argumentos.llave_ssh)
+    return publicar(argumentos.notas, argumentos.llave_ssh, argumentos.tambien_viejas)
 
 
 if __name__ == "__main__":

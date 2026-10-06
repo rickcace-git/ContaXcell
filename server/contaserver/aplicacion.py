@@ -1,6 +1,6 @@
 """La API del servidor de sincronización.
 
-Ocho rutas y ninguna más:
+Nueve rutas y ninguna más:
 
 - ``GET  /api/salud``              ¿está vivo el servidor?
 - ``POST /api/cuentas/registro``   crear cuenta y recibir una ficha
@@ -10,6 +10,7 @@ Ocho rutas y ninguna más:
 - ``PUT  /api/libro``              subir el libro (con ficha)
 - ``GET  /api/precios/buscar``     buscar la cotización de un fondo (con ficha)
 - ``GET  /api/precios``            los cierres diarios de un fondo (con ficha)
+- ``GET  /api/actualizacion/…``    la versión nueva del programa (con ficha)
 
 Los precios están aquí y no en cada aplicación porque la fuente no es
 oficial y puede romperse: aquí se arregla en una máquina y no repartiendo
@@ -33,11 +34,13 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+import re
 import time
 import unicodedata
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from . import almacen as modulo_almacen
 from . import limites
@@ -56,6 +59,11 @@ CONTRASENA_MINIMA = 8
 CONTRASENA_MAXIMA = 128
 # El largo máximo que admite un correo de verdad.
 CORREO_MAXIMO = 254
+
+# Lo que deja `publicar.py` en la carpeta de actualizaciones, y nada más: la
+# nota, su firma y los zips. Así un nombre con «..» no sale de la carpeta.
+ARCHIVO_DE_ACTUALIZACION = re.compile(
+    r"version\.json(\.firma)?|ContaXcell-windows-[0-9][0-9.]*\.zip")
 
 # Cuántos intentos se aguantan y en cuánto tiempo. Diez fallos de entrada por
 # cuarto de hora son de sobra para un despiste, y muy pocos para quien está
@@ -92,6 +100,7 @@ def crear_aplicacion(
     limite_registro: tuple[int, float] | None = None,
     cliente_precios=_SIN_DECIR,
     aceptar_a_mano: bool | None = None,
+    carpeta_actualizaciones: Path | str | None = None,
 ) -> FastAPI:
     """Monta la aplicación con el almacén que le den.
 
@@ -105,6 +114,12 @@ def crear_aplicacion(
     pero no guardar nada hasta que el administrador las acepte con
     ``./usuarios aceptar``. Así, aunque el código de invitación corra de
     mano en mano, nadie se queda sin que lo vea alguien.
+
+    ``carpeta_actualizaciones`` es donde `publicar.py` deja las versiones
+    nuevas del programa (CONTAXCELL_ACTUALIZACIONES; en el Docker,
+    /srv/actualizaciones). Se sirven por la API y no por el Caddy a pelo
+    precisamente para pedir la ficha: sin cuenta aceptada, no hay versión
+    nueva.
     """
     if almacen is None:
         almacen = _almacen_desde_entorno()
@@ -124,6 +139,10 @@ def crear_aplicacion(
     if aceptar_a_mano is None:
         valor = os.environ.get("CONTAXCELL_ACEPTAR_CUENTAS", "").strip().lower()
         aceptar_a_mano = valor in ("1", "si", "sí", "true")
+    if carpeta_actualizaciones is None:
+        carpeta_actualizaciones = os.environ.get(
+            "CONTAXCELL_ACTUALIZACIONES", "/srv/actualizaciones")
+    carpeta_actualizaciones = Path(carpeta_actualizaciones)
 
     # Tres contadores: los fallos por IP, los fallos por cuenta y los
     # registros por IP. Separados a propósito: quien falla mucho contra una
@@ -369,6 +388,19 @@ def crear_aplicacion(
             "simbolo": simbolo.strip().upper(),
             "cotizaciones": [c.a_json() for c in encontradas],
         }
+
+    @app.get("/api/actualizacion/{nombre}")
+    def actualizacion(nombre: str, _id: int = Depends(usuario_actual)):
+        """La versión nueva del programa: solo para cuentas aceptadas y sin
+        vetar (eso lo corta `usuario_actual`, con su 401 o su 403). El
+        programa comprueba la firma igual que antes: esto decide quién la
+        recibe, no si es de fiar."""
+        if not ARCHIVO_DE_ACTUALIZACION.fullmatch(nombre):
+            raise HTTPException(404, "No hay tal archivo.")
+        ruta = carpeta_actualizaciones / nombre
+        if not ruta.is_file():
+            raise HTTPException(404, "No hay tal archivo.")
+        return FileResponse(ruta)
 
     return app
 
