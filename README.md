@@ -1,11 +1,8 @@
 # ContaXcell
 
-> **Android:** la nueva aplicación nativa está en [`android/`](android/README.md).
-> Conserva el libro, los cálculos, la sincronización y la importación/exportación
-> de la versión de escritorio con una entrada adaptada al móvil.
-
-Contabilidad personal para Windows. Los datos viven en tu ordenador, en un
-archivo tuyo, sin cuentas de Google ni conexión de por medio.
+Contabilidad personal para Windows y Android. Los datos viven en tu ordenador,
+en un archivo tuyo, y un servidor propio guarda una copia para llevarla de un
+aparato a otro. Sin cuentas de Google de por medio.
 
 Sustituye a la hoja de cálculo: hace lo mismo que las cuatro hojas de la
 plantilla original (Movimientos, Resumen, Presupuesto e Inversiones), pero sin
@@ -50,12 +47,19 @@ Python, y el resto es de la biblioteca estándar.
 | **Inversiones** | La cartera: qué has aportado, qué vale hoy y qué ha hecho el mercado. |
 | **Ajustes** | Saldo inicial, categorías, tema, tu cuenta y las copias de tus datos. |
 
-**Atajos:** `Ctrl+1`…`Ctrl+8` cambian de pestaña, `Ctrl+H` tapa los importes.
+**Atajos:** `Ctrl+1`…`Ctrl+8` cambian de pestaña, `Ctrl+H` tapa los importes y
+`F1` abre la guía de uso por el apartado de la pestaña en la que estás.
+
+Arriba hay tres menús: **Archivo** (guardar o restaurar una copia, abrir la
+carpeta de los datos), **Ver** (tapar importes, tema) y **Ayuda** (la guía, las
+condiciones de uso, el historial de versiones y buscar actualizaciones).
 
 El **botón del ojo** de la barra de arriba tapa de golpe todos los importes de
 la aplicación, por si apuntas algo con gente delante. Se recuerda al cerrar.
 
 ![El resumen del año](capturas/resumen.png)
+
+![El presupuesto del mes](capturas/presupuesto.png)
 
 ## Las dos reglas que gobiernan las cuentas
 
@@ -109,6 +113,8 @@ En **Apuntar** hay una casilla «se repite» que crea la regla a partir del
 apunte que acabas de escribir: ese movimiento es ya el primer pago, así que no
 se duplica ni se rellena nada anterior.
 
+![Los periódicos](capturas/periodicos.png)
+
 ## Las deudas
 
 Que alguien te deba veinte euros no es tenerlos. Por eso las deudas son una
@@ -118,6 +124,8 @@ de qué, y se va marcando lo devuelto a trozos.
 Cobrar o pagar una deuda **ofrece** apuntar un movimiento, pero no lo fabrica
 sola: si pagaste tú la cena entera, ese gasto ya salió de tu cuenta y lo que te
 devuelven solo lo compensa. Apuntarlo también lo contaría dos veces.
+
+![Las deudas](capturas/deudas.png)
 
 ## Traer el extracto del banco
 
@@ -185,13 +193,21 @@ que es justo lo que hace el software malicioso, y por eso los antivirus lo
 marcan mucho más a menudo. La carpeta arranca antes y da menos disgustos al
 mandársela a alguien.
 
+Para repartirlo **no hace falta mandar nada**: `python publicar.py "novedades"`
+lo fabrica, lo firma y lo sube al servidor, y a cada uno le aparece el aviso de
+versión nueva al abrir el programa. Solo se instala lo que va firmado con la
+llave de Ricardo, así que nadie puede colar un programa falso por ese camino.
+Los pasos completos, en `PUBLICAR.txt`.
+
 Ese aviso de Windows (SmartScreen) solo desaparece comprando un certificado de
 firma de código, que cuesta unos cientos de euros al año. Para repartir entre
 amigos no compensa.
 
 Cada persona lleva su propia contabilidad en su ordenador. Nadie ve la de
-nadie. Para dar una versión nueva basta con sustituir la carpeta: los datos
-están en otro sitio y no se tocan.
+nadie. Al actualizar, los datos no se tocan: están en otra carpeta.
+
+**Solo funciona en Windows.** Un `.exe` no abre en un Mac; allí habría que
+arrancarlo desde el código (con el Python de python.org, que trae Tkinter).
 
 ## La cuenta y la sincronización
 
@@ -200,11 +216,13 @@ levanta con Docker y guarda los libros en PostgreSQL). Al abrirla por primera
 vez pide crear una cuenta o entrar; a partir de ahí abre directa, haya internet
 o no.
 
-El servidor **ya está desplegado** en una instancia EC2 de Amazon, encendida
-todo el día y por HTTPS, y **su dirección viene puesta de fábrica**: quien
+El servidor **ya está desplegado** en una instancia EC2 de Amazon de la cuenta
+de Ricardo, encendida todo el día y por HTTPS, y **su dirección viene puesta de fábrica**: quien
 recibe el programa solo tiene que poner usuario y contraseña. Si el servidor
 pide **código de invitación**, aparece un campo más al crear la cuenta; sin ese
-código, nadie que dé con la dirección puede registrarse. Para apuntar a otro
+código, nadie que dé con la dirección puede registrarse. Al crear la cuenta se
+aceptan las condiciones de uso (`server/textos/condiciones.md`), que luego se
+pueden releer en **Ayuda → Condiciones de uso**. Para apuntar a otro
 servidor (uno de pruebas en tu propio ordenador, por ejemplo) hay un enlace
 **Cambiar el servidor…** en la ventana de entrada.
 
@@ -265,6 +283,7 @@ ContaXcell/
 ├── escritorio/                la aplicación
 │   ├── ejecutar.py            arranque (y punto de entrada de PyInstaller)
 │   ├── empaquetar.py          crea el .exe y el .zip
+│   ├── publicar.py            lo fabrica, lo firma y lo sube al servidor
 │   ├── contaxcell/
 │   │   ├── modelo.py          qué es un movimiento, una categoría, un activo…
 │   │   ├── calculos.py        toda la aritmética. No sabe que existe una ventana
@@ -277,6 +296,10 @@ ContaXcell/
 │   │   ├── widgets.py         tarjetas, tablas, barras, gráficos
 │   │   ├── dialogos.py        formularios y confirmaciones
 │   │   ├── ventana.py         la ventana principal y el estado compartido
+│   │   ├── guia.py            la guía de uso (F1), un apartado por pestaña
+│   │   ├── iconos.py          los iconos de las pestañas, dibujados en Python
+│   │   ├── qr.py              el QR para bajar la app del móvil, sin librerías
+│   │   ├── actualizar.py      se actualiza solo, y solo con lo firmado
 │   │   └── vistas/            una pestaña por archivo
 │   ├── pruebas/
 │   └── recursos/
@@ -285,6 +308,7 @@ ContaXcell/
 │   ├── contaserver/           la API: cuentas, fichas de sesión, libros y precios
 │   ├── docker-compose.yml     la API, su PostgreSQL y el Caddy del HTTPS
 │   └── LEEME.md               cómo levantarlo y desplegarlo
+├── android/                   la app del móvil (Kotlin + Compose)
 ├── app/                       versión anterior para el móvil (Google Apps Script)
 └── capturas/
 ```
@@ -303,12 +327,12 @@ quedado anticuadas. Así nunca se enseña algo que en realidad no se ha grabado.
 
 ```
 cd escritorio
-python -m unittest discover -s pruebas    # 350 pruebas, unos 8 segundos
+python -m unittest discover -s pruebas    # 458 pruebas, unos 5 segundos
 python pruebas/humo.py                    # abre la ventana y pasea las pestañas
 python pruebas/ver.py --pestana resumen   # abre con datos de prueba
 
 cd server
-python -m unittest discover -s pruebas    # 75 pruebas, con SQLite y sin red
+python -m unittest discover -s pruebas    # 120 pruebas, con SQLite y sin red
 ```
 
 `ver.py` usa una carpeta de datos aparte, así que nunca toca la contabilidad de
@@ -338,7 +362,13 @@ rápida de revisar cómo queda una pantalla.
 - **El presupuesto es una cifra por categoría** y vale para todos los meses, tal
   como estaba en la plantilla. Lo que cambia cada mes es el gasto real.
 
-## La versión del móvil
+## La app del móvil
+
+En [`android/`](android/README.md) está la aplicación nativa para Android. Lee y
+sube el mismo `datos.json` que el escritorio, con las mismas reglas, así que lo
+apuntado en el móvil aparece en el ordenador y al revés. Se compila sola en
+GitHub y, como el programa del ordenador, se actualiza sola desde el servidor.
+Para instalarla basta con escanear el QR que sale en **Ajustes**.
 
 En `app/` está la versión anterior: una aplicación web en Google Apps Script
 que escribía directamente en la hoja de Google desde el navegador del móvil.
