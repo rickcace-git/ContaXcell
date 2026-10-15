@@ -41,6 +41,13 @@ tienes en escritorio\.env, en la línea CONTAXCELL_SERVIDOR=https://...
    Al abrir ContaXcell, a los que tengan la cuenta aceptada les saldrá
    "Hay una versión nueva" y se actualiza con un clic.
 
+ Solo fabricarlo, sin publicar (para probarlo tú o pasarlo a mano):
+       cd escritorio
+       python empaquetar.py
+   Deja en escritorio\dist\ la carpeta ContaXcell (con el .exe dentro) y
+   ContaXcell-windows.zip, listo para mandar. Necesita escritorio\.env.
+   No hace falta antes de publicar: publicar.py ya lo fabrica solo.
+
 
 --------------------------------------------------------------------------
  2. PUBLICAR UNA VERSIÓN NUEVA DE LA APP DEL MÓVIL
@@ -88,6 +95,11 @@ tienes en escritorio\.env, en la línea CONTAXCELL_SERVIDOR=https://...
        git add -A
        git commit -m "Condiciones de uso: lo que has cambiado"
        git push
+
+ Lo mismo vale para el enlace de Ko-fi de «Apoyar ContaXcell»: se edita
+ server\textos\apoyo.json y se sube con
+       python publicar.py --apoyo
+ Con "enlace": "" desaparece del programa y de la app.
 
 
 --------------------------------------------------------------------------

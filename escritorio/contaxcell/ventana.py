@@ -28,6 +28,7 @@ ARCHIVO_VENTANA = "ventana.json"
 # recibos por cuenta propia. Una petición se rinde a los diez segundos, así
 # que para entonces ya ha avisado de algo; esto es por si ni eso.
 MS_TOPE_ESPERA_SERVIDOR = 15_000
+ETIQUETA_APOYAR = "Apoyar ContaXcell…"
 
 
 def _preparar_pantalla() -> float:
@@ -74,6 +75,10 @@ class Aplicacion(tk.Tk):
         self.vistas: dict[str, object] = {}
         self._sucias: set[str] = set()
         self._temporizador_estado = None
+        # (enlace, texto) de «Apoyar ContaXcell». Empieza con lo de fábrica y
+        # el servidor, si dice algo, lo cambia al poco de abrir.
+        from .sincronia import ENLACE_APOYO, TEXTO_APOYO
+        self.apoyo = (ENLACE_APOYO, TEXTO_APOYO)
 
         self._construir()
         self._atajos()
@@ -105,6 +110,7 @@ class Aplicacion(tk.Tk):
         # Los precios van en un hilo aparte y llegan cuando lleguen: la
         # ventana no espera por ellos.
         self.after(900, self.pedir_precios)
+        self.after(1500, self._preguntar_apoyo)
 
         # Si hay versión nueva, se pregunta al rato de abrir, sin estorbar el
         # arranque. Solo en el .exe: desde el código no hay nada que cambiar.
@@ -254,6 +260,7 @@ class Aplicacion(tk.Tk):
         ayuda.add_command(label="Buscar actualizaciones…",
                           command=lambda: self.buscar_actualizacion(a_mano=True))
         ayuda.add_separator()
+        ayuda.add_command(label=ETIQUETA_APOYAR, command=self.apoyar)
         ayuda.add_command(label="Acerca de ContaXcell", command=self._acerca_de)
         self.menus["Ayuda"] = ayuda
 
@@ -715,6 +722,38 @@ class Aplicacion(tk.Tk):
                 dialogos.Lectura(self, "Condiciones de uso", condiciones[1]).mostrar()
 
         self._en_hilo(self.sincronia.condiciones, al_acabar)
+
+    def apoyar(self) -> None:
+        enlace, texto = self.apoyo
+        if enlace:
+            dialogos.Apoyo(self, enlace, texto).mostrar()
+
+    def _preguntar_apoyo(self) -> None:
+        """Lo que diga el servidor del enlace de apoyo. Sin cuenta, o si no
+        contesta, se queda lo de fábrica."""
+        if self.sincronia is None:
+            return
+
+        def al_acabar(apoyo, error):
+            if error is None and apoyo is not None and apoyo != self.apoyo:
+                self.poner_apoyo(apoyo)
+
+        self._en_hilo(self.sincronia.apoyo, al_acabar)
+
+    def poner_apoyo(self, apoyo: tuple[str, str]) -> None:
+        """Cambia el enlace de apoyo. Vacío, desaparece del menú y de Ajustes."""
+        self.apoyo = apoyo
+        ayuda = self.menus["Ayuda"]
+        try:
+            posicion = ayuda.index(ETIQUETA_APOYAR)
+        except tk.TclError:
+            posicion = None
+        if not apoyo[0] and posicion is not None:
+            ayuda.delete(posicion)
+        elif apoyo[0] and posicion is None:
+            ayuda.insert_command(ayuda.index("Acerca de ContaXcell"),
+                                 label=ETIQUETA_APOYAR, command=self.apoyar)
+        self.vistas["ajustes"].poner_apoyo()
 
     def historial_de_versiones(self) -> None:
         """Todas las versiones publicadas hasta esta, con lo que trajo cada una.

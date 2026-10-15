@@ -13,6 +13,7 @@ import com.contaxcell.app.data.remote.AuthenticationException
 import com.contaxcell.app.data.remote.OkHttpContaXcellApi
 import com.contaxcell.app.data.remote.MarketQuoteRepository
 import com.contaxcell.app.data.remote.QuoteSearchResult
+import com.contaxcell.app.data.remote.Support
 import com.contaxcell.app.data.sync.DomainMarketQuoteBookPort
 import com.contaxcell.app.data.sync.MarketQuoteSync
 import com.contaxcell.app.data.sync.QuoteRefreshResult
@@ -173,9 +174,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ),
     )
 
+    /** «Apoyar ContaXcell»: lo de fábrica hasta que el servidor diga otra cosa. */
+    private var support: Support = Support.DEFAULT
+
     init {
         SyncScheduler.schedulePeriodic(getApplication())
-        viewModelScope.launch { loadInitialState() }
+        viewModelScope.launch {
+            loadInitialState()
+            // Después de cargar, para no pintar nada antes de tener el libro.
+            authRepository.support()?.let { support = it; refresh() }
+        }
         // Lo que se apunta lo sube el trabajador de fondo, no esta pantalla:
         // cuando acaba, se vuelve a mirar la sesión para quitar el «Pendiente».
         viewModelScope.launch {
@@ -1237,6 +1245,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ),
                 appVersion = BuildConfig.VERSION_NAME,
                 dataLocation = "Almacenamiento privado · ${store.javaClass.simpleName}",
+                supportLink = support.link,
+                supportText = support.text,
             ),
         )
     }

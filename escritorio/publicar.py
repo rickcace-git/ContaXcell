@@ -33,6 +33,11 @@ a la que ya pregunta con cuenta. No hace falta volver a usarlo.
 Sube solo las condiciones de uso (server/textos/condiciones.md) al
 servidor. Se ven al momento, sin reiniciar nada ni publicar versión.
 
+    python publicar.py --apoyo
+
+Lo mismo con el enlace de «Apoyar ContaXcell» (server/textos/apoyo.json).
+Con el enlace vacío, los programas dejan de enseñarlo.
+
     python publicar.py --android "Descargas/ContaXcell-android (6)/app-debug.apk" "lo nuevo"
 
 Publica la app del móvil que ha compilado GitHub: la carpeta del artifact
@@ -70,6 +75,7 @@ LLAVE_PUBLICA = RAIZ / "contaxcell" / "llave_publica.py"
 ZIP = RAIZ / "dist" / "ContaXcell-windows.zip"
 LLAVE_SSH = Path.home() / ".ssh" / "contaxcell.pem"
 CONDICIONES = RAIZ.parent / "server" / "textos" / "condiciones.md"
+APOYO = RAIZ.parent / "server" / "textos" / "apoyo.json"
 LLAVE_ANDROID = (RAIZ.parent / "android" / "app" / "src" / "main" / "java" / "com" / "contaxcell"
                  / "app" / "data" / "update" / "UpdateKey.kt")
 # Cuántas versiones atrás guarda el historial de la nota.
@@ -596,6 +602,33 @@ def subir_condiciones(llave_ssh: Path) -> int:
     return 0
 
 
+def subir_apoyo(llave_ssh: Path) -> int:
+    """Sube server/textos/apoyo.json y comprueba que el servidor da ese."""
+    import urllib.request
+
+    try:
+        quiero = json.loads(APOYO.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"{APOYO.name} no se puede leer: {error}")
+        return 1
+    servidor, maquina = maquina_del_servidor()
+    ssh = ["-i", str(llave_ssh), "-o", "BatchMode=yes"]
+    destino = f"ubuntu@{maquina}"
+    pasos = [["ssh", *ssh, destino, "mkdir -p server/textos"],
+             ["scp", *ssh, str(APOYO), f"{destino}:server/textos/apoyo.json"]]
+    for paso in pasos:
+        if subprocess.run(paso).returncode != 0:
+            print("No se ha podido subir el enlace de apoyo.")
+            return 1
+    with urllib.request.urlopen(servidor.rstrip("/") + "/api/apoyo", timeout=15) as r:
+        recibido = json.loads(r.read().decode("utf-8"))
+    if recibido.get("enlace") != str(quiero.get("enlace") or "").strip():
+        print("Subido, pero el servidor da otro enlace. ¿Empieza por https://?")
+        return 1
+    print("Enlace de apoyo subido: los programas lo verán la próxima vez que se abran.")
+    return 0
+
+
 def main() -> int:
     analizador = argparse.ArgumentParser(description=__doc__,
                                          formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -608,6 +641,8 @@ def main() -> int:
                                  "hasta la 1.1.2 (una vez, para pasarlas a la nueva)")
     analizador.add_argument("--condiciones", action="store_true",
                             help="sube solo las condiciones de uso (server/textos/condiciones.md)")
+    analizador.add_argument("--apoyo", action="store_true",
+                            help="sube solo el enlace de apoyo (server/textos/apoyo.json)")
     analizador.add_argument("--android", type=Path, metavar="APK",
                             help="publica la app del móvil: el app-debug.apk del artifact de GitHub")
     analizador.add_argument("--historial-android", type=Path, metavar="RUTA",
@@ -619,6 +654,8 @@ def main() -> int:
         return crear_llave()
     if argumentos.condiciones:
         return subir_condiciones(argumentos.llave_ssh)
+    if argumentos.apoyo:
+        return subir_apoyo(argumentos.llave_ssh)
     if argumentos.historial_android:
         return escribir_historial_android(argumentos.historial_android)
     if argumentos.android:

@@ -7,6 +7,7 @@ Cada prueba arranca con un servidor recién hecho y vacío.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -1030,6 +1031,52 @@ class PruebaCondiciones(unittest.TestCase):
     def test_sin_archivo_no_hay_condiciones(self):
         self.archivo.unlink()
         self.assertEqual(self.cliente.get("/api/condiciones").status_code, 404)
+
+
+class PruebaApoyo(unittest.TestCase):
+    """El enlace de «Apoyar ContaXcell»: se cambia o se quita desde aquí."""
+
+    def setUp(self):
+        self.carpeta = Path(tempfile.mkdtemp())
+        self.archivo = self.carpeta / "apoyo.json"
+        self.cliente = TestClient(crear_aplicacion(
+            almacen=AlmacenSQLite(), secreto=SECRETO_DE_PRUEBA, cliente_precios=None,
+            archivo_apoyo=self.archivo,
+        ))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.carpeta, ignore_errors=True)
+
+    def poner(self, contenido):
+        self.archivo.write_text(contenido if isinstance(contenido, str)
+                                else json.dumps(contenido), encoding="utf-8")
+
+    def test_se_lee_sin_cuenta(self):
+        self.poner({"enlace": "https://ko-fi.com/alguien", "texto": "Un café"})
+        respuesta = self.cliente.get("/api/apoyo")
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta.json(), {"enlace": "https://ko-fi.com/alguien",
+                                            "texto": "Un café"})
+
+    def test_un_enlace_vacio_es_quitarlo(self):
+        self.poner({"enlace": ""})
+        self.assertEqual(self.cliente.get("/api/apoyo").json()["enlace"], "")
+
+    def test_sin_archivo_o_roto_no_dice_nada(self):
+        self.assertEqual(self.cliente.get("/api/apoyo").status_code, 404)
+        self.poner("{esto no es json")
+        self.assertEqual(self.cliente.get("/api/apoyo").status_code, 404)
+
+    def test_solo_se_da_un_enlace_https(self):
+        for malo in ("http://ko-fi.com/x", "javascript:alert(1)", "file:///C:/x.exe"):
+            self.poner({"enlace": malo})
+            self.assertEqual(self.cliente.get("/api/apoyo").status_code, 404, malo)
+
+    def test_el_de_la_carpeta_textos_es_valido(self):
+        real = Path(__file__).resolve().parent.parent / "textos" / "apoyo.json"
+        self.poner(real.read_text(encoding="utf-8"))
+        self.assertTrue(self.cliente.get("/api/apoyo").json()["enlace"].startswith("https://"))
 
 
 class PruebaRechazarTodas(unittest.TestCase):

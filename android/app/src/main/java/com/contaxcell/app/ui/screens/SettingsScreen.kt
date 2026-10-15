@@ -48,6 +48,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.contaxcell.app.ui.AppAction
@@ -165,6 +166,20 @@ fun SettingsScreen(
                     }
                     OutlinedButton(onClick = { onAction(AppAction.CheckAppUpdateNow) }, modifier = Modifier.fillMaxWidth()) {
                         Text("Buscar actualizaciones")
+                    }
+                }
+            }
+        }
+        if (state.supportLink.isNotBlank()) {
+            item {
+                // Discreto: una frase y un botón, al final. Abre el navegador.
+                val uriHandler = LocalUriHandler.current
+                SectionCard("Apoyar ContaXcell", supporting = state.supportText) {
+                    OutlinedButton(
+                        onClick = { runCatching { uriHandler.openUri(state.supportLink) } },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Invitar a un caf\u00e9")
                     }
                 }
             }

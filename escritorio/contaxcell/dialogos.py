@@ -604,6 +604,58 @@ class AcercaDe(tk.Toplevel):
         self.wait_window()
 
 
+class Apoyo(tk.Toplevel):
+    """La ventana de «Ayuda ▸ Apoyar ContaXcell…». Sin insistir: se abre
+    solo si alguien la busca, y el programa no cambia nada lo haga o no."""
+
+    ANCHO = 420
+
+    def __init__(self, padre, enlace: str, texto: str):
+        super().__init__(padre)
+        self.title("Apoyar ContaXcell")
+        self.resizable(False, False)
+        self.configure(background=widgets.PALETA.tarjeta)
+        self.transient(padre)
+        self.enlace = enlace
+
+        cuerpo = ttk.Frame(self, style="Tarjeta.TFrame", padding=20)
+        cuerpo.pack(fill="both", expand=True)
+
+        ttk.Label(cuerpo, text="Invítame a un café", style="Tarjeta.Cifra.TLabel").pack(anchor="w")
+        ttk.Label(cuerpo, text=texto, style="Tarjeta.TLabel",
+                  wraplength=self.ANCHO, justify="left").pack(anchor="w", pady=(10, 0))
+
+        fila = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
+        fila.pack(fill="x", pady=(16, 0))
+        # Hay que guardar la imagen: si Python la tira, sale el hueco en blanco.
+        self._qr = widgets.imagen_qr(self, enlace)
+        ttk.Label(fila, image=self._qr, style="Tarjeta.TLabel").pack(side="left")
+        ttk.Label(fila, text=f"Con la cámara del móvil, o en:\n{enlace}",
+                  style="Tarjeta.Suave.TLabel", justify="left").pack(
+            side="left", anchor="n", padx=(16, 0))
+
+        botones = ttk.Frame(cuerpo, style="Tarjeta.TFrame")
+        botones.pack(fill="x", pady=(18, 0))
+        ttk.Button(botones, text="Cerrar", command=self.destroy).pack(side="right")
+        ttk.Button(botones, text="Abrir en el navegador", style="Principal.TButton",
+                   command=self._abrir).pack(side="right", padx=(0, 8))
+
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _abrir(self) -> None:
+        import webbrowser
+        webbrowser.open(self.enlace)
+
+    def mostrar(self) -> None:
+        self.update_idletasks()
+        _centrar(self)
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
+        self.wait_window()
+
+
 # --- versión nueva -------------------------------------------------------------
 
 class VersionNueva(tk.Toplevel):

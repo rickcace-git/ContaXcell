@@ -52,7 +52,8 @@ Python, y el resto es de la biblioteca estándar.
 
 Arriba hay tres menús: **Archivo** (guardar o restaurar una copia, abrir la
 carpeta de los datos), **Ver** (tapar importes, tema) y **Ayuda** (la guía, las
-condiciones de uso, el historial de versiones y buscar actualizaciones).
+condiciones de uso, el historial de versiones, buscar actualizaciones y
+**Apoyar ContaXcell**, para invitar a un café por Ko-fi si te es útil).
 
 El **botón del ojo** de la barra de arriba tapa de golpe todos los importes de
 la aplicación, por si apuntas algo con gente delante. Se recuerda al cerrar.

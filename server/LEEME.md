@@ -313,6 +313,25 @@ al tocar una letra). `./usuarios` lo enseña en la columna CONDICIONES:
 A quien ya tiene cuenta **no** se le vuelve a preguntar si el texto cambia:
 avísales tú.
 
+## El enlace de «Apoyar ContaXcell»
+
+El programa y la app tienen un apartado para invitar a un café, con el
+enlace de Ko-fi puesto de fábrica. `server/textos/apoyo.json` lo cambia sin
+sacar versión: la API lo da en `/api/apoyo`, sin cuenta, y los programas le
+hacen caso al abrirse.
+
+```json
+{"enlace": "https://ko-fi.com/rickcace", "texto": "Lo que se lee encima del botón."}
+```
+
+Con `"enlace": ""` el apartado desaparece. Solo vale un enlace `https://`:
+cualquier otra cosa se ignora y se queda el de fábrica. Para subirlo, desde
+`escritorio/`:
+
+```
+python publicar.py --apoyo
+```
+
 ## Las versiones nuevas del programa de escritorio
 
 `python publicar.py` (en `escritorio/`) deja en `server/actualizaciones` de la

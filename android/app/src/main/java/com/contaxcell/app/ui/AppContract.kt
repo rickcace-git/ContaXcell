@@ -405,6 +405,9 @@ data class SettingsUiState(
     val account: AccountUi = AccountUi(),
     val appVersion: String = "",
     val dataLocation: String = "Datos privados de la aplicaci\u00f3n",
+    /** «Apoyar ContaXcell». Vacío, no se enseña. */
+    val supportLink: String = "",
+    val supportText: String = "",
 )
 
 data class CategorySettingsUi(

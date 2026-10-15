@@ -77,6 +77,32 @@ class AuthRepositoryTest {
     }
 
     @Test
+    fun theServerCanChangeOrRemoveTheSupportLink() = runTest {
+        val api = AuthFakeApi()
+        val repository = AuthRepository(api, AuthMemorySessions())
+
+        api.supportResponse = HttpResult(200, buildJsonObject {
+            put("enlace", JsonPrimitive("https://ko-fi.com/otro"))
+            put("texto", JsonPrimitive("Hola"))
+        })
+        assertEquals(Support("https://ko-fi.com/otro", "Hola"), repository.support())
+
+        api.supportResponse = HttpResult(200, buildJsonObject { put("enlace", JsonPrimitive("")) })
+        assertEquals(Support("", Support.TEXT), repository.support())
+    }
+
+    @Test
+    fun withoutAnAnswerTheBuiltInSupportLinkStays() = runTest {
+        val api = AuthFakeApi()
+        val repository = AuthRepository(api, AuthMemorySessions())
+
+        assertEquals(null, repository.support()) // un servidor de antes: 404
+        api.supportResponse = HttpResult(200, buildJsonObject { put("enlace", JsonPrimitive("http://sin-candado.es")) })
+        assertEquals(null, repository.support())
+        assertTrue(Support.LINK.startsWith("https://"))
+    }
+
+    @Test
     fun aServerWithoutTermsStillCreatesTheAccount() = runTest {
         val api = AuthFakeApi().apply { registerResponse = HttpResult(201, tokenBody("t", "ana")) }
         val repository = AuthRepository(api, AuthMemorySessions())
@@ -130,6 +156,7 @@ private class AuthFakeApi : ContaXcellApi {
     var registerResponse = HttpResult(500)
     var passwordResponse = HttpResult(500)
     var termsResponse = HttpResult(404)
+    var supportResponse = HttpResult(404)
     var sentTerms: String? = null
     override suspend fun health(serverUrl: String) = HttpResult(200)
     override suspend fun register(serverUrl: String, username: String, password: String, invitationCode: String, email: String, terms: String): HttpResult {
@@ -137,6 +164,7 @@ private class AuthFakeApi : ContaXcellApi {
         return registerResponse
     }
     override suspend fun terms(serverUrl: String) = termsResponse
+    override suspend fun support(serverUrl: String) = supportResponse
     override suspend fun login(serverUrl: String, username: String, password: String) = loginResponse
     override suspend fun changePassword(serverUrl: String, token: String, currentPassword: String, newPassword: String) = passwordResponse
     override suspend fun downloadBook(serverUrl: String, token: String) = HttpResult(500)

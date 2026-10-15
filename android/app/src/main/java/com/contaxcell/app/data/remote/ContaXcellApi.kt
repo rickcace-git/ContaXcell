@@ -31,6 +31,8 @@ interface ContaXcellApi {
     ): HttpResult
     /** Las condiciones de uso del servidor, sin sesión: {"version", "texto"} o 404. */
     suspend fun terms(serverUrl: String): HttpResult = HttpResult(404)
+    /** «Apoyar ContaXcell», sin sesión: {"enlace", "texto"} o 404 en un servidor de antes. */
+    suspend fun support(serverUrl: String): HttpResult = HttpResult(404)
     suspend fun login(serverUrl: String, username: String, password: String): HttpResult
     suspend fun changePassword(serverUrl: String, token: String, currentPassword: String, newPassword: String): HttpResult
     suspend fun downloadBook(serverUrl: String, token: String): HttpResult
@@ -100,6 +102,9 @@ class OkHttpContaXcellApi(
 
     override suspend fun terms(serverUrl: String): HttpResult =
         request(serverUrl, "/api/condiciones", "GET")
+
+    override suspend fun support(serverUrl: String): HttpResult =
+        request(serverUrl, "/api/apoyo", "GET")
 
     override suspend fun login(serverUrl: String, username: String, password: String): HttpResult =
         request(

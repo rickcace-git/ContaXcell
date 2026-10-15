@@ -52,11 +52,14 @@ escritorio/          la aplicación (Python + tkinter, nada que instalar)
                      por pestaña. Si cambias cómo se usa algo, cámbialo aquí
     vistas/          una pestaña por archivo
 server/              FastAPI + Postgres en Docker (lo escribió un amigo)
-  contaserver/       aplicacion.py (10 rutas), seguridad.py, almacen.py,
+  contaserver/       aplicacion.py (11 rutas), seguridad.py, almacen.py,
                      limites.py (frena los intentos a lo bruto)
   textos/condiciones.md  las condiciones de uso que se aceptan al crear
                      cuenta. Las edita Ricardo; se suben con
                      `python publicar.py --condiciones`
+  textos/apoyo.json  el enlace de Ko-fi de «Apoyar ContaXcell». Los dos
+                     programas traen uno de fábrica; este lo cambia, o lo
+                     quita con un enlace vacío. `python publicar.py --apoyo`
 android/             la app nativa (Kotlin + Compose). Lee y sube el mismo
                      datos.json: un campo nuevo en modelo.py hay que añadirlo
                      también en android/.../domain/Model.kt, o el móvil lo

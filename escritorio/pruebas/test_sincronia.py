@@ -561,6 +561,36 @@ class PruebaCuentaEnEspera(ConCarpeta):
 
 # --- descargar al arrancar --------------------------------------------------------
 
+class PruebaApoyo(ConCarpeta):
+    """El enlace de «Apoyar ContaXcell»: lo de fábrica, salvo que el servidor
+    diga otra cosa."""
+
+    def test_lo_de_fabrica_es_https(self):
+        self.assertTrue(modulo.ENLACE_APOYO.startswith("https://"))
+
+    def test_el_servidor_lo_cambia_sin_ficha(self):
+        sinc, servidor = self.con_sesion((200, {"enlace": "https://ko-fi.com/otro", "texto": "Hola"}))
+        self.assertEqual(sinc.apoyo(), ("https://ko-fi.com/otro", "Hola"))
+        self.assertEqual(servidor.peticiones[0]["url"], "http://servidor:8000/api/apoyo")
+        self.assertNotIn("Authorization", servidor.peticiones[0]["cabeceras"])
+
+    def test_sin_texto_vale_el_de_fabrica(self):
+        sinc, _ = self.con_sesion((200, {"enlace": "https://ko-fi.com/otro"}))
+        self.assertEqual(sinc.apoyo(), ("https://ko-fi.com/otro", modulo.TEXTO_APOYO))
+
+    def test_un_enlace_vacio_es_quitarlo(self):
+        sinc, _ = self.con_sesion((200, {"enlace": "", "texto": ""}))
+        self.assertEqual(sinc.apoyo()[0], "")
+
+    def test_si_no_dice_nada_se_queda_lo_de_fabrica(self):
+        # Un servidor de antes (404), uno caído y uno que da algo raro.
+        for respuesta in ((404, {"detail": "no"}), ("sin-conexion", None),
+                          (200, {"enlace": "http://sin-candado.es"}),
+                          (200, {"enlace": "javascript:alert(1)"})):
+            sinc, _ = self.con_sesion(respuesta)
+            self.assertIsNone(sinc.apoyo(), respuesta)
+
+
 class PruebaDescargar(ConCarpeta):
     def test_el_servidor_va_por_delante_y_aqui_no_hay_nada_pendiente(self):
         remoto = {"version": 1, "movimientos": []}

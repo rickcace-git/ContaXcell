@@ -1,6 +1,6 @@
 """La API del servidor de sincronización.
 
-Diez rutas y ninguna más:
+Once rutas y ninguna más:
 
 - ``GET  /api/salud``              ¿está vivo el servidor?
 - ``POST /api/cuentas/registro``   crear cuenta y recibir una ficha
@@ -12,6 +12,7 @@ Diez rutas y ninguna más:
 - ``GET  /api/precios``            los cierres diarios de un fondo (con ficha)
 - ``GET  /api/actualizacion/…``    la versión nueva del programa (con ficha)
 - ``GET  /api/condiciones``        las condiciones de uso, para leerlas al crear cuenta
+- ``GET  /api/apoyo``              el enlace para invitar a un café (Ko-fi)
 
 Los precios están aquí y no en cada aplicación porque la fuente no es
 oficial y puede romperse: aquí se arregla en una máquina y no repartiendo
@@ -34,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
@@ -105,6 +107,7 @@ def crear_aplicacion(
     aceptar_a_mano: bool | None = None,
     carpeta_actualizaciones: Path | str | None = None,
     archivo_condiciones: Path | str | None = None,
+    archivo_apoyo: Path | str | None = None,
 ) -> FastAPI:
     """Monta la aplicación con el almacén que le den.
 
@@ -129,6 +132,11 @@ def crear_aplicacion(
     (CONTAXCELL_CONDICIONES; en el Docker, /srv/textos/condiciones.md, que
     es server/textos/condiciones.md de la máquina). Se lee en cada petición:
     cambiarlo no pide reiniciar nada.
+
+    ``archivo_apoyo`` es el enlace de «Apoyar ContaXcell» y su texto
+    (CONTAXCELL_APOYO; en el Docker, /srv/textos/apoyo.json). Los programas
+    traen uno de fábrica: esto sirve para cambiarlo, o quitarlo con un
+    enlace vacío, sin repartir una versión nueva.
     """
     if almacen is None:
         almacen = _almacen_desde_entorno()
@@ -156,6 +164,9 @@ def crear_aplicacion(
         archivo_condiciones = os.environ.get(
             "CONTAXCELL_CONDICIONES", "/srv/textos/condiciones.md")
     archivo_condiciones = Path(archivo_condiciones)
+    if archivo_apoyo is None:
+        archivo_apoyo = os.environ.get("CONTAXCELL_APOYO", "/srv/textos/apoyo.json")
+    archivo_apoyo = Path(archivo_apoyo)
 
     def condiciones_de_ahora() -> tuple[str, str] | None:
         """(versión, texto) de las condiciones, o None si no hay. La versión
@@ -430,6 +441,22 @@ def crear_aplicacion(
         if vigentes is None:
             raise HTTPException(404, "Este servidor no tiene condiciones de uso.")
         return {"version": vigentes[0], "texto": vigentes[1]}
+
+    @app.get("/api/apoyo")
+    def apoyo():
+        """El enlace para invitar a un café, sin ficha. Un enlace vacío es
+        que no se ofrezca. Lo que no sea https no se da por bueno: el
+        programa lo abre en el navegador de quien lo pulsa."""
+        try:
+            datos = json.loads(archivo_apoyo.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise HTTPException(404, "Este servidor no dice nada del apoyo.") from None
+        if not isinstance(datos, dict):
+            raise HTTPException(404, "Este servidor no dice nada del apoyo.")
+        enlace = str(datos.get("enlace") or "").strip()
+        if enlace and not enlace.startswith("https://"):
+            raise HTTPException(404, "Este servidor no dice nada del apoyo.")
+        return {"enlace": enlace, "texto": str(datos.get("texto") or "").strip()}
 
     @app.get("/api/actualizacion/{nombre}")
     def actualizacion(nombre: str, _id: int = Depends(usuario_actual)):

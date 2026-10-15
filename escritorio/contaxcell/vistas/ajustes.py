@@ -28,6 +28,8 @@ class VistaAjustes:
         if app.sincronia is not None:
             self._cuenta(raiz)
             self._app_movil(raiz)
+        self._apoyo(raiz)
+        self.poner_apoyo()
 
     # --- el banco ---------------------------------------------------------
 
@@ -326,6 +328,27 @@ class VistaAjustes:
         ttk.Button(lado, text="Copiar la dirección",
                    command=self._copiar_direccion_app).pack(anchor="w", pady=(8, 0))
         self._direccion_qr = None
+
+    def _apoyo(self, padre) -> None:
+        """Invitar a un café. Discreto: una frase y un botón, al final."""
+        self.tarjeta_apoyo = widgets.Tarjeta(padre, "Apoyar ContaXcell")
+        fila = ttk.Frame(self.tarjeta_apoyo.cuerpo, style="Tarjeta.TFrame")
+        fila.pack(fill="x")
+        ttk.Label(fila, style="Tarjeta.TLabel", justify="left", wraplength=620,
+                  text="ContaXcell es gratis y sin anuncios. Si te es útil y te "
+                       "apetece, puedes invitar a un café a quien lo hace.").pack(
+            side="left", anchor="w")
+        ttk.Button(fila, text="Invitar a un café…",
+                   command=self.app.apoyar).pack(side="right")
+
+    def poner_apoyo(self) -> None:
+        """Con el enlace vacío (lo ha quitado el servidor) no se enseña."""
+        # Lo que va colocado es el marco del borde, no la tarjeta de dentro.
+        if self.app.apoyo[0]:
+            if not self.tarjeta_apoyo.marco.winfo_manager():
+                self.tarjeta_apoyo.pack(fill="x", pady=(16, 0))
+        else:
+            self.tarjeta_apoyo.marco.pack_forget()
 
     def _direccion_app(self) -> str:
         from ..sincronia import direccion_app_movil

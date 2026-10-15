@@ -101,6 +101,17 @@ def direccion_app_movil(servidor: str) -> str:
     return servidor.rstrip("/") + RUTA_APP_MOVIL
 
 
+# «Apoyar ContaXcell»: lo que se enseña si el servidor no dice otra cosa. Va
+# de fábrica para que funcione sin cuenta y con un servidor que aún no tenga
+# /api/apoyo; el servidor puede cambiarlo, o quitarlo con un enlace vacío.
+ENLACE_APOYO = "https://ko-fi.com/rickcace"
+TEXTO_APOYO = (
+    "ContaXcell es gratis y no tiene anuncios. El servidor que guarda vuestras "
+    "copias cuesta dinero cada mes, y lo pago yo. Si te es útil y te apetece, "
+    "puedes invitarme a un café. Es voluntario: el programa funciona igual lo "
+    "hagas o no.")
+
+
 SEGUNDOS_DE_ESPERA = 10
 SEGUNDOS_ENTRE_REINTENTOS = 30
 # Cada cuánto se vuelve a mirar qué hay en el servidor. Sin esto, el segundo
@@ -287,6 +298,21 @@ class Sincronia:
             raise ErrorDeSincronia("El servidor no ha dado las condiciones de uso. "
                                    "Prueba otra vez dentro de un rato.")
         return str(datos["version"]), str(datos.get("texto") or "")
+
+    def apoyo(self) -> tuple[str, str] | None:
+        """(enlace, texto) de «Apoyar ContaXcell» según el servidor, o None
+        si no dice nada (un servidor de antes, o sin conexión): entonces vale
+        lo de fábrica. Un enlace vacío es que no se enseñe."""
+        try:
+            estado, datos = self._pedir("GET", "/api/apoyo", con_token=False)
+        except _SinConexion:
+            return None
+        if estado != 200 or not isinstance(datos, dict):
+            return None
+        enlace = str(datos.get("enlace") or "").strip()
+        if enlace and not enlace.startswith("https://"):
+            return None
+        return enlace, str(datos.get("texto") or "").strip() or TEXTO_APOYO
 
     def entrar(self, usuario: str, contrasena: str, servidor: str = "") -> None:
         self._acreditar("/api/cuentas/entrar", usuario, contrasena, servidor)

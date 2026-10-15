@@ -197,6 +197,35 @@ class PruebaRecienActualizado(unittest.TestCase):
         for pendiente in app.tk.call("after", "info"):
             app.after_cancel(pendiente)
 
+    def test_el_servidor_puede_quitar_el_apoyo_y_volver_a_ponerlo(self):
+        try:
+            app = ventana.Aplicacion()
+        except tk.TclError as error:
+            raise unittest.SkipTest(f"no hay pantalla disponible: {error}") from error
+        app.withdraw()
+        self.addCleanup(app.destroy)
+        for pendiente in app.tk.call("after", "info"):
+            app.after_cancel(pendiente)
+        ayuda = app.menus["Ayuda"]
+        tarjeta = app.vistas["ajustes"].tarjeta_apoyo.marco
+
+        def opciones():
+            return [ayuda.entrycget(i, "label") for i in range(ayuda.index("end") + 1)
+                    if ayuda.type(i) == "command"]
+
+        # De fábrica, sin cuenta: está, justo antes de «Acerca de».
+        self.assertEqual(opciones()[-2:], [ventana.ETIQUETA_APOYAR, "Acerca de ContaXcell"])
+        self.assertTrue(tarjeta.winfo_manager())
+
+        app.poner_apoyo(("", ""))
+        self.assertNotIn(ventana.ETIQUETA_APOYAR, opciones())
+        self.assertFalse(tarjeta.winfo_manager())
+        app.apoyar()  # sin enlace no abre nada (si abriera, la prueba se quedaría esperando)
+
+        app.poner_apoyo(("https://ko-fi.com/otro", "Otro texto"))
+        self.assertEqual(opciones()[-2:], [ventana.ETIQUETA_APOYAR, "Acerca de ContaXcell"])
+        self.assertTrue(tarjeta.winfo_manager())
+
     def test_primera_vez_no_es_actualizar(self):
         self.assertIsNone(self.abrir_y_cerrar())
 

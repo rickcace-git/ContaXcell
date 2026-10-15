@@ -43,7 +43,7 @@ ContaXcell lleva la cuenta de tu dinero: lo que entra, lo que sale y lo que tien
 • De vez en cuando, mira el Resumen y el Presupuesto para ver cómo vas.
 
 ## Los menús de arriba
-Junto al nombre del programa están Archivo (copias de seguridad y la carpeta de tus datos), Ver (ocultar los importes y el tema) y Ayuda: esta guía, las condiciones de uso, el historial de versiones con lo que trajo cada una, buscar actualizaciones y «Acerca de».
+Junto al nombre del programa están Archivo (copias de seguridad y la carpeta de tus datos), Ver (ocultar los importes y el tema) y Ayuda: esta guía, las condiciones de uso, el historial de versiones con lo que trajo cada una, buscar actualizaciones, «Apoyar ContaXcell» y «Acerca de».
 
 ## Dos ideas que explican casi todos los números
 • La inversión no es un gasto. El dinero sale del banco, pero sigue siendo tuyo: baja el saldo, pero no baja tu ahorro.
@@ -213,6 +213,9 @@ Tema claro, oscuro o como el sistema. El botón del ojo de la barra de arriba (o
 • «Guardar copia» guarda tu contabilidad entera en un archivo. Sirve para tener una copia de seguridad o para llevarla a otro sitio.
 • «Restaurar copia…» vuelve a una copia anterior. Antes guarda la de ahora, por si acaso.
 • «Abrir la carpeta» te enseña dónde están tus datos y tus copias.
+
+## Apoyar ContaXcell
+Si el programa te es útil, «Invitar a un café…» abre la página de Ko-fi de quien lo hace, con su QR para el móvil. Es voluntario: el programa es el mismo lo hagas o no.
 """),
 
     Apartado("cuenta", "Tu cuenta y el móvil", """

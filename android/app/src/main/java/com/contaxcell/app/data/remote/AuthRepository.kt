@@ -31,6 +31,22 @@ fun interface AccountChangeHandler {
 /** Las condiciones de uso tal como las da el servidor. */
 data class Terms(val version: String, val text: String)
 
+/**
+ * «Apoyar ContaXcell»: el enlace para invitar a un café y su texto. Va de
+ * fábrica para que funcione con un servidor que aún no tenga /api/apoyo; el
+ * servidor puede cambiarlo, o quitarlo con un enlace vacío. Igual que en el
+ * programa del ordenador (sincronia.ENLACE_APOYO).
+ */
+data class Support(val link: String, val text: String) {
+    companion object {
+        const val LINK = "https://ko-fi.com/rickcace"
+        const val TEXT = "ContaXcell es gratis y no tiene anuncios. El servidor que guarda vuestras " +
+            "copias cuesta dinero cada mes, y lo pago yo. Si te es útil y te apetece, " +
+            "puedes invitarme a un café. Es voluntario: la app funciona igual lo hagas o no."
+        val DEFAULT = Support(LINK, TEXT)
+    }
+}
+
 class AuthRepository(
     private val api: ContaXcellApi,
     private val sessions: SessionStore,
@@ -64,6 +80,30 @@ class AuthRepository(
                 AuthenticationException.Kind.SERVER_ERROR)
         }
         return Terms(version, body?.get("texto")?.jsonPrimitive?.contentOrNull.orEmpty())
+    }
+
+    /**
+     * Lo que diga el servidor del apoyo, o null si no dice nada (uno de antes,
+     * sin conexión, una respuesta rara): entonces vale lo de fábrica. Solo se
+     * acepta un enlace https, que se abre en el navegador de quien lo pulse.
+     */
+    suspend fun support(): Support? = try {
+        val server = OkHttpContaXcellApi.normalizeServerUrl(sessions.read().serverUrl)
+        val response = api.support(server)
+        val body = response.objectBody
+        val link = body?.get("enlace")?.jsonPrimitive?.contentOrNull?.trim()
+        when {
+            response.statusCode != 200 || link == null -> null
+            link.isNotEmpty() && !link.startsWith("https://") -> null
+            else -> Support(
+                link,
+                body?.get("texto")?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotEmpty) ?: Support.TEXT,
+            )
+        }
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
     }
 
     suspend fun login(
