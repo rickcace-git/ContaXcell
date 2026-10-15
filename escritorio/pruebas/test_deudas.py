@@ -114,6 +114,18 @@ class PruebasResumen(unittest.TestCase):
                           cena(id="d3", quien="Menganito", importe=5.0))
         self.assertEqual(calculos.resumen_deudas(libro).personas, 2)
 
+    def test_a_quien_le_debes_no_cuenta_como_que_te_debe(self):
+        # La tarjeta dice «Te deben … de N personas»: Menganito no te debe
+        # nada, eres tú quien le debe a él.
+        libro = libro_con(cena(), cena(id="d2", quien="Zutanito", importe=5.0),
+                          cena(id="d3", quien="Menganito", sentido=DEBO, importe=35.0))
+        self.assertEqual(calculos.resumen_deudas(libro).personas, 2)
+
+    def test_si_solo_debes_tu_no_te_debe_nadie(self):
+        libro = libro_con(cena(sentido=DEBO))
+        resumen = calculos.resumen_deudas(libro)
+        self.assertEqual((resumen.personas, resumen.abiertas), (0, 1))
+
     def test_sin_deudas_esta_todo_en_paz(self):
         resumen = calculos.resumen_deudas(libro_con())
         self.assertEqual((resumen.te_deben, resumen.debes, resumen.neto), (0.0, 0.0, 0.0))

@@ -607,8 +607,8 @@ object Calculos {
                 settled++
             } else {
                 open++
-                people += debt.quien.lowercase(java.util.Locale.ROOT)
                 if (debt.sentido == ContaXcellValues.ME_DEBEN) {
+                    people += debt.quien.lowercase(java.util.Locale.ROOT)
                     owedToYou = DomainNumbers.money(owedToYou + pendienteDe(debt))
                 } else {
                     youOwe = DomainNumbers.money(youOwe + pendienteDe(debt))

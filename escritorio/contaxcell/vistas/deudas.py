@@ -415,7 +415,7 @@ def _primera_linea(nota: str) -> str:
 
 def _personas(cuantas: int) -> str:
     if cuantas == 0:
-        return "no hay nada abierto"
+        return "nadie te debe nada"
     return "de 1 persona" if cuantas == 1 else f"de {cuantas} personas"
 
 

@@ -986,6 +986,8 @@ class ResumenDeudas:
     debes: float = 0.0
     abiertas: int = 0
     saldadas: int = 0
+    # Las que te deben algo, no todas con las que hay algo abierto: la cifra
+    # sale debajo de «Te deben», y ahí a quien le debes tú no pinta nada.
     personas: int = 0
 
     @property
@@ -1003,8 +1005,8 @@ def resumen_deudas(libro: Libro) -> ResumenDeudas:
             resumen.saldadas += 1
             continue
         resumen.abiertas += 1
-        gente.add(deuda.quien.lower())
         if deuda.sentido == ME_DEBEN:
+            gente.add(deuda.quien.lower())
             resumen.te_deben = redondea(resumen.te_deben + pendiente_de(deuda))
         else:
             resumen.debes = redondea(resumen.debes + pendiente_de(deuda))
