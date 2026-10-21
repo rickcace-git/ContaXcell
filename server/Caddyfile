@@ -32,6 +32,13 @@
 		file_server
 	}
 
+	# Adrimals, la página de la conferencia de Adriana: es otro programa, con
+	# su propio contenedor (carpeta ~/adrimals de la máquina), y aquí solo se
+	# le pasa lo suyo. Si está apagado, solo falla /conferencia.
+	handle /conferencia* {
+		reverse_proxy adrimals:8000
+	}
+
 	handle {
 		reverse_proxy api:8000
 	}
