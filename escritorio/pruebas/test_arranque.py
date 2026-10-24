@@ -185,7 +185,12 @@ class PruebaRecienActualizado(unittest.TestCase):
             raise unittest.SkipTest(f"no hay pantalla disponible: {error}") from error
         app.withdraw()
         self.addCleanup(app.destroy)
-        self.assertEqual(str(app.cget("menu")), "")  # sin la barra blanca de Windows
+        if ventana.ES_MAC:
+            # En el Mac la barra de arriba está siempre: solo lleva el menú
+            # de la aplicación, con su «Acerca de».
+            self.assertTrue(str(app.cget("menu")).endswith("menu"))
+        else:
+            self.assertEqual(str(app.cget("menu")), "")  # sin la barra blanca de Windows
         self.assertEqual(list(app.menus), ["Archivo", "Ver", "Ayuda"])
         ayuda = app.menus["Ayuda"]
         opciones = [ayuda.entrycget(i, "label") for i in range(ayuda.index("end") + 1)

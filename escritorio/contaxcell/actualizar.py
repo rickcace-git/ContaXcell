@@ -31,8 +31,10 @@ así que tampoco se puede cambiar por el camino.
 Los datos no se tocan nunca: viven en %APPDATA%\\ContaXcell, no en la carpeta
 del programa. Lo que se cambia es solo el programa.
 
-Solo actúa en el programa empaquetado (el .exe). Desde el código fuente
-(`python ejecutar.py`) no hay nada que actualizar: eso se actualiza con git.
+Solo actúa en el programa empaquetado de Windows (el .exe). Desde el código
+fuente (`python ejecutar.py`) no hay nada que actualizar: eso se actualiza con
+git. Y la .app del Mac se actualiza a mano, con el .dmg nuevo: todo lo de
+arriba (el zip con el .exe, el PowerShell) es de Windows.
 
 Este módulo no importa tkinter: la ventana lo llama desde un hilo y recoge
 el resultado, igual que con la sincronización.
@@ -131,8 +133,8 @@ def es_mas_nueva(remota: str, actual: str) -> bool:
 
 def instalacion_actual() -> Path | None:
     """La carpeta del programa, si se está ejecutando el .exe; None desde el
-    código fuente, que no se actualiza por aquí."""
-    if getattr(sys, "frozen", False):
+    código fuente y en el Mac, que no se actualizan por aquí."""
+    if getattr(sys, "frozen", False) and sys.platform == "win32":
         return Path(sys.executable).resolve().parent
     return None
 

@@ -1,9 +1,14 @@
-"""Genera `icono.ico` sin depender de ninguna librería de imágenes.
+"""Genera los iconos sin depender de ninguna librería de imágenes.
 
-Se dibuja a mano con matemáticas de píxeles y se guarda como PNG dentro de un
-.ico, que es un formato que Windows admite desde Vista. Así el icono se puede
-regenerar en cualquier ordenador con solo Python, sin instalar Pillow ni
-arrastrar un binario que nadie sabe de dónde salió.
+Se dibuja a mano con matemáticas de píxeles y se guarda en PNG, metido dentro
+de lo que pide cada sistema:
+
+    icono.ico    Windows, que admite PNG dentro del .ico desde Vista
+    icono.icns   el Mac, para la aplicación empaquetada
+    icono.png    la ventana en el Mac (el Dock) y en Linux, abriendo desde Python
+
+Así el icono se puede regenerar en cualquier ordenador con solo Python, sin
+instalar Pillow ni arrastrar un binario que nadie sabe de dónde salió.
 
     python recursos/hacer_icono.py
 """
@@ -30,6 +35,20 @@ TAMANOS = (16, 24, 32, 48, 64, 128, 256)
 # cualquiera: es múltiplo de todos los tamaños de arriba, y así ninguno se
 # reduce dejándose fuera la última tira de píxeles del dibujo.
 LADO_MAESTRO = 768
+
+# El Mac tiene sus propias medidas: un lienzo de 1024 con el dibujo de 824 en
+# el centro. El margen no es desperdicio: es donde el Dock y el Finder ponen la
+# sombra, y sin él este icono saldría más grande que todos los de al lado.
+LADO_MAESTRO_MAC = 1024
+LADO_DIBUJO_MAC = 824
+# Cada tamaño del .icns va con su etiqueta. Las de retina («@2x») son el doble
+# de píxeles para el mismo hueco en pantalla, así que hay lados repetidos.
+TIPOS_ICNS = (
+    (b"icp4", 16), (b"icp5", 32), (b"ic11", 32), (b"ic12", 64),
+    (b"ic07", 128), (b"ic13", 256), (b"ic08", 256), (b"ic14", 512),
+    (b"ic09", 512), (b"ic10", 1024),
+)
+LADO_PNG = 512
 
 
 def _mezcla(fondo, frente, alfa: float):
@@ -133,6 +152,17 @@ def reducir(maestro, lado_origen: int, lado_destino: int):
     return salida
 
 
+def con_margen(filas, lado_total: int):
+    """El dibujo centrado en un lienzo transparente más grande."""
+    margen = (lado_total - len(filas)) // 2
+    vacio = (0, 0, 0, 0)
+    arriba = [[vacio] * lado_total for _ in range(margen)]
+    abajo = [[vacio] * lado_total for _ in range(lado_total - margen - len(filas))]
+    medio = [[vacio] * margen + fila + [vacio] * (lado_total - margen - len(fila))
+             for fila in filas]
+    return arriba + medio + abajo
+
+
 def a_png(filas) -> bytes:
     alto = len(filas)
     ancho = len(filas[0])
@@ -169,19 +199,41 @@ def a_ico(imagenes: list[tuple[int, bytes]]) -> bytes:
     return bytes(cabecera + entradas + cuerpo)
 
 
+def a_icns(imagenes: list[tuple[bytes, bytes]]) -> bytes:
+    """Cada trozo es su etiqueta, su longitud (contando estos ocho bytes de
+    cabecera) y el PNG. Todo en big-endian, que es como lo lee el Mac."""
+    cuerpo = b"".join(etiqueta + struct.pack(">I", 8 + len(png)) + png
+                      for etiqueta, png in imagenes)
+    return b"icns" + struct.pack(">I", 8 + len(cuerpo)) + cuerpo
+
+
+def _escribir(nombre: str, contenido: bytes) -> None:
+    destino = Path(__file__).resolve().parent / nombre
+    destino.write_bytes(contenido)
+    print(f"escrito {destino} ({destino.stat().st_size / 1024:.1f} kB)")
+
+
+def _a_tamanos(maestro, lado_maestro: int, lados) -> dict[int, bytes]:
+    pngs = {}
+    for lado in sorted(set(lados)):
+        filas = maestro if lado == lado_maestro else reducir(maestro, lado_maestro, lado)
+        pngs[lado] = a_png(filas)
+        print(f"  {lado}×{lado}")
+    return pngs
+
+
 def main() -> None:
     print(f"dibujando a {LADO_MAESTRO}×{LADO_MAESTRO}…")
-    maestro = dibujar(LADO_MAESTRO)
+    pngs = _a_tamanos(dibujar(LADO_MAESTRO), LADO_MAESTRO, TAMANOS)
+    _escribir("icono.ico", a_ico([(lado, pngs[lado]) for lado in TAMANOS]))
 
-    imagenes = []
-    for lado in TAMANOS:
-        filas = maestro if lado == LADO_MAESTRO else reducir(maestro, LADO_MAESTRO, lado)
-        imagenes.append((lado, a_png(filas)))
-        print(f"  {lado}×{lado}")
-
-    destino = Path(__file__).resolve().parent / "icono.ico"
-    destino.write_bytes(a_ico(imagenes))
-    print(f"escrito {destino} ({destino.stat().st_size / 1024:.1f} kB)")
+    print(f"dibujando para el Mac a {LADO_MAESTRO_MAC}×{LADO_MAESTRO_MAC}…")
+    maestro_mac = con_margen(dibujar(LADO_DIBUJO_MAC), LADO_MAESTRO_MAC)
+    pngs_mac = _a_tamanos(maestro_mac, LADO_MAESTRO_MAC,
+                          [lado for _, lado in TIPOS_ICNS])
+    _escribir("icono.icns", a_icns([(etiqueta, pngs_mac[lado])
+                                    for etiqueta, lado in TIPOS_ICNS]))
+    _escribir("icono.png", pngs_mac[LADO_PNG])
 
 
 if __name__ == "__main__":

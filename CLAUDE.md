@@ -1,6 +1,6 @@
 # ContaXcell
 
-Contabilidad personal de escritorio para Windows, en Python + tkinter. Sustituye
+Contabilidad personal de escritorio para Windows y Mac, en Python + tkinter. Sustituye
 a una hoja de cálculo de Google que Ricardo usaba con unos amigos. Los datos
 viven en el ordenador de cada uno; un servidor propio guarda una copia para
 poder llevarla de un aparato a otro.
@@ -165,12 +165,13 @@ To_Do_List.md        lo que queda por hacer
 cd escritorio
 python ejecutar.py                          arrancar
 CONTAXCELL_SIN_CUENTA=1 python ejecutar.py  arrancar sin cuenta ni servidor
-python -m unittest discover -s pruebas      458 pruebas, ~5 s (test_dialogos y
+python -m unittest discover -s pruebas      491 pruebas, ~5 s (test_dialogos y
                                             test_arranque abren ventanas: en Mac/Linux,
                                             mejor correr los demás módulos sueltos)
 python pruebas/humo.py                      abre la ventana y pasea las pestañas
 python pruebas/ver.py --pestana resumen --captura foto.png
-python empaquetar.py                        genera el .exe y el .zip
+python empaquetar.py                        genera el .exe y el .zip (en el Mac,
+                                            la .app y el .dmg)
 python publicar.py "novedades"              lo fabrica, lo firma y lo sube: les
                                             llega solo. Antes, subir VERSION en
                                             ventana.py, commit y push: la lista
@@ -187,7 +188,8 @@ python -m unittest discover -s pruebas     120 pruebas (SQLite, sin red)
 ```
 
 `pruebas/ver.py` usa una carpeta de datos aparte: nunca toca la contabilidad
-real, que está en `%APPDATA%\ContaXcell\`.
+real, que está en `%APPDATA%\ContaXcell\` (en el Mac,
+`~/Library/Application Support/ContaXcell/`).
 
 ## Cosas que morder con cuidado
 
@@ -207,8 +209,20 @@ real, que está en `%APPDATA%\ContaXcell\`.
 - El servidor solo corre si **Docker Desktop está abierto**. Sin él la app
   funciona igual: apunta lo pendiente y lo sube después.
 - La app se prueba con **capturas de pantalla**, no a ojo. `ver.py --captura`.
+  En el Mac usa `screencapture`, que pide el permiso de «Grabación de
+  pantalla» para la terminal.
 - Comprobar los cambios de verdad antes de darlos por buenos: ejecutar las
   pruebas y mirar la ventana.
+- **Windows y Mac.** Los atajos de teclado se hacen con `atajos.atajo`: Control
+  en Windows, ⌘ en el Mac, donde además ⌘H es del sistema (oculta la app). La
+  rueda y el trackpad no mandan lo mismo según la versión de Tk: lo resuelve
+  `widgets.MarcoDesplazable`. La `.app` solo se construye en un Mac y pide lo
+  mismo que sus binarios (con el Python de Homebrew: chip de Apple y macOS 26);
+  `empaquetar.requisitos_mac` lo lee y lo apunta.
+- **En el Mac, un solo Tk por proceso.** El sistema manda ⌘Q y «Preferences…»
+  al primer Tk que se creó, para siempre. Por eso, al entrar o salir de la
+  cuenta, `ventana.volver_a_lanzar` relanza el programa en vez de abrir otro
+  Tk. No crear un `tk.Tk()` nuevo en el Mac sin tenerlo en cuenta.
 
 ## Sobre Ricardo
 

@@ -116,6 +116,21 @@ def centrar_sobre(ventana: tk.Toplevel, padre) -> None:
 
 # --- contenedores ----------------------------------------------------------
 
+# Una muesca de la rueda vale 120 en todas partes menos en el Tk 8.6 del Mac,
+# que manda directamente las líneas que hay que mover.
+_RUEDA_POR_MUESCA = 1 if sys.platform == "darwin" and tk.TkVersion < 8.7 else 120
+
+
+def vertical_del_trackpad(delta: int) -> int:
+    """Los píxeles que se ha movido el dedo en vertical.
+
+    El trackpad mete las dos direcciones en un solo número: la horizontal en
+    los 16 bits de arriba y la vertical, con su signo, en los 16 de abajo.
+    """
+    vertical = delta & 0xFFFF
+    return vertical - 0x10000 if vertical >= 0x8000 else vertical
+
+
 class Tarjeta(ttk.Frame):
     """Un bloque con borde, título opcional y sitio a la derecha del título
     para meter un botón o un desplegable.
@@ -191,8 +206,20 @@ class MarcoDesplazable(ttk.Frame):
         self.lienzo.bind("<Configure>", self._lienzo_cambio)
         # La rueda solo mueve esta zona mientras el ratón esté encima, para no
         # secuestrar el desplazamiento de las tablas.
-        self.lienzo.bind("<Enter>", lambda _e: self.lienzo.bind_all("<MouseWheel>", self._rueda))
-        self.lienzo.bind("<Leave>", lambda _e: self.lienzo.unbind_all("<MouseWheel>"))
+        self.lienzo.bind("<Enter>", lambda _e: self._atar_rueda(True))
+        self.lienzo.bind("<Leave>", lambda _e: self._atar_rueda(False))
+        # Si desaparece con el ratón encima (al cambiar de tema), la rueda no
+        # puede quedarse atada a unas funciones que ya no existen.
+        self.lienzo.bind("<Destroy>", lambda _e: self._atar_rueda(False))
+        self._muescas = 0.0
+        # Las funciones se dan de alta en Tcl una sola vez. `bind_all` crearía
+        # una nueva en cada entrada del ratón y no se borrarían nunca.
+        self._guiones_rueda = (
+            ("<MouseWheel>", f"{self.register(self._rueda)} %D"),
+            # Desde Tk 8.7 el trackpad llega aparte, en píxeles. El 8.6 no
+            # conoce el evento: allí el trackpad se hace pasar por rueda.
+            ("<TouchpadScroll>", f"{self.register(self._trackpad)} %D"),
+        )
 
     def _al_desplazar(self, primero, ultimo):
         # La barra solo aparece cuando hace falta.
@@ -208,13 +235,48 @@ class MarcoDesplazable(ttk.Frame):
     def _lienzo_cambio(self, evento):
         self.lienzo.itemconfigure(self._ventana, width=evento.width)
 
-    def _rueda(self, evento):
-        if self.lienzo.bbox("all") is None:
+    def _atar_rueda(self, atar: bool) -> None:
+        for evento, guion in self._guiones_rueda:
+            try:
+                self.tk.call("bind", "all", evento, guion if atar else "")
+            except tk.TclError:
+                pass
+
+    def _hay_mas_que_ver(self) -> bool:
+        caja = self.lienzo.bbox("all")
+        return caja is not None and caja[3] > self.lienzo.winfo_height()
+
+    def _es_de_otro(self) -> bool:
+        """Si el ratón está encima de una tabla que se desplaza sola, el giro
+        es para ella. Moviendo también la página, se irían las dos a la vez.
+        Una tabla que ya cabe entera no lo quiere, y entonces va a la página."""
+        try:
+            debajo = self.winfo_containing(*self.winfo_pointerxy())
+        except KeyError:
+            return False  # piezas internas de Tk, como la lista de un desplegable
+        return (isinstance(debajo, (ttk.Treeview, tk.Listbox, tk.Text))
+                and tuple(debajo.yview()) != (0.0, 1.0))
+
+    def _rueda(self, delta):
+        if not self._hay_mas_que_ver() or self._es_de_otro():
             return
-        alto_contenido = self.lienzo.bbox("all")[3]
-        if alto_contenido <= self.lienzo.winfo_height():
+        # Los ratones finos mandan trozos de muesca. Se van juntando hasta
+        # completar una línea; truncando cada uno por su cuenta se perderían,
+        # o bajaría siempre un poco más de lo que sube.
+        self._muescas += float(delta) / _RUEDA_POR_MUESCA
+        lineas = int(self._muescas)
+        self._muescas -= lineas
+        if lineas:
+            self.lienzo.yview_scroll(-lineas, "units")
+
+    def _trackpad(self, delta):
+        """El trackpad va pegado al dedo, píxel a píxel, sin saltos de línea."""
+        if not self._hay_mas_que_ver() or self._es_de_otro():
             return
-        self.lienzo.yview_scroll(-1 * (evento.delta // 120), "units")
+        _, arriba_del_todo, _, abajo_del_todo = self.lienzo.bbox("all")
+        visible_desde = self.lienzo.canvasy(0) - vertical_del_trackpad(int(delta))
+        self.lienzo.yview_moveto(
+            (visible_desde - arriba_del_todo) / (abajo_del_todo - arriba_del_todo))
 
     def arriba(self) -> None:
         self.lienzo.yview_moveto(0)

@@ -18,7 +18,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from tkinter import ttk
 
-from . import iconos, widgets
+from . import atajos, iconos, widgets
 
 
 @dataclass(frozen=True)
@@ -51,9 +51,10 @@ Junto al nombre del programa están Archivo (copias de seguridad y la carpeta de
 
 ## Atajos de teclado
 • F1: abre esta guía por el apartado de la pestaña en la que estás.
-• Ctrl+1 a Ctrl+8: saltan a cada pestaña, en el orden en que salen arriba.
-• Ctrl+H: tapa o destapa todos los importes, por si hay alguien mirando.
-"""),
+• {pestanas}: saltan a cada pestaña, en el orden en que salen arriba.
+• {ocultar}: tapa o destapa todos los importes, por si hay alguien mirando.
+""".replace("{pestanas}", f"{atajos.pestana(1).texto} a {atajos.pestana(8).texto}")
+   .replace("{ocultar}", atajos.OCULTAR.texto)),
 
     Apartado("apuntar", "Apuntar", """
 Es la pestaña de todos los días: importe, concepto, categoría y listo.
@@ -207,7 +208,7 @@ El saldo inicial: lo que tenías en la cuenta antes del primer movimiento. El sa
 • Antes de borrar una categoría con movimientos, piénsalo: esos movimientos se quedan con un nombre que ya no existe y pasan a contar como gasto suelto. Si lo que quieres es juntarla con otra, cámbiale el nombre.
 
 ## Aspecto
-Tema claro, oscuro o como el sistema. El botón del ojo de la barra de arriba (o Ctrl+H) tapa todos los importes de golpe.
+Tema claro, oscuro o como el sistema. El botón del ojo de la barra de arriba (o {ocultar}) tapa todos los importes de golpe.
 
 ## Tus datos
 • «Guardar copia» guarda tu contabilidad entera en un archivo. Sirve para tener una copia de seguridad o para llevarla a otro sitio.
@@ -216,7 +217,7 @@ Tema claro, oscuro o como el sistema. El botón del ojo de la barra de arriba (o
 
 ## Apoyar ContaXcell
 Si el programa te es útil, «Invitar a un café…» abre la página de Ko-fi de quien lo hace, con su QR para el móvil. Es voluntario: el programa es el mismo lo hagas o no.
-"""),
+""".replace("{ocultar}", atajos.OCULTAR.texto)),
 
     Apartado("cuenta", "Tu cuenta y el móvil", """
 Con una cuenta, tu contabilidad se guarda también en tu servidor y la puedes llevar de un ordenador a otro, o al móvil.

@@ -4,8 +4,8 @@ Los formularios se construyen a partir de una lista de campos en vez de a
 mano, porque casi todos piden lo mismo (un texto, un importe, una fecha, una
 opción de una lista) y así todos validan igual y se ven igual.
 
-Las confirmaciones usan los diálogos nativos de Windows a propósito: cuando se
-va a borrar algo conviene que se note que lo pregunta el sistema.
+Las confirmaciones usan los diálogos nativos del sistema a propósito: cuando
+se va a borrar algo conviene que se note que lo pregunta el sistema.
 """
 
 from __future__ import annotations
@@ -542,7 +542,7 @@ class AcercaDe(tk.Toplevel):
 
     ANCHO = 460
 
-    RESUMEN = ("Contabilidad personal de escritorio para Windows. Sustituye a "
+    RESUMEN = ("Contabilidad personal de escritorio para Windows y Mac. Sustituye a "
                "la hoja de cálculo de toda la vida, pero sabiendo de dinero: "
                "la inversión no se cuenta como un gasto y la rentabilidad solo "
                "la genera el mercado.")

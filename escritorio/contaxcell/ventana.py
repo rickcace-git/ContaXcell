@@ -16,8 +16,9 @@ import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
+from typing import NoReturn
 
-from . import calculos, dialogos, formato, tema, widgets
+from . import atajos, calculos, dialogos, formato, tema, widgets
 from .almacen import Almacen, carpeta_de_recursos
 from .modelo import Libro, hoy
 
@@ -29,6 +30,8 @@ ARCHIVO_VENTANA = "ventana.json"
 # que para entonces ya ha avisado de algo; esto es por si ni eso.
 MS_TOPE_ESPERA_SERVIDOR = 15_000
 ETIQUETA_APOYAR = "Apoyar ContaXcell…"
+ES_MAC = sys.platform == "darwin"
+
 
 
 def _preparar_pantalla() -> float:
@@ -83,6 +86,13 @@ class Aplicacion(tk.Tk):
         self._construir()
         self._atajos()
         self.protocol("WM_DELETE_WINDOW", self._al_cerrar)
+        if ES_MAC:
+            # ⌘Q y «Salir» del menú de la aplicación: sin esto el Mac cierra el
+            # programa de golpe, sin recordar la ventana ni parar la sincronía.
+            self.createcommand("::tk::mac::Quit", self._al_cerrar)
+            # Y con esto el menú de la aplicación gana «Preferences…» con su ⌘,
+            # (en inglés: el Tk del Mac lleva esos textos escritos por dentro).
+            self.createcommand("::tk::mac::ShowPreferences", lambda: self.ir_a("ajustes"))
 
         if self.almacen.aviso_de_arranque:
             self.after(300, lambda: dialogos.avisar(
@@ -113,7 +123,8 @@ class Aplicacion(tk.Tk):
         self.after(1500, self._preguntar_apoyo)
 
         # Si hay versión nueva, se pregunta al rato de abrir, sin estorbar el
-        # arranque. Solo en el .exe: desde el código no hay nada que cambiar.
+        # arranque. Solo en el .exe: desde el código no hay nada que cambiar,
+        # y la .app del Mac se cambia a mano.
         # CONTAXCELL_PROBAR_ACTUALIZACION=1 lo enciende igual, para probarlo.
         from . import actualizar
         self._buscando_actualizacion = False
@@ -225,8 +236,15 @@ class Aplicacion(tk.Tk):
                        relief="flat", borderwidth=1, activeborderwidth=0)
 
     def _construir_menu(self) -> None:
+        # Al cambiar de tema se rehace todo, menús incluidos: los viejos se
+        # tiran, que si no se quedan vivos, unos cuantos por cada cambio.
+        for menu in getattr(self, "menus", {}).values():
+            menu.destroy()
+        anterior = self.cget("menu")
         # Sin la barra de Windows: los menús van en la cabecera, como botones.
-        self.configure(menu="")
+        self.configure(menu=self._barra_del_mac() if ES_MAC else "")
+        if anterior:
+            self.nametowidget(anterior).destroy()
         self.menus: dict[str, tk.Menu] = {}
 
         archivo = self._desplegable()
@@ -242,7 +260,8 @@ class Aplicacion(tk.Tk):
         self.menus["Archivo"] = archivo
 
         ver = self._desplegable()
-        ver.add_command(label="Ocultar o mostrar los importes\tCtrl+H",
+        ver.add_command(label="Ocultar o mostrar los importes",
+                        accelerator=atajos.OCULTAR.acelerador,
                         command=self.alternar_ocultos)
         ver.add_separator()
         for nombre, valor in (("Como el sistema", "auto"), ("Claro", "claro"), ("Oscuro", "oscuro")):
@@ -276,20 +295,45 @@ class Aplicacion(tk.Tk):
         """Abre el menú justo debajo de su botón."""
         menu.tk_popup(boton.winfo_rootx(), boton.winfo_rooty() + boton.winfo_height())
 
+    def _barra_del_mac(self) -> tk.Menu:
+        """La barra de arriba de la pantalla, que en el Mac está siempre. Los
+        menús van en la cabecera, igual que en Windows; aquí solo hace falta
+        el de la aplicación, el que lleva su nombre en negrita. Sin él, Tk
+        pone el suyo, que dice «About Tcl & Tk»."""
+        barra = tk.Menu(self)
+        # Se llama «apple» porque así es como Tk reconoce ese menú.
+        aplicacion = tk.Menu(barra, name="apple", tearoff=0)
+        aplicacion.add_command(label="Acerca de ContaXcell", command=self._acerca_de)
+        aplicacion.add_separator()
+        barra.add_cascade(menu=aplicacion)
+        return barra
+
     def _atajos(self) -> None:
-        self.bind_all("<Control-h>", lambda _e: self.alternar_ocultos())
+        self._atar_atajo(atajos.OCULTAR, self.alternar_ocultos)
         # F1 abre la guía por el apartado de la pestaña en la que se está.
         self.bind_all("<F1>", lambda _e: self.abrir_guia(self.pestana_actual()))
         for numero, clave in enumerate(self._claves, start=1):
-            self.bind_all(f"<Control-Key-{numero}>", lambda _e, c=clave: self.ir_a(c))
+            self._atar_atajo(atajos.pestana(numero), lambda c=clave: self.ir_a(c))
+
+    def _atar_atajo(self, combinacion: atajos.Atajo, funcion) -> None:
+        """Con el bloqueo de mayúsculas puesto la letra llega cambiada (una «E»
+        en vez de una «e»), y el atajo no saltaría. Se atan las dos."""
+        evento, letra = combinacion.evento, combinacion.evento[-2]
+        for evento in {evento, f"{evento[:-2]}{letra.swapcase()}>"}:
+            self.bind_all(evento, lambda _e: funcion())
 
     def _poner_icono(self) -> None:
-        icono = carpeta_de_recursos() / "icono.ico"
-        if icono.exists():
-            try:
-                self.iconbitmap(default=str(icono))
-            except tk.TclError:
-                pass
+        """Windows lo quiere en .ico; los demás, como imagen. En el Mac es el
+        del Dock, que si no, abriendo desde Python, sale el cohete de Python."""
+        recursos = carpeta_de_recursos()
+        try:
+            if sys.platform == "win32":
+                self.iconbitmap(default=str(recursos / "icono.ico"))
+            else:
+                self._icono = tk.PhotoImage(file=str(recursos / "icono.png"))
+                self.iconphoto(True, self._icono)
+        except tk.TclError:
+            pass  # Sin icono se puede trabajar igual.
 
     # --- estado compartido -----------------------------------------------
 
@@ -563,8 +607,8 @@ class Aplicacion(tk.Tk):
         oculto = self.libro.ajustes.ocultar_importes
         self.boton_ojo.poner_icono("ojo-tachado" if oculto else "ojo")
         _consejo(self.boton_ojo,
-                 "Mostrar los importes (Ctrl+H)" if oculto
-                 else "Ocultar los importes (Ctrl+H)")
+                 f"Mostrar los importes ({atajos.OCULTAR.texto})" if oculto
+                 else f"Ocultar los importes ({atajos.OCULTAR.texto})")
 
         iconos = {"auto": "pantalla", "claro": "sol", "oscuro": "luna"}
         nombres = {"auto": "como el sistema", "claro": "claro", "oscuro": "oscuro"}
@@ -578,11 +622,10 @@ class Aplicacion(tk.Tk):
         carpeta = self.almacen.carpeta
         carpeta.mkdir(parents=True, exist_ok=True)
         if sys.platform == "win32":
-            import os
             os.startfile(carpeta)  # noqa: S606 - es una carpeta nuestra
         else:
             import subprocess
-            subprocess.Popen(["xdg-open", str(carpeta)])
+            subprocess.Popen(["open" if ES_MAC else "xdg-open", str(carpeta)])
 
     def abrir_guia(self, clave: str) -> None:
         """Una sola guía abierta: si ya lo está, se trae delante y va al
@@ -644,9 +687,15 @@ class Aplicacion(tk.Tk):
             return
         if a_mano and actualizar.instalacion_actual() is None \
                 and os.environ.get("CONTAXCELL_PROBAR_ACTUALIZACION") != "1":
-            dialogos.avisar(self, "Esto no es el programa instalado.",
-                            "Se está ejecutando desde el código fuente: se actualiza con git, "
-                            "no desde aquí.")
+            if getattr(sys, "frozen", False):
+                dialogos.avisar(self, "En el Mac se actualiza a mano.",
+                                "Pide el .dmg de la versión nueva a quien te pasó el "
+                                "programa, ábrelo y arrastra ContaXcell a Aplicaciones. "
+                                "Tus datos no se tocan.")
+            else:
+                dialogos.avisar(self, "Esto no es el programa instalado.",
+                                "Se está ejecutando desde el código fuente: se actualiza "
+                                "con git, no desde aquí.")
             return
         # Las versiones nuevas son para las cuentas aceptadas: sin cuenta, el
         # programa sigue sirviendo en local, pero no se actualiza.
@@ -963,7 +1012,36 @@ def arrancar() -> None:
         if not sincronia.hay_sesion():
             if acceso.pedir_cuenta(sincronia) == acceso.CANCELADO:
                 return
+            if ES_MAC:
+                volver_a_lanzar()
         app = Aplicacion(sincronia)
         app.mainloop()
         if not app.reiniciar_para_entrar:
             return
+        if ES_MAC:
+            volver_a_lanzar()
+
+
+def volver_a_lanzar() -> NoReturn:
+    """Cierra el programa y lo vuelve a abrir, en el mismo proceso.
+
+    En el Mac un programa solo puede tener un Tk en toda su vida. El sistema
+    le manda ⌘Q y «Preferences…» al primero que se creó, y no cambia de
+    destinatario nunca (`_eventInterp`, en el código del propio Tk). La puerta
+    de entrada es un Tk y la ventana principal otro: después de entrar, ⌘Q iría
+    a parar al de la puerta, ya cerrado, y el programa moriría en seco sin
+    recordar la ventana ni parar la sincronía. Por eso, al entrar o salir de la
+    cuenta, se empieza de cero. La sesión ya está en disco, así que el arranque
+    nuevo va directo a lo que toque.
+    """
+    if getattr(sys, "frozen", False):
+        orden = [sys.executable, *sys.argv[1:]]
+    else:
+        # `orig_argv` es la orden tal cual se escribió, con su `-m` si lo hubo.
+        orden = [sys.executable, *sys.orig_argv[1:]]
+    for salida in (sys.stdout, sys.stderr):
+        if salida is not None:
+            salida.flush()
+    # El empaquetado se deja notas en el entorno para sí mismo. Sin esto, el
+    # programa nuevo creería ser un trozo del viejo.
+    os.execve(sys.executable, orden, dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1"))
