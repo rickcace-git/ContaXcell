@@ -51,7 +51,7 @@ def main() -> int:
 
 
 def _capturar(app, destino: Path) -> None:
-    """Fotografía la ventana usando las funciones de Windows.
+    """Fotografía la ventana con lo que trae cada sistema.
 
     Se recorta a la ventana en vez de a la pantalla entera para que la imagen
     sirva aunque haya otras cosas abiertas por encima.
@@ -79,6 +79,13 @@ def _capturar(app, destino: Path) -> None:
 
 def _copiar_pantalla(destino: Path, x: int, y: int, ancho: int, alto: int) -> None:
     import subprocess
+    if sys.platform == "darwin":
+        # Pide el permiso de «Grabación de pantalla» para la terminal (Ajustes
+        # del Sistema → Privacidad y seguridad). Sin él falla con «could not
+        # create image from rect». La imagen sale al doble en las retina.
+        subprocess.run(["screencapture", "-x", "-o", "-R", f"{x},{y},{ancho},{alto}",
+                        str(destino)], check=True, capture_output=True)
+        return
     guion = f"""
 Add-Type -AssemblyName System.Drawing
 $mapa = New-Object System.Drawing.Bitmap({ancho}, {alto})

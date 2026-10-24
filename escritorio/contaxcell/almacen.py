@@ -38,12 +38,20 @@ def carpeta_de_recursos() -> Path:
 
 
 def carpeta_de_datos() -> Path:
-    """%APPDATA%\\ContaXcell en Windows; una carpeta oculta en la home en
-    cualquier otro sitio."""
+    """%APPDATA%\\ContaXcell en Windows, ~/Library/Application Support/ContaXcell
+    en el Mac y una carpeta oculta en la home en cualquier otro sitio.
+
+    En el Mac, antes de tener sitio propio, se usaba la carpeta oculta. Si ya
+    existe se sigue usando: mudarse a la nueva haría creer a quien la tenga
+    que ha perdido toda su contabilidad.
+    """
     base = os.environ.get("APPDATA")
     if base:
         return Path(base) / "ContaXcell"
-    return Path.home() / ".contaxcell"
+    oculta = Path.home() / ".contaxcell"
+    if sys.platform == "darwin" and not oculta.exists():
+        return Path.home() / "Library" / "Application Support" / "ContaXcell"
+    return oculta
 
 
 class Almacen:

@@ -1,6 +1,6 @@
 # ContaXcell · escritorio
 
-Contabilidad personal para Windows. Los datos viven en tu ordenador, en un
+Contabilidad personal para Windows y Mac. Los datos viven en tu ordenador, en un
 archivo tuyo, sin cuentas de Google ni conexión de por medio.
 
 Sustituye a la hoja de cálculo: hace lo mismo que las cuatro hojas de la
@@ -11,8 +11,9 @@ que se puedan romper por escribir en la celda equivocada.
 
 ## Empezar
 
-**Si tienes el ejecutable:** doble clic en `ContaXcell.exe`. No hay que
-instalar nada.
+**Si tienes el ejecutable:** doble clic en `ContaXcell.exe` en Windows; en el
+Mac, arrastra `ContaXcell` del `.dmg` a Aplicaciones y ábrelo desde ahí. No
+hay que instalar nada.
 
 **Si tienes el código:**
 
@@ -21,7 +22,8 @@ python ejecutar.py
 ```
 
 No hay nada que instalar: Tkinter, que es la interfaz, ya viene dentro de
-Python, y el resto es de la biblioteca estándar.
+Python, y el resto es de la biblioteca estándar. En el Mac, el Python de
+Homebrew lo trae aparte: `brew install python@3.14 python-tk@3.14`.
 
 ## Las pestañas
 
@@ -35,6 +37,8 @@ Python, y el resto es de la biblioteca estándar.
 | **Ajustes** | Saldo inicial, categorías, tema y las copias de tus datos. |
 
 **Atajos:** `Ctrl+1`…`Ctrl+8` cambian de pestaña, `Ctrl+H` tapa los importes.
+En el Mac van con `⌘` en vez de `Ctrl`, salvo tapar los importes, que
+es `⇧⌘H`: `⌘H` es del sistema, oculta la aplicación entera.
 
 El **botón del ojo** de la barra de arriba tapa de golpe todos los importes de
 la aplicación, por si apuntas algo con gente delante. Se recuerda al cerrar.
@@ -72,6 +76,10 @@ la siguen.
 
 En `%APPDATA%\ContaXcell\`, que es tu carpeta de usuario. Desde la aplicación:
 **Ajustes → Abrir la carpeta**.
+En el Mac, en `~/Library/Application Support/ContaXcell/` (la carpeta
+Librería no se ve en el Finder sin más; la opción de arriba la abre igual).
+Quien ya usaba ContaXcell en el Mac desde el código, antes de que tuviera
+sitio propio, sigue en `~/.contaxcell/`: si esa carpeta existe, se usa esa.
 
 - `datos.json` — toda tu contabilidad, en texto legible.
 - `copias\` — copias de seguridad fechadas. Se guardan las veinte últimas.
@@ -122,12 +130,19 @@ amigos no compensa.
 Para dar una versión nueva, basta con sustituir la carpeta: los datos están en
 otro sitio y no se tocan.
 
+En un Mac, el mismo `python empaquetar.py` deja `ContaXcell.app` y un
+`ContaXcell-macos.dmg` para repartir. Solo funciona en los Mac que admiten
+todo lo que lleva dentro (con el Python de Homebrew: chip de Apple y macOS 26;
+el LÉEME del `.dmg` lo dice), y la primera vez el Mac pide permiso en
+**Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente**; el
+README de la raíz cuenta el porqué.
+
 ## Cómo está montado
 
 ```
 escritorio/
 ├── ejecutar.py            arranque (y punto de entrada de PyInstaller)
-├── empaquetar.py          crea el .exe y el .zip
+├── empaquetar.py          crea el .exe y el .zip (en el Mac, la .app y el .dmg)
 ├── contaxcell/
 │   ├── modelo.py          qué es un movimiento, una categoría, un activo…
 │   ├── calculos.py        toda la aritmética. No sabe que existe una ventana
@@ -140,7 +155,7 @@ escritorio/
 │   └── vistas/            una pestaña por archivo
 ├── pruebas/
 └── recursos/
-    └── hacer_icono.py     dibuja el icono sin librerías de imágenes
+    └── hacer_icono.py     dibuja los iconos (Windows y Mac) sin librerías de imágenes
 ```
 
 La separación que importa: **`calculos.py` no toca disco ni interfaz**. Recibe

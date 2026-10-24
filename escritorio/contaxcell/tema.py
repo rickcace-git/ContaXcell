@@ -87,7 +87,10 @@ OSCURA = Paleta(
 
 
 def sistema_en_oscuro() -> bool:
-    """Si Windows está en modo oscuro. Fuera de Windows asumimos claro."""
+    """Si el sistema está en modo oscuro. Fuera de Windows y del Mac asumimos
+    claro."""
+    if sys.platform == "darwin":
+        return _mac_en_oscuro()
     if sys.platform != "win32":
         return False
     try:
@@ -102,6 +105,18 @@ def sistema_en_oscuro() -> bool:
         return usar_claro == 0
     except OSError:
         return False
+
+
+def _mac_en_oscuro() -> bool:
+    """El Mac solo apunta `AppleInterfaceStyle` cuando está en oscuro; en
+    claro la clave no existe y `defaults` acaba con error."""
+    import subprocess
+    try:
+        salida = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"],
+                                capture_output=True, text=True, timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return salida.returncode == 0 and salida.stdout.strip() == "Dark"
 
 
 def paleta_para(preferencia: str) -> Paleta:
@@ -150,6 +165,7 @@ def aplicar(raiz: tk.Misc, paleta: Paleta, fuentes: Fuentes) -> ttk.Style:
     p = paleta
 
     raiz.configure(background=p.fondo)
+    _barra_de_titulo_a_juego(raiz, p)
 
     estilo.configure(".", background=p.fondo, foreground=p.texto,
                      font=fuentes.normal, borderwidth=0, focuscolor=p.acento)
@@ -198,6 +214,29 @@ def aplicar(raiz: tk.Misc, paleta: Paleta, fuentes: Fuentes) -> ttk.Style:
     estilo.map("Horizontal.TScrollbar", background=[("active", p.borde)])
 
     return estilo
+
+
+def _barra_de_titulo_a_juego(raiz: tk.Misc, p: Paleta) -> None:
+    """En el Mac la barra de título la pinta el sistema con su propio tema.
+    Eligiendo «Claro» con el Mac en oscuro quedaría una ventana blanca con la
+    barra negra encima, así que se le dice cuál toca. Solo lo entiende el Tk
+    del Mac, y no todas las versiones: si no lo sabe hacer, se queda como esté.
+    """
+    if raiz.tk.call("tk", "windowingsystem") != "aqua":
+        return
+    apariencia = "darkaqua" if p.oscuro else "aqua"
+
+    def poner(ventana) -> None:
+        try:
+            raiz.tk.call("::tk::unsupported::MacWindowStyle", "appearance",
+                         ventana, apariencia)
+        except tk.TclError:
+            pass
+
+    poner(raiz)
+    # Y cada formulario, calendario o «Acerca de» al aparecer, que si no
+    # seguirían el tema del sistema y no el elegido.
+    raiz.bind_class("Toplevel", "<Map>", lambda evento: poner(evento.widget))
 
 
 def _botones(estilo: ttk.Style, p: Paleta, fuentes: Fuentes) -> None:

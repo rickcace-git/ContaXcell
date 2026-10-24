@@ -8,9 +8,11 @@ __pycache__/
 *.py[cod]
 .venv/
 
-# El icono se regenera con recursos/hacer_icono.py, pero se versiona para que
-# empaquetar funcione sin pasos previos.
+# Los iconos se regeneran con recursos/hacer_icono.py, pero se versionan para
+# que empaquetar funcione sin pasos previos.
 !recursos/icono.ico
+!recursos/icono.icns
+!recursos/icono.png
 
 # La dirección del servidor de cada despliegue. Nunca a git; el ejemplo sí.
 .env

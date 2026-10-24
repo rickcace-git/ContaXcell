@@ -1,8 +1,8 @@
 # ContaXcell
 
-Contabilidad personal para Windows y Android. Los datos viven en tu ordenador,
-en un archivo tuyo, y un servidor propio guarda una copia para llevarla de un
-aparato a otro. Sin cuentas de Google de por medio.
+Contabilidad personal para Windows, Mac y Android. Los datos viven en tu
+ordenador, en un archivo tuyo, y un servidor propio guarda una copia para
+llevarla de un aparato a otro. Sin cuentas de Google de por medio.
 
 Sustituye a la hoja de cálculo: hace lo mismo que las cuatro hojas de la
 plantilla original (Movimientos, Resumen, Presupuesto e Inversiones), pero sin
@@ -17,12 +17,23 @@ la cartera se revaloriza sola con la cotización de cada fondo.
 
 ## Empezar
 
-**Con el ejecutable:** descomprime `ContaXcell-windows.zip` donde quieras y
-doble clic en `ContaXcell.exe`. No hay que instalar nada.
+**En Windows, con el ejecutable:** descomprime `ContaXcell-windows.zip` donde
+quieras y doble clic en `ContaXcell.exe`. No hay que instalar nada.
 
 La primera vez Windows avisará de que no reconoce el programa. Es normal:
 significa que no está firmado por una empresa registrada, no que tenga nada
 malo. Pulsa **Más información** → **Ejecutar de todas formas**.
+
+**En el Mac, con la aplicación:** abre `ContaXcell-macos.dmg` y arrastra
+ContaXcell a la carpeta Aplicaciones. No hay que instalar nada más.
+
+La primera vez el Mac dirá que no puede comprobar que esté libre de software
+malicioso. Igual que en Windows, significa que Apple no lo ha revisado, no que
+tenga nada malo. Pulsa **Hecho**, ve a **Ajustes del Sistema → Privacidad y
+seguridad**, baja hasta el aviso de ContaXcell y pulsa **Abrir igualmente**.
+Solo la primera vez. Hecha como se explica más abajo, pide un Mac con chip
+de Apple (M1 o posterior) y macOS 26: el LÉEME que va dentro del `.dmg` dice
+los requisitos exactos de cada versión.
 
 **Con el código:**
 
@@ -33,6 +44,16 @@ python ejecutar.py
 
 No hay nada que instalar: Tkinter, que es la interfaz, ya viene dentro de
 Python, y el resto es de la biblioteca estándar.
+
+En el Mac, el Python de Homebrew trae tkinter aparte. Se instala una vez:
+
+```sh
+brew install python@3.14 python-tk@3.14
+```
+
+y desde entonces se abre con doble clic en `ContaXcell.command`, sin terminal.
+Sin el `.env` del servidor (ver más abajo), en la pantalla de acceso está
+**Cambiar el servidor…** para escribir su dirección.
 
 ## Las pestañas
 
@@ -49,6 +70,8 @@ Python, y el resto es de la biblioteca estándar.
 
 **Atajos:** `Ctrl+1`…`Ctrl+8` cambian de pestaña, `Ctrl+H` tapa los importes y
 `F1` abre la guía de uso por el apartado de la pestaña en la que estás.
+En el Mac van con `⌘` en vez de `Ctrl`, salvo tapar los importes, que
+es `⇧⌘H`: `⌘H` es del sistema, oculta la aplicación entera.
 
 Arriba hay tres menús: **Archivo** (guardar o restaurar una copia, abrir la
 carpeta de los datos), **Ver** (tapar importes, tema) y **Ayuda** (la guía, las
@@ -157,6 +180,10 @@ servidor, que guarda el histórico para todo el grupo.
 
 En `%APPDATA%\ContaXcell\`, que es tu carpeta de usuario. Desde la aplicación:
 **Ajustes → Abrir la carpeta**.
+En el Mac, en `~/Library/Application Support/ContaXcell/` (la carpeta
+Librería no se ve en el Finder sin más; la opción de arriba la abre igual).
+Quien ya usaba ContaXcell en el Mac desde el código, antes de que tuviera
+sitio propio, sigue en `~/.contaxcell/`: si esa carpeta existe, se usa esa.
 
 - `datos.json` — toda tu contabilidad, en texto legible.
 - `copias\` — copias de seguridad fechadas. Se guardan las veinte últimas.
@@ -204,11 +231,32 @@ Ese aviso de Windows (SmartScreen) solo desaparece comprando un certificado de
 firma de código, que cuesta unos cientos de euros al año. Para repartir entre
 amigos no compensa.
 
+**Para el Mac** es el mismo `python empaquetar.py`, pero ejecutado en un Mac:
+PyInstaller solo sabe construir para el sistema en el que está. Deja en
+`dist/` la aplicación `ContaXcell.app` y un `ContaXcell-macos.dmg` (unos
+13 MB) con la aplicación, el LÉEME y un atajo a Aplicaciones para arrastrarla.
+
+- Solo funciona en los Mac que admiten **todo** lo que lleva dentro, y el
+  Python de Homebrew viene compilado para el chip de Apple y para el macOS
+  más reciente (hoy, macOS 26). Así que la `.app` hecha con él no abre en
+  un Intel ni en un macOS 15, aunque el Mac sea un M1. `empaquetar.py` lo
+  lee de los propios binarios, lo apunta en la aplicación (un Mac más viejo
+  dice claramente que no le vale, en vez de fallar) y lo pone en el LÉEME.
+  Para llegar a más Macs habría que construirla con el Python de python.org,
+  que viene para los dos procesadores y para versiones de macOS más antiguas.
+  No está probado.
+- El aviso de la primera vez es el equivalente al de SmartScreen. Quitarlo
+  pide firmarla y pasarla por Apple («notarizarla»), y para eso hay que estar
+  en su programa de desarrolladores, 99 $ al año. Igual que en Windows, para
+  repartir entre amigos no compensa.
+
 Cada persona lleva su propia contabilidad en su ordenador. Nadie ve la de
 nadie. Al actualizar, los datos no se tocan: están en otra carpeta.
 
-**Solo funciona en Windows.** Un `.exe` no abre en un Mac; allí habría que
-arrancarlo desde el código (con el Python de python.org, que trae Tkinter).
+**Las actualizaciones automáticas son solo para Windows.** `publicar.py` sube
+el zip del `.exe` y el programa lo instala con PowerShell, que en el Mac no
+sirve. Allí la versión nueva se reparte como el primer día, con el `.dmg`, y
+**Ayuda → Buscar actualizaciones…** lo explica en vez de intentarlo.
 
 ## La cuenta y la sincronización
 
@@ -283,7 +331,7 @@ de la barra de arriba.
 ContaXcell/
 ├── escritorio/                la aplicación
 │   ├── ejecutar.py            arranque (y punto de entrada de PyInstaller)
-│   ├── empaquetar.py          crea el .exe y el .zip
+│   ├── empaquetar.py          crea el .exe y el .zip (en el Mac, la .app y el .dmg)
 │   ├── publicar.py            lo fabrica, lo firma y lo sube al servidor
 │   ├── contaxcell/
 │   │   ├── modelo.py          qué es un movimiento, una categoría, un activo…
@@ -304,7 +352,7 @@ ContaXcell/
 │   │   └── vistas/            una pestaña por archivo
 │   ├── pruebas/
 │   └── recursos/
-│       └── hacer_icono.py     dibuja el icono sin librerías de imágenes
+│       └── hacer_icono.py     dibuja los iconos (Windows y Mac) sin librerías de imágenes
 ├── server/                    el servidor de cuentas y sincronización (Docker)
 │   ├── contaserver/           la API: cuentas, fichas de sesión, libros y precios
 │   ├── docker-compose.yml     la API, su PostgreSQL y el Caddy del HTTPS
@@ -328,7 +376,7 @@ quedado anticuadas. Así nunca se enseña algo que en realidad no se ha grabado.
 
 ```
 cd escritorio
-python -m unittest discover -s pruebas    # 458 pruebas, unos 5 segundos
+python -m unittest discover -s pruebas    # 491 pruebas, unos 5 segundos
 python pruebas/humo.py                    # abre la ventana y pasea las pestañas
 python pruebas/ver.py --pestana resumen   # abre con datos de prueba
 
